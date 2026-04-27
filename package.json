@@ -45,11 +45,11 @@
 		"wp-env:test": "wp-env --config=.wp-env.test.json"
 	},
 	"dependencies": {
-		"@wordpress/api-fetch": "^7.43.0",
+		"@wordpress/api-fetch": "^7.44.0",
 		"@wordpress/components": "^30.9.0",
 		"@wordpress/element": "^6.42.0",
 		"@wordpress/i18n": "^6.14.0",
-		"@wordpress/icons": "^12.0.0",
+		"@wordpress/icons": "^12.2.0",
 		"react": "^18.3.1",
 		"react-dom": "^18.3.1"
 	},
