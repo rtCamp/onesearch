@@ -10,7 +10,6 @@ const RemoveEmptyScriptsPlugin = require( 'webpack-remove-empty-scripts' );
  */
 const [
 	defaultScriptConfig,
-	defaultModuleConfig,
 ] = require( '@wordpress/scripts/config/webpack.config' );
 
 // Extend the default config.
@@ -111,5 +110,4 @@ const scripts = {
 module.exports = [
 	scripts,
 	styles, // Do not remove this.
-	defaultModuleConfig,
 ];
