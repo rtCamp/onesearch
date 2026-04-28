@@ -4,11 +4,11 @@
 	"compilerOptions": {
 		"noEmit": true,
 		"rootDir": ".",
-		"baseUrl": ".",
 		"outDir": "./build",
 		"paths": {
 			"@/*": [ "./assets/src/*" ]
-		}
+		},
+		"types": [ "jest", "node" ]
 	},
 	"include": [
 		"**/*.d.ts",
@@ -18,5 +18,10 @@
 		"**/*.tsx",
 		"**/*.json"
 	],
-	"exclude": [ "**/build/*", "vendor/*", "node_modules/*" ]
+	"exclude": [
+		"**/build/*",
+		"vendor/*",
+		"node_modules/*",
+		"eslint.config.mjs"
+	]
 }

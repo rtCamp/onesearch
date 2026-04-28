@@ -7,21 +7,17 @@
 
 		// Type checking.
 		"strict": true,
-		"allowSyntheticDefaultImports": true,
 		"allowUnreachableCode": false,
 		"allowUnusedLabels": false,
 		"exactOptionalPropertyTypes": true,
 		"noErrorTruncation": true,
 		"noFallthroughCasesInSwitch": true,
-		"noImplicitThis": true,
 		"noImplicitOverride": true,
 		"noImplicitReturns": true,
 		"noPropertyAccessFromIndexSignature": true,
 		"noUncheckedIndexedAccess": true,
 		"noUnusedLocals": true,
 		"noUnusedParameters": true,
-		"strictFunctionTypes": true,
-		"strictNullChecks": true,
 
 		// Modules
 		"module": "preserve",
@@ -30,7 +26,6 @@
 
 		// Interop Constraints
 		"esModuleInterop": true,
-		"forceConsistentCasingInFileNames": true,
 		"isolatedModules": true,
 		// @todo: make true when we can use `type: "module"` in package.json
 		"verbatimModuleSyntax": false,
