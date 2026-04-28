@@ -9,7 +9,7 @@ Please make sure to review the [Development Guidelines](../docs/DEVELOPMENT.md) 
 
 ## Why
 
-<!-- Why is this PR necessary? Please any existing previous issue(s) or PR(s) and include a short summary here, too. -->
+<!-- Why is this PR necessary? Please link any existing issue(s) or PR(s) and include a short summary here, too. -->
 
 ### Related Issue(s):
 
