@@ -27,10 +27,12 @@ parameters:
 		- onesearch.php
 		- uninstall.php
 		- inc/
+		- tests/_data/plugins
 	excludePaths:
 		analyse:
 			- tests/
 			- vendor/
+			- vendor-prefixed/
 		analyseAndScan:
 			- node_modules (?)
 

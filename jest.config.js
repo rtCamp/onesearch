@@ -43,6 +43,7 @@ module.exports = {
 		'/build/',
 		'/inc',
 		'/vendor/',
+		'/vendor-prefixed/',
 		'/tests/e2e/',
 		'/tests/php/',
 	],

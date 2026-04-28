@@ -4,7 +4,7 @@
 	"core": null,
 	"port": 8889,
 	"testsEnvironment": false,
-	"plugins": [ "." ],
+	"plugins": [ ".", "./tests/_data/plugins/localhost-helper.php" ],
 	"config": {
 		"FS_METHOD": "direct",
 		"WP_DEBUG": true,

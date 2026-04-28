@@ -12,5 +12,10 @@
 		"../../assets/src/**/*.ts",
 		"../../assets/src/**/*.tsx"
 	],
-	"exclude": [ "../../node_modules", "../../build", "../../vendor" ]
+	"exclude": [
+		"../../node_modules",
+		"../../build",
+		"../../vendor",
+		"../../vendor-prefixed"
+	]
 }

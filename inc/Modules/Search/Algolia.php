@@ -9,10 +9,10 @@ declare(strict_types = 1);
 
 namespace OneSearch\Modules\Search;
 
-use Algolia\AlgoliaSearch\SearchClient;
 use OneSearch\Modules\Rest\Governing_Data_Handler;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
+use OneSearch\Vendor\Algolia\AlgoliaSearch\SearchClient;
 
 /**
  * Class - Algolia
@@ -21,7 +21,7 @@ final class Algolia {
 	/**
 	 * Get the index object for the current site.
 	 */
-	public function get_index(): \Algolia\AlgoliaSearch\SearchIndex|\WP_Error {
+	public function get_index(): \OneSearch\Vendor\Algolia\AlgoliaSearch\SearchIndex|\WP_Error {
 		$index_name = $this->get_index_name();
 
 		if ( empty( $index_name ) ) {
@@ -43,7 +43,7 @@ final class Algolia {
 	/**
 	 * Create an Algolia client using stored credentials.
 	 */
-	private function get_client(): \Algolia\AlgoliaSearch\SearchClient|\WP_Error {
+	private function get_client(): \OneSearch\Vendor\Algolia\AlgoliaSearch\SearchClient|\WP_Error {
 		$creds = $this->get_algolia_credentials();
 
 		if ( is_wp_error( $creds ) ) {

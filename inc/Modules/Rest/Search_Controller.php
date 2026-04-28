@@ -255,7 +255,7 @@ class Search_Controller extends Abstract_REST_Controller {
 	 */
 	private function validate_algolia_key( string $app_id, string $write_key ): bool {
 		try {
-			$client = \Algolia\AlgoliaSearch\SearchClient::create( $app_id, $write_key );
+			$client = \OneSearch\Vendor\Algolia\AlgoliaSearch\SearchClient::create( $app_id, $write_key );
 			// Try to get API key information to check permissions (ACL).
 			$key_info = $client->getApiKey( $write_key );
 
