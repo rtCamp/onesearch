@@ -47,7 +47,7 @@ Code contributions, bug reports, and feature requests are welcome! The following
 │   ├── workflows/
 │   │   ├── ...
 │   │   └── README.md # Documentation for GitHub workflows.
-│   ├── .codecov.yml # Codecov configuration for test coverage reporting.
+│   ├── .codecov.yml   # Codecov configuration for test coverage reporting.
 │   └── dependabot.yml # Dependabot configuration for automated dependency updates.
 │
 ├── assets/  # Static assets that do not need compiling.
@@ -121,6 +121,10 @@ Code contributions, bug reports, and feature requests are welcome! The following
 │   │   ├── debug.log        # WordPress debug log.
 │   │   ├── js-coverage/     # Jest code coverage reports.
 │   │   └── php-coverage.xml # PHPUnit code coverage report (XML).
+│   │   # Artifacts used for testing.
+│   ├── _data/
+│   │   └── plugins/
+│   │       └── localhost-helper.php # Plugin used to allow docker containers to connect to each other.
 │   │   # Playwright end-to-end tests.
 │   ├── e2e/
 │   │   # Jest unit tests.
@@ -142,7 +146,6 @@ Code contributions, bug reports, and feature requests are welcome! The following
 │   # Config files.
 │   # .dist suffixes mean there may be a user-customized version without the suffix.
 ├── .browserslistrc               # Browserslist configuration.
-├── .distignore                   # Files to exclude from installation via Composer.
 ├── .editorconfig                 # Editor configuration.
 ├── .eslintignore                 # ESLint ignore patterns.
 ├── .eslintrc.js                  # ESLint configuration.
@@ -401,11 +404,19 @@ By default, lefthook calls [lint-staged](https://github.com/okonet/lint-staged) 
 
 ### WordPress Playground Previews
 
-The project uses WordPress Playground to demo the release plugin, and on pull requests. The [`blueprint.json`](https://wordpress.github.io/wordpress-playground/blueprints) file enable easy testing and demos in the [WordPress Playground](https://playground.wordpress.net/).
+The project uses WordPress Playground to demo the plugin and on pull requests. The [`blueprint.json`](https://wordpress.github.io/wordpress-playground/blueprints) file enables testing and demos in the [WordPress Playground](https://playground.wordpress.net/).
 
-The [README.md](../README.md) and plugin preview use the [../blueprint.json](../blueprint.json) file to load the latest release of the plugin for testing and demos.
+The [README.md](../README.md) and plugin preview use [`blueprint.json`](../blueprint.json) to load the latest plugin release for testing and demos.
 
 Pull requests automatically generate a Playground preview from the build artifacts of the PR branch, using the [PR preview workflow](../.github/workflows/reusable-wp-playground-pr-preview.yml).
+
+### Strauss - Composer Library Namespace Prefixing
+
+The project uses [`BrianHenryIE/strauss`](https://github.com/BrianHenryIE/strauss/) to prefix Composer dependencies with a unique namespace to avoid conflicts with other plugins.
+
+The configuration is defined in [`composer.json`](../composer.json) under the `extra.strauss` key.
+
+Dependencies are auto-prefixed when running `composer install` or `composer update`. If you need to manually regenerate, run `composer run clean` to remove the `vendor` and `vendor-prefixed` directories, then run `composer install` to reinstall and re-prefix the dependencies.
 
 ## Running Tests
 

@@ -35,6 +35,12 @@ final class Autoloader {
 			return self::$is_loaded;
 		}
 
+		// Load prefixed dependencies first (Strauss-generated).
+		$prefixed_autoloader = ONESEARCH_DIR . 'vendor-prefixed/autoload.php';
+		if ( ! self::require_autoloader( $prefixed_autoloader ) ) {
+			return false;
+		}
+
 		$autoloader      = ONESEARCH_DIR . 'vendor/autoload.php';
 		self::$is_loaded = self::require_autoloader( $autoloader );
 

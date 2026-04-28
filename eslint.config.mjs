@@ -10,6 +10,7 @@ export default [
 			'node_modules/**',
 			'tests/_output/**',
 			'vendor/**',
+			'vendor-prefixed/**',
 			// Config files (not subject to project lint rules)
 			'eslint.config.mjs',
 			'.lintstagedrc.mjs',

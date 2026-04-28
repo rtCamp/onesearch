@@ -23,6 +23,19 @@
 		"process-timeout": 0,
 		"optimize-autoloader": true
 	},
+	"extra": {
+		"strauss": {
+			"target_directory": "vendor-prefixed",
+			"namespace_prefix": "OneSearch\\Vendor\\",
+			"classmap_prefix": "OneSearch_Vendor_",
+			"constant_prefix": "ONESEARCH_VENDOR_",
+			"update_call_sites": true,
+			"delete_vendor_packages": true,
+			"packages": [
+				"algolia/algoliasearch-client-php"
+			]
+		}
+	},
 	"minimum-stability": "alpha",
 	"prefer-stable": true,
 	"autoload": {
@@ -54,10 +67,22 @@
 		"yoast/phpunit-polyfills": "^4.0"
 	},
 	"scripts": {
+		"clean": "rm -rf vendor vendor-prefixed",
 		"format": "phpcbf",
 		"lint": "phpcs",
 		"phpstan": "phpstan analyse --memory-limit=1G",
 		"test": "vendor/bin/phpunit -c phpunit.xml.dist",
-		"test-multisite": "WP_MULTISITE=1 phpunit --exclude-group=ms-excluded"
+		"test-multisite": "WP_MULTISITE=1 phpunit --exclude-group=ms-excluded",
+		"prefix-namespaces": [
+			"sh -c 'test -f ./tests/_output/strauss.phar || curl -o ./tests/_output/strauss.phar -L -C - https://github.com/BrianHenryIE/strauss/releases/download/0.27.0/strauss.phar'",
+			"@php ./tests/_output/strauss.phar",
+			"@composer dump-autoload"
+		],
+		"post-install-cmd": [
+			"@prefix-namespaces"
+		],
+		"post-update-cmd": [
+			"@prefix-namespaces"
+		]
 	}
 }

@@ -1,8 +1,9 @@
 {
 	"$schema": "https://schemas.wp.org/trunk/wp-env.json",
+
 	"core": null,
 	"testsEnvironment": false,
-	"plugins": [ "." ],
+	"plugins": [ ".", "./tests/_data/plugins/localhost-helper.php" ],
 	"config": {
 		"WP_DEVELOPMENT_MODE": "plugin",
 		"WP_ENVIRONMENT_TYPE": "development",

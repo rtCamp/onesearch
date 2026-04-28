@@ -1,32 +1,59 @@
-## Description
+<!--
+Thanks for taking the time to submit a Pull Request.
+Please make sure to review the [Development Guidelines](../docs/DEVELOPMENT.md) before submitting your PR.
+-->
 
-<!-- Very brief idea on what this PR does? No technical details. -->
+## What
 
-## Technical Details
+<!-- In a few words, what does this PR actually change -->
 
-<!-- Any technical details that should be explained or mentioned to the reviewers. -->
+## Why
+
+<!-- Why is this PR necessary? Please link any existing issue(s) or PR(s) and include a short summary here, too. -->
+
+### Related Issue(s):
+
+<!-- E.g.
+- Fixes | Closes | Part of: #123
+-->
+
+-
+
+## How
+
+<!-- How does your PR address the issue at hand? What are the implementation details? Please be specific. -->
+
+### AI Disclosure
+
+<!-- How did you use AI to help you write this code? Please be specific - it helps us understand and better review the changes. -->
+
+## Testing Instructions
+
+<!-- Please include step by step instructions on how to test this PR. -->
+<!-- 1. Open a Post or Page. -->
+<!-- 2. Insert a Heading Block. -->
+<!-- 3. etc. -->
+
+## Screenshots
+
+<!-- Include relevant screenshots proving the PR works as intended. -->
+
+## Additional Info
+
+<!-- Please include any relevant logs, error output, etc -->
 
 ## Checklist
 
 <!--
-If the ticket you worked on had any checklist, include that here and mark items that are covered in this PR. Else, create a checklist of all the items this PR covers.
-
-Example:
-- [ ] Fix incorrect meta key value for the Contact block.
-- [ ] Fix footer button alignment issue.
+We encourage you to complete this checklist to the best of your abilities.
+If you can't do everything, that's okay too.
+[Development Guidelines](../docs/DEVELOPMENT.md)
 -->
 
-## Screenshots
-
-<!-- Add screenshots or screen recordings if applicable and required. -->
-
-## To-do
-
-<!-- Mention anything that needs to be done after this PR as a follow-up or if anything is left uncovered. -->
-
-## Fixes/Covers issue
-
-<!-- Add the issue number which the PR is intended to be for. -->
-Fixes #
-
-<!-- After you're done creating the PR, assign the PR to yourself and assign reviewers for the PR. If unsure about whom to ask for a review, leave blank and ping on the project-specific channel. -->
+- [ ] I have read the [Contribution Guidelines](https://github.com/rtCamp/onesearch/blob/main/docs/CONTRIBUTING.md).
+- [ ] I have read the [Development Guidelines](https://github.com/rtCamp/onesearch/blob/main/docs/DEVELOPMENT.md).
+- [ ] I have added necessary tests to cover my changes.
+- [ ] I have updated the project documentation as needed.
+- [ ] My code has detailed inline documentation.
+- [ ] My code is tested to the best of my abilities.
+- [ ] My code passes all lints, tests, and checks.
