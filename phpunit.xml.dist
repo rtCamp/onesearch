@@ -26,7 +26,6 @@
 	<source>
 		<include>
 			<directory suffix=".php">inc</directory>
-			<file>onesearch.php</file>
 			<file>uninstall.php</file>
 		</include>
 	</source>
