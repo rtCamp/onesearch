@@ -8,6 +8,7 @@ test.describe( 'plugin activation', () => {
 		admin,
 		page,
 	} ) => {
+
 		await admin.visitAdminPage( '/plugins.php' );
 
 		// Helper to dismiss the onboarding modal if present.
