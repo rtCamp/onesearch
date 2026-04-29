@@ -210,7 +210,7 @@ You can use Docker and the `wp-env` tool to set up a local development environme
    npm install
    ```
 
-3. Build local npm packages:
+3. Build plugin assets:
 
    ```bash
    npm run build:dev
