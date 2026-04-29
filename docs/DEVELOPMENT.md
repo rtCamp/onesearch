@@ -210,7 +210,13 @@ You can use Docker and the `wp-env` tool to set up a local development environme
    npm install
    ```
 
-3. Start the local development environment:
+3. Build plugin assets:
+
+   ```bash
+   npm run build:dev
+   ```
+
+4. Start the local development environment:
 
    ```bash
    npm run wp-env start
@@ -242,7 +248,7 @@ You can use Docker and the `wp-env` tool to set up a local development environme
      - WP Admin Username: `admin`
      - WP Admin Password: `password`
 
-4. Install the PHP dependencies using Composer, using either your local Composer installation or wp-env's built-in Composer:
+5. Install the PHP dependencies using Composer, using either your local Composer installation or wp-env's built-in Composer:
 
    ```bash
 
