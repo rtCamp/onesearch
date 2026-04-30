@@ -250,34 +250,4 @@ class Basic_Options_Controller extends Abstract_REST_Controller {
 			]
 		);
 	}
-
-	/**
-	 * Get the secret key.
-	 */
-	public function get_secret_key(): \WP_REST_Response|\WP_Error {
-		$secret_key = Settings::get_api_key();
-
-		return new \WP_REST_Response(
-			[
-				'success'    => true,
-				'secret_key' => $secret_key,
-			]
-		);
-	}
-
-	/**
-	 * Regenerate the secret key.
-	 */
-	public function regenerate_secret_key(): \WP_REST_Response|\WP_Error {
-
-		$regenerated_key = Settings::regenerate_api_key();
-
-		return new \WP_REST_Response(
-			[
-				'success'    => true,
-				'message'    => __( 'Secret key regenerated successfully.', 'onesearch' ),
-				'secret_key' => $regenerated_key,
-			]
-		);
-	}
 }
