@@ -276,25 +276,20 @@ class Search_ControllerTest extends TestCase {
 	// ── reindex ─────────────────────────────────────────────────────────
 
 	/**
-	 * Reindex on standalone site without Algolia credentials returns a response.
+	 * Reindex on standalone site without Algolia credentials returns failure response.
 	 */
-	public function test_reindex_standalone_returns_response_without_algolia(): void {
+	public function test_reindex_standalone_returns_failure_without_algolia(): void {
 		delete_option( Settings::OPTION_SITE_TYPE );
 		delete_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );
 		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
 
-		// Reindex requires Algolia client which won't be configured in tests.
 		$response = $this->controller->reindex();
 
-		// Returns either WP_REST_Response (with errors array) or WP_Error.
-		if ( $response instanceof \WP_Error ) {
-			$this->assertNotEmpty( $response->get_error_code() );
-		} else {
-			$this->assertInstanceOf( \WP_REST_Response::class, $response );
-			$data = $response->get_data();
-			$this->assertArrayHasKey( 'success', $data );
-			$this->assertArrayHasKey( 'message', $data );
-		}
+		// Without Algolia credentials, index_all_posts fails, producing a non-success response.
+		$this->assertInstanceOf( \WP_REST_Response::class, $response );
+		$data = $response->get_data();
+		$this->assertFalse( $data['success'] );
+		$this->assertArrayHasKey( 'message', $data );
 	}
 
 	/**

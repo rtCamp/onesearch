@@ -205,6 +205,10 @@ class Basic_Options_ControllerTest extends TestCase {
 
 		$this->assertTrue( $data['success'] );
 		$this->assertCount( 2, $data['shared_sites'] );
+
+		// Verify data was actually persisted to the database.
+		$stored = Settings::get_shared_sites();
+		$this->assertCount( 2, $stored );
 	}
 
 	/**
@@ -302,5 +306,53 @@ class Basic_Options_ControllerTest extends TestCase {
 		$data     = $response->get_data();
 
 		$this->assertTrue( $data['success'] );
+	}
+
+	// ── secret-key ─────────────────────────────────────────────────────────
+
+	/**
+	 * GET secret-key returns a non-empty key (auto-generated if absent).
+	 *
+	 * @expectedIncorrectUsage register_rest_route
+	 */
+	public function test_get_secret_key_returns_key(): void {
+		$this->controller->register_routes();
+
+		$routes = rest_get_server()->get_routes();
+		$ns     = '/' . Basic_Options_Controller::NAMESPACE;
+
+		// Invoke the GET callback directly from the registered route.
+		$callback = $routes[ $ns . '/secret-key' ][0]['callback'];
+		$response = call_user_func( $callback );
+		$data     = $response->get_data();
+
+		$this->assertTrue( $data['success'] );
+		$this->assertNotEmpty( $data['secret_key'] );
+	}
+
+	/**
+	 * PUT secret-key regenerates and returns a new key.
+	 *
+	 * @expectedIncorrectUsage register_rest_route
+	 */
+	public function test_regenerate_secret_key_returns_new_key(): void {
+		$this->controller->register_routes();
+
+		$routes = rest_get_server()->get_routes();
+		$ns     = '/' . Basic_Options_Controller::NAMESPACE;
+
+		// Get the current key first.
+		$get_callback = $routes[ $ns . '/secret-key' ][0]['callback'];
+		$old_data     = call_user_func( $get_callback )->get_data();
+		$old_key      = $old_data['secret_key'];
+
+		// Invoke the PUT/PATCH callback.
+		$put_callback = $routes[ $ns . '/secret-key' ][1]['callback'];
+		$response     = call_user_func( $put_callback );
+		$data         = $response->get_data();
+
+		$this->assertTrue( $data['success'] );
+		$this->assertNotEmpty( $data['secret_key'] );
+		$this->assertNotSame( $old_key, $data['secret_key'] );
 	}
 }

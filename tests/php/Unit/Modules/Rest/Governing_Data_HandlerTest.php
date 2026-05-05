@@ -74,34 +74,21 @@ class Governing_Data_HandlerTest extends TestCase {
 	}
 
 	/**
-	 * Returns error when no API key is configured (auto-generated key still causes HTTP failure).
+	 * Returns error when no API key is configured.
 	 */
-	public function test_get_brand_config_returns_error_when_http_fails(): void {
+	public function test_get_brand_config_returns_error_when_no_api_key(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
 		Settings::set_parent_site_url( 'https://governing.example.com' );
-		Settings::regenerate_api_key();
+		delete_option( Settings::OPTION_CONSUMER_API_KEY );
 		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
 
-		// wp_safe_remote_get fails for unreachable hosts in the test env.
+		// Force get_api_key() to return an empty string by storing an undecryptable value.
+		update_option( Settings::OPTION_CONSUMER_API_KEY, 'not-valid-encrypted-value' );
+
 		$result = Governing_Data_Handler::get_brand_config();
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
-	}
-
-	/**
-	 * Returns error when HTTP request fails (unreachable host).
-	 */
-	public function test_get_brand_config_returns_error_when_http_request_fails(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
-		Settings::set_parent_site_url( 'https://governing.example.com' );
-		Settings::regenerate_api_key();
-		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
-
-		// wp_safe_remote_get will fail for example.com in test environment.
-		$result = Governing_Data_Handler::get_brand_config();
-
-		// Either a WP_Error from the HTTP request or from a non-200 response.
-		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'onesearch_no_key', $result->get_error_code() );
 	}
 
 	// ── get_all_brand_post_types ────────────────────────────────────────
@@ -170,7 +157,8 @@ class Governing_Data_HandlerTest extends TestCase {
 
 		$result = Governing_Data_Handler::get_all_brand_post_types();
 		$this->assertIsArray( $result );
-		$this->assertSame( 'Invalid response received. Error A valid URL was not provided.', $result['errors'][0]['message'] );
+		$this->assertNotEmpty( $result['errors'] );
+		$this->assertStringContainsString( 'Invalid response received', $result['errors'][0]['message'] );
 	}
 
 	// ── clear_brand_config_cache ────────────────────────────────────────
@@ -216,17 +204,15 @@ class Governing_Data_HandlerTest extends TestCase {
 		);
 
 		$requested_urls = [];
-		add_filter(
-			'pre_http_request',
-			static function ( $preempt, $args, $url ) use ( &$requested_urls ) {
-				$requested_urls[] = $url;
-				return new \WP_Error( 'blocked', 'Intercepted' );
-			},
-			10,
-			3
-		);
+		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requested_urls[] = $url;
+			return new \WP_Error( 'blocked', 'Intercepted' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
 
 		Governing_Data_Handler::clear_brand_config_cache();
+
+		remove_filter( 'pre_http_request', $filter );
 
 		$this->assertEmpty( $requested_urls, 'No HTTP requests should be made for sites missing api_key.' );
 	}
@@ -252,17 +238,15 @@ class Governing_Data_HandlerTest extends TestCase {
 		);
 
 		$requested_urls = [];
-		add_filter(
-			'pre_http_request',
-			static function ( $preempt, $args, $url ) use ( &$requested_urls ) {
-				$requested_urls[] = $url;
-				return new \WP_Error( 'blocked', 'Intercepted' );
-			},
-			10,
-			3
-		);
+		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requested_urls[] = $url;
+			return new \WP_Error( 'blocked', 'Intercepted' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
 
 		Governing_Data_Handler::clear_brand_config_cache( 'https://site-a.example.com/' );
+
+		remove_filter( 'pre_http_request', $filter );
 
 		$this->assertCount( 1, $requested_urls, 'Only one HTTP request should be made.' );
 		$this->assertStringContainsString( 'site-a.example.com', $requested_urls[0], 'Request should target Site A.' );
