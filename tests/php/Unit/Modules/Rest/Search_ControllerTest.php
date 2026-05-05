@@ -276,16 +276,18 @@ class Search_ControllerTest extends TestCase {
 	// ── reindex ─────────────────────────────────────────────────────────
 
 	/**
-	 * Reindex on standalone site without Algolia credentials returns failure response.
+	 * Reindex on governing site without Algolia credentials returns failure response.
 	 */
 	public function test_reindex_standalone_returns_failure_without_algolia(): void {
-		delete_option( Settings::OPTION_SITE_TYPE );
+		// Governing with no Algolia: get_post_types_to_index() returns [] (no WP_Error),
+		// then index_all_posts() calls delete_by() which fails on missing Algolia
+		// credentials, collecting an error entry and returning success: false.
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
 		delete_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );
 		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
 
 		$response = $this->controller->reindex();
 
-		// Without Algolia credentials, index_all_posts fails, producing a non-success response.
 		$this->assertInstanceOf( \WP_REST_Response::class, $response );
 		$data = $response->get_data();
 		$this->assertFalse( $data['success'] );

@@ -79,11 +79,12 @@ class Governing_Data_HandlerTest extends TestCase {
 	public function test_get_brand_config_returns_error_when_no_api_key(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
 		Settings::set_parent_site_url( 'https://governing.example.com' );
-		delete_option( Settings::OPTION_CONSUMER_API_KEY );
 		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
 
-		// Force get_api_key() to return an empty string by storing an undecryptable value.
-		update_option( Settings::OPTION_CONSUMER_API_KEY, 'not-valid-encrypted-value' );
+		// Store a base64 value that decodes to 32 bytes (valid IV length, no warning),
+		// but whose content will never match the encryption salt, so Encryptor::decrypt
+		// returns false and get_api_key() returns an empty string.
+		update_option( Settings::OPTION_CONSUMER_API_KEY, base64_encode( str_repeat( 'x', 32 ) ) );
 
 		$result = Governing_Data_Handler::get_brand_config();
 

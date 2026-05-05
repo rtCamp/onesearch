@@ -220,7 +220,7 @@ class Abstract_REST_ControllerTest extends TestCase {
 	}
 
 	/**
-	 * Health-check failes to set governing site URL when used incorrect api_key.
+	 * Health-check fails to set governing site URL when used incorrect api_key.
 	 */
 	public function test_check_api_permissions_healthcheck_fails_to_set_parent_site_url(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
