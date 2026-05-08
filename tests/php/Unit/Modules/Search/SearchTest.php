@@ -26,12 +26,12 @@ final class SearchTest extends TestCase {
 	 * {@inheritDoc}
 	 */
 	protected function tearDown(): void {
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Resetting test state.
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited, SlevomatCodingStandard.Variables.UnusedVariable.UnusedVariable -- Resetting test state.
 		global $post, $wp_query, $wp_the_query;
 
 		$post         = null; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-		$wp_query     = null; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-		$wp_the_query = null; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		$wp_query     = null; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited, SlevomatCodingStandard.Variables.UnusedVariable.UnusedVariable
+		$wp_the_query = null; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited, SlevomatCodingStandard.Variables.UnusedVariable.UnusedVariable
 
 		delete_option( Settings::OPTION_SITE_TYPE );
 		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
@@ -207,9 +207,10 @@ final class SearchTest extends TestCase {
 		$this->enable_search_for_governing_site();
 		$this->prime_main_search_query( 'test query' );
 
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
 		global $post;
 
-		$post     = new \WP_Post( new \stdClass() );
+		$post     = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 		$post->ID = -10;
 		$post->onesearch_remote_post_author_display_name = 'Remote Author';
 
@@ -240,9 +241,10 @@ final class SearchTest extends TestCase {
 		$this->enable_search_for_governing_site();
 		$this->prime_main_search_query( 'test query' );
 
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
 		global $post;
 
-		$post                                    = new \WP_Post( new \stdClass() );
+		$post                                    = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 		$post->ID                                = -11;
 		$post->onesearch_remote_post_author_link = 'https://remote.example.com/authors/john/';
 
@@ -457,13 +459,13 @@ final class SearchTest extends TestCase {
 	 * @param string $term Search term.
 	 */
 	private function prime_main_search_query( string $term ): void {
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited, SlevomatCodingStandard.Variables.UnusedVariable.UnusedVariable -- Setting up test global state.
 		global $wp_query, $wp_the_query;
 
 		set_current_screen( 'front' );
 
 		$wp_query     = new \WP_Query(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-		$wp_the_query = $wp_query; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		$wp_the_query = $wp_query; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited, SlevomatCodingStandard.Variables.UnusedVariable.UnusedVariable
 
 		$wp_query->query( [ 's' => $term ] );
 	}

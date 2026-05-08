@@ -55,8 +55,8 @@ final class WatcherTest extends TestCase {
 	public function test_on_post_transition_skips_non_wp_post(): void {
 		$watcher = new Watcher();
 
-		// Should not throw or error.
-		// @phpstan-ignore argument.type
+		// Should not throw or error out.
+		// @phpstan-ignore argument.type -- Non-WP_Post passed intentionally.
 		$watcher->on_post_transition( 'publish', 'draft', 'not-a-post' );
 
 		$this->assertTrue( true );
