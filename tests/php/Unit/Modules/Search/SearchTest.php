@@ -26,11 +26,12 @@ final class SearchTest extends TestCase {
 	 * {@inheritDoc}
 	 */
 	protected function tearDown(): void {
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Resetting test state.
 		global $post, $wp_query, $wp_the_query;
 
-		$post         = null;
-		$wp_query     = null;
-		$wp_the_query = null;
+		$post         = null; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		$wp_query     = null; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		$wp_the_query = null; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 
 		delete_option( Settings::OPTION_SITE_TYPE );
 		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
@@ -171,7 +172,7 @@ final class SearchTest extends TestCase {
 		$this->enable_search_for_governing_site();
 		$this->prime_main_search_query( 'test query' );
 
-		global $wp_query;
+		global $wp_query; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 
 		$remote_post                        = new \WP_Post( new \stdClass() );
 		$remote_post->onesearch_original_id = 17;
@@ -272,9 +273,10 @@ final class SearchTest extends TestCase {
 		$this->enable_search_for_governing_site();
 		$this->prime_main_search_query( 'test query' );
 
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
 		global $post;
 
-		$post                                        = new \WP_Post( new \stdClass() );
+		$post                                        = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 		$post->ID                                    = -12;
 		$post->onesearch_remote_post_author_gravatar = 'https://remote.example.com/avatar.jpg';
 
@@ -305,9 +307,10 @@ final class SearchTest extends TestCase {
 		$this->enable_search_for_governing_site();
 		$this->prime_main_search_query( 'test query' );
 
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
 		global $post;
 
-		$post                              = new \WP_Post( new \stdClass() );
+		$post                              = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 		$post->ID                          = -13;
 		$post->onesearch_remote_taxonomies = [
 			[
@@ -390,9 +393,10 @@ final class SearchTest extends TestCase {
 	public function test_filter_render_block_rewrites_title_link_for_remote_post(): void {
 		$this->enable_search_for_governing_site();
 
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
 		global $post;
 
-		$post       = new \WP_Post( new \stdClass() );
+		$post       = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 		$post->ID   = -14;
 		$post->guid = 'https://remote.example.com/post/14/';
 
@@ -412,9 +416,10 @@ final class SearchTest extends TestCase {
 	public function test_filter_render_block_rewrites_excerpt_for_remote_post(): void {
 		$this->enable_search_for_governing_site();
 
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
 		global $post;
 
-		$post               = new \WP_Post( new \stdClass() );
+		$post               = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 		$post->ID           = -15;
 		$post->guid         = 'https://remote.example.com/post/15/';
 		$post->post_excerpt = 'Remote excerpt body';
@@ -448,14 +453,17 @@ final class SearchTest extends TestCase {
 
 	/**
 	 * Prime the global main query as a frontend search query.
+	 *
+	 * @param string $term Search term.
 	 */
 	private function prime_main_search_query( string $term ): void {
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
 		global $wp_query, $wp_the_query;
 
 		set_current_screen( 'front' );
 
-		$wp_query     = new \WP_Query();
-		$wp_the_query = $wp_query;
+		$wp_query     = new \WP_Query(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		$wp_the_query = $wp_query; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 
 		$wp_query->query( [ 's' => $term ] );
 	}
