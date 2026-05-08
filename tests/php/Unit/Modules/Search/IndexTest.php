@@ -36,12 +36,15 @@ final class IndexTest extends TestCase {
 	 * Returns WP_Error when Algolia credentials are missing.
 	 */
 	public function test_get_index_returns_error_without_credentials(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
 		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
 
 		$index  = new Index();
 		$result = $index->get_index();
 
 		$this->assertWPError( $result );
+		$this->assertSame( 'algolia_credentials_missing', $result->get_error_code() );
+		$this->assertSame( 'Algolia admin credentials missing.', $result->get_error_message() );
 	}
 
 	/**
@@ -87,11 +90,13 @@ final class IndexTest extends TestCase {
 	 * Returns WP_Error when credentials are missing.
 	 */
 	public function test_delete_index_returns_error_without_credentials(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
 		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
 
 		$result = ( new Index() )->delete_index();
 
 		$this->assertWPError( $result );
+		$this->assertSame( 'algolia_credentials_missing', $result->get_error_code() );
 	}
 
 	// ── delete_by ───────────────────────────────────────────────────────
@@ -100,11 +105,13 @@ final class IndexTest extends TestCase {
 	 * Returns WP_Error when credentials are missing.
 	 */
 	public function test_delete_by_returns_error_without_credentials(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
 		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
 
 		$result = ( new Index() )->delete_by( [ 'filters' => 'site_url:"http://test.com"' ] );
 
 		$this->assertWPError( $result );
+		$this->assertSame( 'algolia_credentials_missing', $result->get_error_code() );
 	}
 
 	// ── save_records ────────────────────────────────────────────────────
@@ -113,11 +120,13 @@ final class IndexTest extends TestCase {
 	 * Returns WP_Error when credentials are missing.
 	 */
 	public function test_save_records_returns_error_without_credentials(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
 		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
 
 		$result = ( new Index() )->save_records( [] );
 
 		$this->assertWPError( $result );
+		$this->assertSame( 'algolia_credentials_missing', $result->get_error_code() );
 	}
 
 	// ── search ──────────────────────────────────────────────────────────
@@ -126,11 +135,13 @@ final class IndexTest extends TestCase {
 	 * Returns WP_Error when credentials are missing.
 	 */
 	public function test_search_returns_error_without_credentials(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
 		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
 
 		$result = ( new Index() )->search( 'test query' );
 
 		$this->assertWPError( $result );
+		$this->assertSame( 'algolia_credentials_missing', $result->get_error_code() );
 	}
 
 	// ── index_all_posts ─────────────────────────────────────────────────
@@ -139,10 +150,12 @@ final class IndexTest extends TestCase {
 	 * Returns WP_Error when delete_by fails (no credentials).
 	 */
 	public function test_index_all_posts_returns_error_when_delete_fails(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
 		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
 
 		$result = ( new Index() )->index_all_posts( [ 'post' ] );
 
 		$this->assertWPError( $result );
+		$this->assertSame( 'algolia_credentials_missing', $result->get_error_code() );
 	}
 }

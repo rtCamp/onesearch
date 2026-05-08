@@ -190,8 +190,24 @@ final class SearchTest extends TestCase {
 
 	/**
 	 * Returns default author name when search is not enabled.
+	 *
+	 * Primes $wp_query and sets a remote $post so that should_filter_query() and
+	 * the negative-ID guard both pass — ensuring the default is returned solely
+	 * because search is disabled, not because of a missing query or local post.
 	 */
 	public function test_get_post_author_returns_default_when_search_disabled(): void {
+		// Set up everything search needs EXCEPT the search settings option itself.
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		$this->prime_main_search_query( 'test query' );
+
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
+		global $post;
+
+		$post     = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		$post->ID = -99;
+		$post->onesearch_remote_post_author_display_name = 'Remote Author';
+
+		// Now disable search — this is the sole reason the default should be returned.
 		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
 
 		$search = new Search();
@@ -224,8 +240,20 @@ final class SearchTest extends TestCase {
 
 	/**
 	 * Returns default author link when search is not enabled.
+	 *
+	 * Primes query and remote $post so the only exit condition is search being disabled.
 	 */
 	public function test_get_post_author_link_returns_default_when_search_disabled(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		$this->prime_main_search_query( 'test query' );
+
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
+		global $post;
+
+		$post                                    = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		$post->ID                                = -99;
+		$post->onesearch_remote_post_author_link = 'https://remote.example.com/authors/john/';
+
 		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
 
 		$search = new Search();
@@ -258,8 +286,20 @@ final class SearchTest extends TestCase {
 
 	/**
 	 * Returns default avatar URL when search is not enabled.
+	 *
+	 * Primes query and remote $post so the only exit condition is search being disabled.
 	 */
 	public function test_get_post_author_avatar_returns_default_when_search_disabled(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		$this->prime_main_search_query( 'test query' );
+
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
+		global $post;
+
+		$post                                        = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		$post->ID                                    = -99;
+		$post->onesearch_remote_post_author_gravatar = 'https://remote.example.com/avatar.jpg';
+
 		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
 
 		$search = new Search();
@@ -292,12 +332,31 @@ final class SearchTest extends TestCase {
 
 	/**
 	 * Returns default term link when search is not enabled.
+	 *
+	 * Primes query and remote $post so the only exit condition is search being disabled.
 	 */
 	public function test_get_term_link_returns_default_when_search_disabled(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		$this->prime_main_search_query( 'test query' );
+
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
+		global $post;
+
+		$post                              = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		$post->ID                          = -99;
+		$post->onesearch_remote_taxonomies = [
+			[
+				'taxonomy'  => 'category',
+				'term_id'   => 7,
+				'slug'      => 'news',
+				'term_link' => 'https://remote.example.com/category/news/',
+			],
+		];
+
 		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
 
 		$search = new Search();
-		$result = $search->get_term_link( 'https://example.com/category/news/', 1, 'category' );
+		$result = $search->get_term_link( 'https://example.com/category/news/', 7, 'category' );
 
 		$this->assertSame( 'https://example.com/category/news/', $result );
 	}
@@ -376,8 +435,20 @@ final class SearchTest extends TestCase {
 
 	/**
 	 * Returns unchanged block content when search is not enabled.
+	 *
+	 * Sets a negative-ID $post with a guid so the only exit condition is
+	 * search being disabled, not a missing/local post.
 	 */
 	public function test_filter_render_block_returns_original_when_search_disabled(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
+		global $post;
+
+		$post       = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		$post->ID   = -99;
+		$post->guid = 'https://remote.example.com/post/99/';
+
 		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
 
 		$search  = new Search();
