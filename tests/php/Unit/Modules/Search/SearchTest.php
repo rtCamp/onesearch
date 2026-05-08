@@ -26,6 +26,12 @@ final class SearchTest extends TestCase {
 	 * {@inheritDoc}
 	 */
 	protected function tearDown(): void {
+		global $post, $wp_query, $wp_the_query;
+
+		$post         = null;
+		$wp_query     = null;
+		$wp_the_query = null;
+
 		delete_option( Settings::OPTION_SITE_TYPE );
 		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
 		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
@@ -158,6 +164,27 @@ final class SearchTest extends TestCase {
 		$this->assertSame( 'https://example.com/test/', $result );
 	}
 
+	/**
+	 * Returns remote permalink for placeholder posts during enabled search.
+	 */
+	public function test_get_post_type_permalink_returns_remote_for_placeholder_post(): void {
+		$this->enable_search_for_governing_site();
+		$this->prime_main_search_query( 'test query' );
+
+		global $wp_query;
+
+		$remote_post                        = new \WP_Post( new \stdClass() );
+		$remote_post->onesearch_original_id = 17;
+		$remote_post->guid                  = 'https://remote.example.com/posts/17/';
+
+		$wp_query->posts = [ $remote_post ];
+
+		$search = new Search();
+		$result = $search->get_post_type_permalink( 'https://example.com/local/', -18 );
+
+		$this->assertSame( 'https://remote.example.com/posts/17/', $result );
+	}
+
 	// ── get_post_author ─────────────────────────────────────────────────
 
 	/**
@@ -170,6 +197,25 @@ final class SearchTest extends TestCase {
 		$result = $search->get_post_author( 'Default Author' );
 
 		$this->assertSame( 'Default Author', $result );
+	}
+
+	/**
+	 * Returns remote author name when search is enabled for remote posts.
+	 */
+	public function test_get_post_author_returns_remote_when_search_enabled(): void {
+		$this->enable_search_for_governing_site();
+		$this->prime_main_search_query( 'test query' );
+
+		global $post;
+
+		$post     = new \WP_Post( new \stdClass() );
+		$post->ID = -10;
+		$post->onesearch_remote_post_author_display_name = 'Remote Author';
+
+		$search = new Search();
+		$result = $search->get_post_author( 'Default Author' );
+
+		$this->assertSame( 'Remote Author', $result );
 	}
 
 	// ── get_post_author_link ────────────────────────────────────────────
@@ -186,6 +232,25 @@ final class SearchTest extends TestCase {
 		$this->assertSame( 'https://example.com/author/admin/', $result );
 	}
 
+	/**
+	 * Returns remote author link when search is enabled for remote posts.
+	 */
+	public function test_get_post_author_link_returns_remote_when_search_enabled(): void {
+		$this->enable_search_for_governing_site();
+		$this->prime_main_search_query( 'test query' );
+
+		global $post;
+
+		$post                                    = new \WP_Post( new \stdClass() );
+		$post->ID                                = -11;
+		$post->onesearch_remote_post_author_link = 'https://remote.example.com/authors/john/';
+
+		$search = new Search();
+		$result = $search->get_post_author_link( 'https://example.com/author/admin/' );
+
+		$this->assertSame( 'https://remote.example.com/authors/john/', $result );
+	}
+
 	// ── get_post_author_avatar ──────────────────────────────────────────
 
 	/**
@@ -200,6 +265,25 @@ final class SearchTest extends TestCase {
 		$this->assertSame( 'https://example.com/avatar.jpg', $result );
 	}
 
+	/**
+	 * Returns remote author avatar when search is enabled for remote posts.
+	 */
+	public function test_get_post_author_avatar_returns_remote_when_search_enabled(): void {
+		$this->enable_search_for_governing_site();
+		$this->prime_main_search_query( 'test query' );
+
+		global $post;
+
+		$post                                        = new \WP_Post( new \stdClass() );
+		$post->ID                                    = -12;
+		$post->onesearch_remote_post_author_gravatar = 'https://remote.example.com/avatar.jpg';
+
+		$search = new Search();
+		$result = $search->get_post_author_avatar( 'https://example.com/avatar.jpg' );
+
+		$this->assertSame( 'https://remote.example.com/avatar.jpg', $result );
+	}
+
 	// ── get_term_link ───────────────────────────────────────────────────
 
 	/**
@@ -212,6 +296,32 @@ final class SearchTest extends TestCase {
 		$result = $search->get_term_link( 'https://example.com/category/news/', 1, 'category' );
 
 		$this->assertSame( 'https://example.com/category/news/', $result );
+	}
+
+	/**
+	 * Returns remote term link when search is enabled and taxonomy data exists.
+	 */
+	public function test_get_term_link_returns_remote_when_search_enabled(): void {
+		$this->enable_search_for_governing_site();
+		$this->prime_main_search_query( 'test query' );
+
+		global $post;
+
+		$post                              = new \WP_Post( new \stdClass() );
+		$post->ID                          = -13;
+		$post->onesearch_remote_taxonomies = [
+			[
+				'taxonomy'  => 'category',
+				'term_id'   => 7,
+				'slug'      => 'news',
+				'term_link' => 'https://remote.example.com/category/news/',
+			],
+		];
+
+		$search = new Search();
+		$result = $search->get_term_link( 'https://example.com/category/news/', 7, 'category' );
+
+		$this->assertSame( 'https://remote.example.com/category/news/', $result );
 	}
 
 	// ── get_category_link ───────────────────────────────────────────────
@@ -275,6 +385,51 @@ final class SearchTest extends TestCase {
 	}
 
 	/**
+	 * Rewrites title block link for remote posts when search is enabled.
+	 */
+	public function test_filter_render_block_rewrites_title_link_for_remote_post(): void {
+		$this->enable_search_for_governing_site();
+
+		global $post;
+
+		$post       = new \WP_Post( new \stdClass() );
+		$post->ID   = -14;
+		$post->guid = 'https://remote.example.com/post/14/';
+
+		$search  = new Search();
+		$content = '<h2><a href="https://example.com/old/">Title</a></h2>';
+		$block   = [ 'blockName' => 'core/post-title' ];
+
+		$result = $search->filter_render_block( $content, $block );
+
+		$this->assertStringContainsString( 'https://remote.example.com/post/14/', $result );
+		$this->assertStringNotContainsString( 'https://example.com/old/', $result );
+	}
+
+	/**
+	 * Rewrites excerpt block text for remote posts when search is enabled.
+	 */
+	public function test_filter_render_block_rewrites_excerpt_for_remote_post(): void {
+		$this->enable_search_for_governing_site();
+
+		global $post;
+
+		$post               = new \WP_Post( new \stdClass() );
+		$post->ID           = -15;
+		$post->guid         = 'https://remote.example.com/post/15/';
+		$post->post_excerpt = 'Remote excerpt body';
+
+		$search  = new Search();
+		$content = '<div class="wp-block-post-excerpt"><p>Old excerpt</p></div>';
+		$block   = [ 'blockName' => 'core/post-excerpt' ];
+
+		$result = $search->filter_render_block( $content, $block );
+
+		$this->assertStringContainsString( 'Remote excerpt body', $result );
+		$this->assertStringNotContainsString( 'Old excerpt', $result );
+	}
+
+	/**
 	 * Enables Algolia for the governing site in options.
 	 */
 	private function enable_search_for_governing_site(): void {
@@ -289,5 +444,19 @@ final class SearchTest extends TestCase {
 				],
 			]
 		);
+	}
+
+	/**
+	 * Prime the global main query as a frontend search query.
+	 */
+	private function prime_main_search_query( string $term ): void {
+		global $wp_query, $wp_the_query;
+
+		set_current_screen( 'front' );
+
+		$wp_query     = new \WP_Query();
+		$wp_the_query = $wp_query;
+
+		$wp_query->query( [ 's' => $term ] );
 	}
 }
