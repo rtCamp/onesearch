@@ -165,10 +165,24 @@ final class WatcherTest extends TestCase {
 		$recorded_paths = [];
 		AlgoliaSDK::setHttpClient(
 			new class( $recorded_paths ) implements \OneSearch\Vendor\Algolia\AlgoliaSearch\Http\HttpClientInterface {
-				/** @param list<string> $paths */
-				public function __construct( private array &$paths ) {}
+				/** @var array<int, string> */
+				private array $paths;
 
-				public function sendRequest( RequestInterface $request, $timeout, $connectTimeout ): ResponseInterface {
+				/**
+				 * @param array<int, string> $paths Reference to the array that records intercepted request paths.
+				 */
+				public function __construct( array &$paths ) {
+					$this->paths = &$paths;
+				}
+
+				/**
+				 * {@inheritDoc}
+				 *
+				 * @param \OneSearch\Vendor\Psr\Http\Message\RequestInterface $request       The PSR-7 request.
+				 * @param mixed            $timeout       Request timeout.
+				 * @param mixed            $connect_timeout Connection timeout.
+				 */
+				public function sendRequest( RequestInterface $request, mixed $timeout, mixed $connect_timeout ): ResponseInterface { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
 					$path          = (string) $request->getUri()->getPath();
 					$this->paths[] = $path;
 
