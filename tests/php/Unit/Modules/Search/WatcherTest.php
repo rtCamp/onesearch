@@ -15,6 +15,9 @@ use OneSearch\Modules\Search\Watcher;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use OneSearch\Utils;
+use OneSearch\Vendor\Algolia\AlgoliaSearch\Algolia as AlgoliaSDK;
+use OneSearch\Vendor\Psr\Http\Message\RequestInterface;
+use OneSearch\Vendor\Psr\Http\Message\ResponseInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
@@ -26,6 +29,8 @@ final class WatcherTest extends TestCase {
 	 * {@inheritDoc}
 	 */
 	protected function tearDown(): void {
+		AlgoliaSDK::resetHttpClient();
+
 		delete_option( Settings::OPTION_SITE_TYPE );
 		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
 		delete_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );
@@ -131,26 +136,64 @@ final class WatcherTest extends TestCase {
 
 	/**
 	 * Skips reindexing when new status is not an allowed status (e.g., trashed).
-	 * The delete still attempts (and fails without creds), but the reindex does not happen.
+	 *
+	 * Injects a fake Algolia HTTP client to intercept SDK-level requests (the SDK
+	 * does not use wp_remote_*, so pre_http_request cannot be used here). After
+	 * transitioning to 'trash', only the deleteBy call should have been made — no
+	 * /batch (saveObjects) request should appear.
 	 */
 	public function test_on_post_transition_does_not_reindex_disallowed_status(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-		update_option(
-			Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES,
-			[
-				'entities' => [
-					Utils::normalize_url( get_site_url() ) => [ 'post' ],
-				],
-			]
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		update_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL, 'https://governing.example.com' );
+
+		$cached_config = [
+			'algolia_credentials' => [
+				'app_id'    => 'TEST_APP',
+				'write_key' => 'TEST_KEY',
+			],
+			'search_settings'     => [
+				'algolia_enabled'  => true,
+				'searchable_sites' => [],
+			],
+			'indexable_entities'  => [ 'post' ],
+			'available_sites'     => [],
+		];
+		$method        = new \ReflectionMethod( Governing_Data_Handler::class, 'set_brand_config_cache' );
+		$method->invoke( null, $cached_config );
+
+		// Intercept every Algolia SDK HTTP call and record the request paths.
+		$recorded_paths = [];
+		AlgoliaSDK::setHttpClient(
+			new class( $recorded_paths ) implements \OneSearch\Vendor\Algolia\AlgoliaSearch\Http\HttpClientInterface {
+				/** @param list<string> $paths */
+				public function __construct( private array &$paths ) {}
+
+				public function sendRequest( RequestInterface $request, $timeout, $connectTimeout ): ResponseInterface {
+					$path          = (string) $request->getUri()->getPath();
+					$this->paths[] = $path;
+
+					// getTask polling → mark published so wait() completes immediately.
+					// All other requests (deleteBy) → return a taskID.
+					$body = str_contains( $path, '/task/' )
+						? '{"status":"published","pendingTask":false}'
+						: '{"taskID":1,"updatedAt":"2024-01-01T00:00:00.000Z"}';
+
+					// @phpstan-ignore return.type
+					return new \OneSearch\Vendor\Algolia\AlgoliaSearch\Http\Psr7\Response( 200, [], $body );
+				}
+			}
 		);
 
 		$post    = self::factory()->post->create_and_get( [ 'post_status' => 'publish' ] );
 		$watcher = new Watcher();
 
-		// Transitioning to 'trash' — should not reindex (only delete).
+		// Transitioning to 'trash' should delete from the index but must not reindex.
 		$watcher->on_post_transition( 'trash', 'publish', $post );
 
-		$this->assertTrue( true );
+		// deleteBy was called (some path was recorded), but no /batch (saveObjects) call
+		// should have been made — the status guard must have stopped reindexing.
+		$batch_calls = array_filter( $recorded_paths, static fn ( $p ) => str_contains( $p, '/batch' ) );
+		$this->assertEmpty( $batch_calls, 'Trash transition should perform delete only and must not reindex.' );
 	}
 
 	/**
