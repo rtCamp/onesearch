@@ -139,7 +139,6 @@ class Basic_Options_ControllerTest extends TestCase {
 		$this->assertTrue( $data['success'] );
 		$this->assertCount( 2, $data['shared_sites'] );
 		$this->assertSame( 'Brand A', $data['shared_sites'][0]['name'] );
-		$this->assertNotSame( 'Brand B', $data['shared_sites'][0]['name'] );
 	}
 
 	// ── set_shared_sites ────────────────────────────────────────────────

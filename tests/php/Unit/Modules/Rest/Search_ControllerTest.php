@@ -278,7 +278,7 @@ class Search_ControllerTest extends TestCase {
 	/**
 	 * Reindex on governing site without Algolia credentials returns failure response.
 	 */
-	public function test_reindex_standalone_returns_failure_without_algolia(): void {
+	public function test_reindex_governing_returns_failure_without_algolia(): void {
 		// Governing with no Algolia: get_post_types_to_index() returns [] (no WP_Error),
 		// then index_all_posts() calls delete_by() which fails on missing Algolia
 		// credentials, collecting an error entry and returning success: false.

@@ -41,7 +41,7 @@ class Concrete_REST_Controller extends Abstract_REST_Controller {
 	 * @param string   $host Host to compare.
 	 * @param int|null $port Optional port.
 	 */
-	public function test_is_url_from_host( string $url, string $host, ?int $port = null ): bool {
+	public function matches_host_url( string $url, string $host, ?int $port = null ): bool {
 		return $this->is_url_from_host( $url, $host, $port );
 	}
 }
@@ -271,7 +271,7 @@ class Abstract_REST_ControllerTest extends TestCase {
 	 */
 	public function test_is_url_from_host_matches_same_host(): void {
 		$this->assertTrue(
-			$this->controller->test_is_url_from_host( 'https://example.com/path', 'example.com' )
+			$this->controller->matches_host_url( 'https://example.com/path', 'example.com' )
 		);
 	}
 
@@ -280,7 +280,7 @@ class Abstract_REST_ControllerTest extends TestCase {
 	 */
 	public function test_is_url_from_host_rejects_different_host(): void {
 		$this->assertFalse(
-			$this->controller->test_is_url_from_host( 'https://example.com', 'other.com' )
+			$this->controller->matches_host_url( 'https://example.com', 'other.com' )
 		);
 	}
 
@@ -289,10 +289,10 @@ class Abstract_REST_ControllerTest extends TestCase {
 	 */
 	public function test_is_url_from_host_compares_port_when_provided(): void {
 		$this->assertTrue(
-			$this->controller->test_is_url_from_host( 'https://example.com:8080', 'example.com', 8080 )
+			$this->controller->matches_host_url( 'https://example.com:8080', 'example.com', 8080 )
 		);
 		$this->assertFalse(
-			$this->controller->test_is_url_from_host( 'https://example.com:8080', 'example.com', 9090 )
+			$this->controller->matches_host_url( 'https://example.com:8080', 'example.com', 9090 )
 		);
 	}
 
@@ -301,7 +301,7 @@ class Abstract_REST_ControllerTest extends TestCase {
 	 */
 	public function test_is_url_from_host_defaults_port_to_80(): void {
 		$this->assertTrue(
-			$this->controller->test_is_url_from_host( 'https://example.com', 'example.com', 80 )
+			$this->controller->matches_host_url( 'https://example.com', 'example.com', 80 )
 		);
 	}
 
@@ -310,7 +310,7 @@ class Abstract_REST_ControllerTest extends TestCase {
 	 */
 	public function test_is_url_from_host_returns_false_for_invalid_url(): void {
 		$this->assertFalse(
-			$this->controller->test_is_url_from_host( 'not-a-url', 'example.com' )
+			$this->controller->matches_host_url( 'not-a-url', 'example.com' )
 		);
 	}
 }

@@ -227,12 +227,12 @@ class Governing_Data_HandlerTest extends TestCase {
 			[
 				[
 					'name'    => 'Site A',
-					'url'     => 'https://site-a.example.com',
+					'url'     => 'https://site-a.example.com/',
 					'api_key' => 'key-a',
 				],
 				[
 					'name'    => 'Site B',
-					'url'     => 'https://site-b.example.com',
+					'url'     => 'https://site-b.example.com/',
 					'api_key' => 'key-b',
 				],
 			]
