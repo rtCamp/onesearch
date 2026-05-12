@@ -135,6 +135,21 @@ final class IndexTest extends TestCase {
 		$this->assertNotEmpty( $recorded_paths );
 	}
 
+	/**
+	 * Returns WP_Error when SDK throws during delete_by failure.
+	 */
+	public function test_delete_by_returns_error_when_sdk_throws(): void {
+		$this->set_governing_credentials();
+
+		$recorded_paths = [];
+		$this->mock_algolia_http_client( $recorded_paths, null, '/deleteBy' );
+
+		$result = ( new Index() )->delete_by( [ 'filters' => 'site_url:"http://test.com"' ] );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'onesearch_algolia_delete_by_failed', $result->get_error_code() );
+	}
+
 	// ── save_records ────────────────────────────────────────────────────
 
 	/**
@@ -172,6 +187,28 @@ final class IndexTest extends TestCase {
 		$this->assertNotEmpty( $recorded_paths );
 	}
 
+	/**
+	 * Returns WP_Error when SDK throws during save_records.
+	 */
+	public function test_save_records_returns_error_when_sdk_throws(): void {
+		$this->set_governing_credentials();
+
+		$recorded_paths = [];
+		$this->mock_algolia_http_client( $recorded_paths, null, '/batch' );
+
+		$result = ( new Index() )->save_records(
+			[
+				[
+					'objectID'   => '1',
+					'post_title' => 'Test',
+				],
+			]
+		);
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'onesearch_algolia_save_records_failed', $result->get_error_code() );
+	}
+
 	// ── search ──────────────────────────────────────────────────────────
 
 	/**
@@ -203,6 +240,36 @@ final class IndexTest extends TestCase {
 		$this->assertArrayHasKey( 'hits', $result );
 		$this->assertSame( '1', $result['hits'][0]['objectID'] ?? '' );
 		$this->assertNotEmpty( $recorded_paths );
+	}
+
+	/**
+	 * Returns WP_Error when SDK throws during search.
+	 */
+	public function test_search_returns_error_when_sdk_throws(): void {
+		$this->set_governing_credentials();
+
+		$recorded_paths = [];
+		$this->mock_algolia_http_client( $recorded_paths, null, '/query' );
+
+		$result = ( new Index() )->search( 'test query' );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'onesearch_algolia_search_failed', $result->get_error_code() );
+	}
+
+	/**
+	 * Returns WP_Error when SDK throws while setting index settings.
+	 */
+	public function test_delete_by_returns_set_settings_error_when_sdk_throws_on_settings(): void {
+		$this->set_governing_credentials();
+
+		$recorded_paths = [];
+		$this->mock_algolia_http_client( $recorded_paths, null, '/settings' );
+
+		$result = ( new Index() )->delete_by( [ 'filters' => 'site_url:"http://test.com"' ] );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'algolia_set_settings_failed', $result->get_error_code() );
 	}
 
 	// ── index_all_posts ─────────────────────────────────────────────────
