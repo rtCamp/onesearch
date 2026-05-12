@@ -15,6 +15,7 @@ use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use OneSearch\Utils;
+use OneSearch\Vendor\Algolia\AlgoliaSearch\Algolia as AlgoliaSDK;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
@@ -32,6 +33,8 @@ final class SearchTest extends TestCase {
 		$post         = null; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 		$wp_query     = null; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited, SlevomatCodingStandard.Variables.UnusedVariable.UnusedVariable
 		$wp_the_query = null; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited, SlevomatCodingStandard.Variables.UnusedVariable.UnusedVariable
+
+		AlgoliaSDK::resetHttpClient();
 
 		delete_option( Settings::OPTION_SITE_TYPE );
 		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
@@ -149,6 +152,72 @@ final class SearchTest extends TestCase {
 		$result = $search->get_algolia_results( $original, 'not-a-query' );
 
 		$this->assertSame( $original, $result );
+	}
+
+	/**
+	 * Returns mapped remote posts when search is enabled and query is a main search query.
+	 */
+	public function test_get_algolia_results_returns_remote_posts_when_search_enabled(): void {
+		$this->enable_search_for_governing_site();
+		Search_Settings::set_algolia_credentials(
+			[
+				'app_id'    => 'TEST_APP',
+				'write_key' => 'TEST_KEY',
+			]
+		);
+
+		$recorded_paths = [];
+		$this->mock_algolia_http_client(
+			$recorded_paths,
+			static function ( string $path ): string {
+				if ( str_contains( $path, '/query' ) ) {
+					return wp_json_encode(
+						[
+							'hits'        => [
+								[
+									'objectID'          => '17',
+									'site_post_id'      => '17',
+									'post_id'           => 17,
+									'post_title'        => 'Remote Post',
+									'post_type'         => 'post',
+									'permalink'         => 'https://remote.example.com/posts/17/',
+									'site_url'          => 'https://remote.example.com/',
+									'site_name'         => 'Remote',
+									'total_chunks'      => 1,
+									'post_date_gmt'     => 1710000000,
+									'post_modified_gmt' => 1710000000,
+								],
+							],
+							'nbHits'      => 1,
+							'page'        => 0,
+							'hitsPerPage' => 10,
+						]
+					) ?: '{}';
+				}
+
+				if ( str_contains( $path, '/task/' ) ) {
+					return '{"status":"published","pendingTask":false}';
+				}
+
+				return '{"taskID":1,"updatedAt":"2024-01-01T00:00:00.000Z"}';
+			}
+		);
+
+		$this->prime_main_search_query( 'remote test' );
+
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Reading query prepared by helper.
+		global $wp_query;
+
+		$search = new Search();
+		$result = $search->get_algolia_results( [], $wp_query );
+
+		$this->assertNotEmpty( $result );
+		$this->assertInstanceOf( \WP_Post::class, $result[0] );
+		$this->assertSame( -18, $result[0]->ID );
+		$this->assertSame( 'https://remote.example.com/posts/17/', $result[0]->guid );
+		$this->assertSame( 1, $wp_query->post_count );
+		$this->assertTrue( (bool) ( $wp_query->is_algolia_search ?? false ) );
+		$this->assertNotEmpty( $recorded_paths );
 	}
 
 	// ── get_post_type_permalink ─────────────────────────────────────────
@@ -402,6 +471,33 @@ final class SearchTest extends TestCase {
 		$this->assertSame( 'https://example.com/category/tech/', $result );
 	}
 
+	/**
+	 * Delegates to get_term_link with 'category' taxonomy for enabled remote search.
+	 */
+	public function test_get_category_link_returns_remote_when_search_enabled(): void {
+		$this->enable_search_for_governing_site();
+		$this->prime_main_search_query( 'test query' );
+
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
+		global $post;
+
+		$post                              = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		$post->ID                          = -105;
+		$post->onesearch_remote_taxonomies = [
+			[
+				'taxonomy'  => 'category',
+				'term_id'   => 5,
+				'slug'      => 'tech',
+				'term_link' => 'https://remote.example.com/category/tech/',
+			],
+		];
+
+		$search = new Search();
+		$result = $search->get_category_link( 'https://example.com/category/tech/', 5 );
+
+		$this->assertSame( 'https://remote.example.com/category/tech/', $result );
+	}
+
 	// ── get_tag_link ────────────────────────────────────────────────────
 
 	/**
@@ -414,6 +510,33 @@ final class SearchTest extends TestCase {
 		$result = $search->get_tag_link( 'https://example.com/tag/php/', 3 );
 
 		$this->assertSame( 'https://example.com/tag/php/', $result );
+	}
+
+	/**
+	 * Delegates to get_term_link with 'post_tag' taxonomy for enabled remote search.
+	 */
+	public function test_get_tag_link_returns_remote_when_search_enabled(): void {
+		$this->enable_search_for_governing_site();
+		$this->prime_main_search_query( 'test query' );
+
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
+		global $post;
+
+		$post                              = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		$post->ID                          = -106;
+		$post->onesearch_remote_taxonomies = [
+			[
+				'taxonomy'  => 'post_tag',
+				'term_id'   => 3,
+				'slug'      => 'php',
+				'term_link' => 'https://remote.example.com/tag/php/',
+			],
+		];
+
+		$search = new Search();
+		$result = $search->get_tag_link( 'https://example.com/tag/php/', 3 );
+
+		$this->assertSame( 'https://remote.example.com/tag/php/', $result );
 	}
 
 	// ── get_post_terms ──────────────────────────────────────────────────
@@ -429,6 +552,44 @@ final class SearchTest extends TestCase {
 
 		$result = $search->get_post_terms( $original, 1, 'category' );
 		$this->assertSame( $original, $result );
+	}
+
+	/**
+	 * Returns mapped terms for enabled search when remote taxonomy metadata exists.
+	 */
+	public function test_get_post_terms_returns_remote_terms_when_search_enabled(): void {
+		$this->enable_search_for_governing_site();
+		$this->prime_main_search_query( 'test query' );
+
+		$post_id = self::factory()->post->create();
+		$post    = get_post( $post_id );
+
+		$this->assertInstanceOf( \WP_Post::class, $post );
+
+		$post->onesearch_remote_taxonomies = [
+			[
+				'taxonomy'    => 'category',
+				'term_id'     => 22,
+				'slug'        => 'remote-news',
+				'name'        => 'Remote News',
+				'term_link'   => 'https://remote.example.com/category/remote-news/',
+				'count'       => 3,
+				'description' => 'Remote category',
+				'parent'      => 0,
+			],
+		];
+
+		wp_cache_set( $post_id, $post, 'posts' );
+
+		$search = new Search();
+		$result = $search->get_post_terms( [], $post_id, 'category' );
+
+		$this->assertIsArray( $result );
+		$this->assertCount( 1, $result );
+		$this->assertInstanceOf( \WP_Term::class, $result[0] );
+		$this->assertSame( 'Remote News', $result[0]->name );
+		$this->assertSame( 'category', $result[0]->taxonomy );
+		$this->assertSame( 22, $result[0]->term_id );
 	}
 
 	// ── filter_render_block ─────────────────────────────────────────────
@@ -512,11 +673,16 @@ final class SearchTest extends TestCase {
 	 */
 	private function enable_search_for_governing_site(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-		$site_url = Utils::normalize_url( get_site_url() );
+		$site_url               = Utils::normalize_url( get_site_url() );
+		$site_url_with_trailing = trailingslashit( get_site_url() );
 		update_option(
 			Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS,
 			[
-				$site_url => [
+				$site_url               => [
+					'algolia_enabled'  => true,
+					'searchable_sites' => [ $site_url ],
+				],
+				$site_url_with_trailing => [
 					'algolia_enabled'  => true,
 					'searchable_sites' => [ $site_url ],
 				],

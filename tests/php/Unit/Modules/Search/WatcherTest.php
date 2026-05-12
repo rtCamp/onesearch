@@ -16,8 +16,6 @@ use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use OneSearch\Utils;
 use OneSearch\Vendor\Algolia\AlgoliaSearch\Algolia as AlgoliaSDK;
-use OneSearch\Vendor\Psr\Http\Message\RequestInterface;
-use OneSearch\Vendor\Psr\Http\Message\ResponseInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
@@ -146,57 +144,11 @@ final class WatcherTest extends TestCase {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
 		update_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL, 'https://governing.example.com' );
 
-		$cached_config = [
-			'algolia_credentials' => [
-				'app_id'    => 'TEST_APP',
-				'write_key' => 'TEST_KEY',
-			],
-			'search_settings'     => [
-				'algolia_enabled'  => true,
-				'searchable_sites' => [],
-			],
-			'indexable_entities'  => [ 'post' ],
-			'available_sites'     => [],
-		];
-		$method        = new \ReflectionMethod( Governing_Data_Handler::class, 'set_brand_config_cache' );
-		$method->invoke( null, $cached_config );
+		$this->set_consumer_brand_config_cache();
 
 		// Intercept every Algolia SDK HTTP call and record the request paths.
 		$recorded_paths = [];
-		AlgoliaSDK::setHttpClient(
-			new class( $recorded_paths ) implements \OneSearch\Vendor\Algolia\AlgoliaSearch\Http\HttpClientInterface {
-				/** @var array<int, string> */
-				private array $paths;
-
-				/**
-				 * @param array<int, string> $paths Reference to the array that records intercepted request paths.
-				 */
-				public function __construct( array &$paths ) {
-					$this->paths = &$paths;
-				}
-
-				/**
-				 * {@inheritDoc}
-				 *
-				 * @param \OneSearch\Vendor\Psr\Http\Message\RequestInterface $request       The PSR-7 request.
-				 * @param mixed            $timeout       Request timeout.
-				 * @param mixed            $connect_timeout Connection timeout.
-				 */
-				public function sendRequest( RequestInterface $request, mixed $timeout, mixed $connect_timeout ): ResponseInterface { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-					$path          = (string) $request->getUri()->getPath();
-					$this->paths[] = $path;
-
-					// getTask polling → mark published so wait() completes immediately.
-					// All other requests (deleteBy) → return a taskID.
-					$body = str_contains( $path, '/task/' )
-						? '{"status":"published","pendingTask":false}'
-						: '{"taskID":1,"updatedAt":"2024-01-01T00:00:00.000Z"}';
-
-					// @phpstan-ignore return.type
-					return new \OneSearch\Vendor\Algolia\AlgoliaSearch\Http\Psr7\Response( 200, [], $body );
-				}
-			}
-		);
+		$this->mock_algolia_http_client( $recorded_paths );
 
 		$post    = self::factory()->post->create_and_get( [ 'post_status' => 'publish' ] );
 		$watcher = new Watcher();
@@ -234,20 +186,7 @@ final class WatcherTest extends TestCase {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
 		update_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL, 'https://governing.example.com' );
 
-		$cached_config = [
-			'algolia_credentials' => [
-				'app_id'    => 'test-app',
-				'write_key' => 'test-key',
-			],
-			'search_settings'     => [
-				'algolia_enabled'  => true,
-				'searchable_sites' => [],
-			],
-			'indexable_entities'  => [ 'post' ],
-			'available_sites'     => [],
-		];
-		$method        = new \ReflectionMethod( Governing_Data_Handler::class, 'set_brand_config_cache' );
-		$method->invoke( null, $cached_config );
+		$this->set_consumer_brand_config_cache( 'test-app', 'test-key' );
 
 		$post    = self::factory()->post->create_and_get( [ 'post_status' => 'publish' ] );
 		$watcher = new Watcher();
@@ -257,5 +196,31 @@ final class WatcherTest extends TestCase {
 		$watcher->on_post_transition( 'publish', 'draft', $post );
 
 		$this->assertTrue( true );
+	}
+
+	// ── helpers ────────────────────────────────────────────────────────
+
+	/**
+	 * Prime the consumer brand config cache used by Watcher guards.
+	 *
+	 * @param string $app_id    Algolia app ID.
+	 * @param string $write_key Algolia write key.
+	 */
+	private function set_consumer_brand_config_cache( string $app_id = 'TEST_APP', string $write_key = 'TEST_KEY' ): void {
+		$cached_config = [
+			'algolia_credentials' => [
+				'app_id'    => $app_id,
+				'write_key' => $write_key,
+			],
+			'search_settings'     => [
+				'algolia_enabled'  => true,
+				'searchable_sites' => [],
+			],
+			'indexable_entities'  => [ 'post' ],
+			'available_sites'     => [],
+		];
+
+		$method = new \ReflectionMethod( Governing_Data_Handler::class, 'set_brand_config_cache' );
+		$method->invoke( null, $cached_config );
 	}
 }

@@ -13,6 +13,7 @@ use OneSearch\Modules\Search\Index;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
+use OneSearch\Vendor\Algolia\AlgoliaSearch\Algolia as AlgoliaSDK;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
@@ -24,6 +25,8 @@ final class IndexTest extends TestCase {
 	 * {@inheritDoc}
 	 */
 	protected function tearDown(): void {
+		AlgoliaSDK::resetHttpClient();
+
 		delete_option( Settings::OPTION_SITE_TYPE );
 		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
 
@@ -51,13 +54,7 @@ final class IndexTest extends TestCase {
 	 * Returns SearchIndex when credentials are valid.
 	 */
 	public function test_get_index_returns_search_index_with_valid_credentials(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-		Search_Settings::set_algolia_credentials(
-			[
-				'app_id'    => 'TEST_APP',
-				'write_key' => 'TEST_KEY',
-			]
-		);
+		self::set_governing_credentials();
 
 		$index  = new Index();
 		$result = $index->get_index();
@@ -69,13 +66,7 @@ final class IndexTest extends TestCase {
 	 * Caches the index instance on subsequent calls.
 	 */
 	public function test_get_index_returns_same_instance_on_second_call(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-		Search_Settings::set_algolia_credentials(
-			[
-				'app_id'    => 'TEST_APP',
-				'write_key' => 'TEST_KEY',
-			]
-		);
+		self::set_governing_credentials();
 
 		$index  = new Index();
 		$first  = $index->get_index();
@@ -99,6 +90,21 @@ final class IndexTest extends TestCase {
 		$this->assertSame( 'algolia_credentials_missing', $result->get_error_code() );
 	}
 
+	/**
+	 * Returns true for delete_index with valid credentials.
+	 */
+	public function test_delete_index_returns_true_with_valid_credentials(): void {
+		$this->set_governing_credentials();
+
+		$recorded_paths = [];
+		$this->mock_algolia_http_client( $recorded_paths );
+
+		$result = ( new Index() )->delete_index();
+
+		$this->assertTrue( $result );
+		$this->assertNotEmpty( $recorded_paths );
+	}
+
 	// ── delete_by ───────────────────────────────────────────────────────
 
 	/**
@@ -112,6 +118,21 @@ final class IndexTest extends TestCase {
 
 		$this->assertWPError( $result );
 		$this->assertSame( 'algolia_credentials_missing', $result->get_error_code() );
+	}
+
+	/**
+	 * Returns true for delete_by with valid credentials.
+	 */
+	public function test_delete_by_returns_true_with_valid_credentials(): void {
+		$this->set_governing_credentials();
+
+		$recorded_paths = [];
+		$this->mock_algolia_http_client( $recorded_paths );
+
+		$result = ( new Index() )->delete_by( [ 'filters' => 'site_url:"http://test.com"' ] );
+
+		$this->assertTrue( $result );
+		$this->assertNotEmpty( $recorded_paths );
 	}
 
 	// ── save_records ────────────────────────────────────────────────────
@@ -129,6 +150,28 @@ final class IndexTest extends TestCase {
 		$this->assertSame( 'algolia_credentials_missing', $result->get_error_code() );
 	}
 
+	/**
+	 * Returns true for save_records with valid credentials.
+	 */
+	public function test_save_records_returns_true_with_valid_credentials(): void {
+		$this->set_governing_credentials();
+
+		$recorded_paths = [];
+		$this->mock_algolia_http_client( $recorded_paths );
+
+		$result = ( new Index() )->save_records(
+			[
+				[
+					'objectID'   => '1',
+					'post_title' => 'Test',
+				],
+			]
+		);
+
+		$this->assertTrue( $result );
+		$this->assertNotEmpty( $recorded_paths );
+	}
+
 	// ── search ──────────────────────────────────────────────────────────
 
 	/**
@@ -144,6 +187,24 @@ final class IndexTest extends TestCase {
 		$this->assertSame( 'algolia_credentials_missing', $result->get_error_code() );
 	}
 
+	/**
+	 * Returns search payload for search with valid credentials.
+	 */
+	public function test_search_returns_results_with_valid_credentials(): void {
+		$this->set_governing_credentials();
+
+		$recorded_paths = [];
+
+		$this->mock_algolia_http_client( $recorded_paths );
+
+		$result = ( new Index() )->search( 'test query' );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'hits', $result );
+		$this->assertSame( '1', $result['hits'][0]['objectID'] ?? '' );
+		$this->assertNotEmpty( $recorded_paths );
+	}
+
 	// ── index_all_posts ─────────────────────────────────────────────────
 
 	/**
@@ -157,5 +218,35 @@ final class IndexTest extends TestCase {
 
 		$this->assertWPError( $result );
 		$this->assertSame( 'algolia_credentials_missing', $result->get_error_code() );
+	}
+
+	/**
+	 * Returns true when index_all_posts is called with no post types and valid credentials.
+	 */
+	public function test_index_all_posts_returns_true_with_valid_credentials_and_no_post_types(): void {
+		$this->set_governing_credentials();
+
+		$recorded_paths = [];
+		$this->mock_algolia_http_client( $recorded_paths );
+
+		$result = ( new Index() )->index_all_posts( [] );
+
+		$this->assertTrue( $result );
+		$this->assertNotEmpty( $recorded_paths );
+	}
+
+	// ── helpers ────────────────────────────────────────────────────────
+
+	/**
+	 * Set governing-site context with valid Algolia credentials.
+	 */
+	private function set_governing_credentials(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		Search_Settings::set_algolia_credentials(
+			[
+				'app_id'    => 'TEST_APP',
+				'write_key' => 'TEST_KEY',
+			]
+		);
 	}
 }
