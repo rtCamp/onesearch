@@ -216,6 +216,7 @@ final class SearchTest extends TestCase {
 		$this->assertSame( -18, $result[0]->ID );
 		$this->assertSame( 'https://remote.example.com/posts/17/', $result[0]->guid );
 		$this->assertSame( 1, $wp_query->post_count );
+		$this->assertSame( 1, $wp_query->found_posts );
 		$this->assertTrue( (bool) ( $wp_query->is_algolia_search ?? false ) );
 		$this->assertNotEmpty( $recorded_paths );
 	}

@@ -54,7 +54,7 @@ final class IndexTest extends TestCase {
 	 * Returns SearchIndex when credentials are valid.
 	 */
 	public function test_get_index_returns_search_index_with_valid_credentials(): void {
-		self::set_governing_credentials();
+		$this->set_governing_credentials();
 
 		$index  = new Index();
 		$result = $index->get_index();
@@ -66,7 +66,7 @@ final class IndexTest extends TestCase {
 	 * Caches the index instance on subsequent calls.
 	 */
 	public function test_get_index_returns_same_instance_on_second_call(): void {
-		self::set_governing_credentials();
+		$this->set_governing_credentials();
 
 		$index  = new Index();
 		$first  = $index->get_index();
