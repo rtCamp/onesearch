@@ -34,8 +34,6 @@ final class SettingsTest extends TestCase {
 		parent::tearDown();
 	}
 
-	// ── register_hooks ──────────────────────────────────────────────────
-
 	/**
 	 * Ensures register_hooks adds expected actions.
 	 */
@@ -79,8 +77,6 @@ final class SettingsTest extends TestCase {
 			has_action( 'update_option_' . Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS, [ $settings, 'purge_cache_on_update' ] )
 		);
 	}
-
-	// ── register_settings ───────────────────────────────────────────────
 
 	/**
 	 * Ensures register_settings registers governing settings when governing.
@@ -152,8 +148,6 @@ final class SettingsTest extends TestCase {
 		$this->assertSame( [], $sanitized['https://example.com/invalid/']['searchable_sites'] );
 	}
 
-	// ── get_algolia_credentials ─────────────────────────────────────────
-
 	/**
 	 * Returns null values when no credentials are stored.
 	 */
@@ -182,8 +176,6 @@ final class SettingsTest extends TestCase {
 		$this->assertSame( 'my-app', $creds['app_id'] );
 		$this->assertSame( 'my-key', $creds['write_key'] );
 	}
-
-	// ── set_algolia_credentials ─────────────────────────────────────────
 
 	/**
 	 * Returns true on successful save.
@@ -220,8 +212,6 @@ final class SettingsTest extends TestCase {
 		$this->assertNull( $creds['app_id'] );
 	}
 
-	// ── get_indexable_entities ───────────────────────────────────────────
-
 	/**
 	 * Returns empty array when nothing is stored.
 	 */
@@ -244,8 +234,6 @@ final class SettingsTest extends TestCase {
 
 		$this->assertSame( $entities, Search_Settings::get_indexable_entities() );
 	}
-
-	// ── get_search_settings ─────────────────────────────────────────────
 
 	/**
 	 * Returns empty array when nothing is stored.
@@ -271,8 +259,6 @@ final class SettingsTest extends TestCase {
 		$this->assertSame( $value, Search_Settings::get_search_settings() );
 	}
 
-	// ── on_site_type_change ─────────────────────────────────────────────
-
 	/**
 	 * Does nothing when new value is not consumer.
 	 */
@@ -284,8 +270,6 @@ final class SettingsTest extends TestCase {
 
 		$this->assertTrue( true );
 	}
-
-	// ── on_shared_sites_change ──────────────────────────────────────────
 
 	/**
 	 * Does nothing when old value is empty.
@@ -351,8 +335,6 @@ final class SettingsTest extends TestCase {
 
 		$this->assertSame( $initial_entities, get_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES ) );
 	}
-
-	// ── purge_cache_on_update ───────────────────────────────────────────
 
 	/**
 	 * Purges cache when algolia credentials option updates.

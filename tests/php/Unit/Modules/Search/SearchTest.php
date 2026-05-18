@@ -45,8 +45,6 @@ final class SearchTest extends TestCase {
 		parent::tearDown();
 	}
 
-	// ── register_hooks ──────────────────────────────────────────────────
-
 	/**
 	 * Ensures register_hooks adds the posts_pre_query filter.
 	 */
@@ -106,8 +104,6 @@ final class SearchTest extends TestCase {
 
 		$this->assertNotFalse( has_filter( 'render_block', [ $search, 'filter_render_block' ] ) );
 	}
-
-	// ── get_algolia_results ─────────────────────────────────────────────
 
 	/**
 	 * Returns original posts when search is not enabled.
@@ -221,8 +217,6 @@ final class SearchTest extends TestCase {
 		$this->assertNotEmpty( $recorded_paths );
 	}
 
-	// ── get_post_type_permalink ─────────────────────────────────────────
-
 	/**
 	 * Returns default permalink for local posts (positive ID).
 	 */
@@ -255,8 +249,6 @@ final class SearchTest extends TestCase {
 
 		$this->assertSame( 'https://remote.example.com/posts/17/', $result );
 	}
-
-	// ── get_post_author ─────────────────────────────────────────────────
 
 	/**
 	 * Returns default author name when search is not enabled.
@@ -306,8 +298,6 @@ final class SearchTest extends TestCase {
 		$this->assertSame( 'Remote Author', $result );
 	}
 
-	// ── get_post_author_link ────────────────────────────────────────────
-
 	/**
 	 * Returns default author link when search is not enabled.
 	 *
@@ -352,8 +342,6 @@ final class SearchTest extends TestCase {
 		$this->assertSame( 'https://remote.example.com/authors/john/', $result );
 	}
 
-	// ── get_post_author_avatar ──────────────────────────────────────────
-
 	/**
 	 * Returns default avatar URL when search is not enabled.
 	 *
@@ -397,8 +385,6 @@ final class SearchTest extends TestCase {
 
 		$this->assertSame( 'https://remote.example.com/avatar.jpg', $result );
 	}
-
-	// ── get_term_link ───────────────────────────────────────────────────
 
 	/**
 	 * Returns default term link when search is not enabled.
@@ -458,8 +444,6 @@ final class SearchTest extends TestCase {
 		$this->assertSame( 'https://remote.example.com/category/news/', $result );
 	}
 
-	// ── get_category_link ───────────────────────────────────────────────
-
 	/**
 	 * Delegates to get_term_link with 'category' taxonomy.
 	 */
@@ -499,8 +483,6 @@ final class SearchTest extends TestCase {
 		$this->assertSame( 'https://remote.example.com/category/tech/', $result );
 	}
 
-	// ── get_tag_link ────────────────────────────────────────────────────
-
 	/**
 	 * Delegates to get_term_link with 'post_tag' taxonomy.
 	 */
@@ -539,8 +521,6 @@ final class SearchTest extends TestCase {
 
 		$this->assertSame( 'https://remote.example.com/tag/php/', $result );
 	}
-
-	// ── get_post_terms ──────────────────────────────────────────────────
 
 	/**
 	 * Returns original terms when search is not enabled.
@@ -592,8 +572,6 @@ final class SearchTest extends TestCase {
 		$this->assertSame( 'category', $result[0]->taxonomy );
 		$this->assertSame( 22, $result[0]->term_id );
 	}
-
-	// ── filter_render_block ─────────────────────────────────────────────
 
 	/**
 	 * Returns unchanged block content when search is not enabled.

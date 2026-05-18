@@ -38,8 +38,6 @@ final class WatcherTest extends TestCase {
 		parent::tearDown();
 	}
 
-	// ── register_hooks ──────────────────────────────────────────────────
-
 	/**
 	 * Ensures register_hooks adds transition_post_status action.
 	 */
@@ -49,8 +47,6 @@ final class WatcherTest extends TestCase {
 
 		$this->assertNotFalse( has_action( 'transition_post_status', [ $watcher, 'on_post_transition' ] ) );
 	}
-
-	// ── on_post_transition ──────────────────────────────────────────────
 
 	/**
 	 * Skips when post is not a WP_Post instance.
@@ -197,8 +193,6 @@ final class WatcherTest extends TestCase {
 
 		$this->assertTrue( true );
 	}
-
-	// ── helpers ────────────────────────────────────────────────────────
 
 	/**
 	 * Prime the consumer brand config cache used by Watcher guards.

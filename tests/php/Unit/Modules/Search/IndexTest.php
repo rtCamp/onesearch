@@ -33,8 +33,6 @@ final class IndexTest extends TestCase {
 		parent::tearDown();
 	}
 
-	// ── get_index ───────────────────────────────────────────────────────
-
 	/**
 	 * Returns WP_Error when Algolia credentials are missing.
 	 */
@@ -75,8 +73,6 @@ final class IndexTest extends TestCase {
 		$this->assertSame( $first, $second );
 	}
 
-	// ── delete_index ────────────────────────────────────────────────────
-
 	/**
 	 * Returns WP_Error when credentials are missing.
 	 */
@@ -104,8 +100,6 @@ final class IndexTest extends TestCase {
 		$this->assertTrue( $result );
 		$this->assertNotEmpty( $recorded_paths );
 	}
-
-	// ── delete_by ───────────────────────────────────────────────────────
 
 	/**
 	 * Returns WP_Error when credentials are missing.
@@ -149,8 +143,6 @@ final class IndexTest extends TestCase {
 		$this->assertWPError( $result );
 		$this->assertSame( 'onesearch_algolia_delete_by_failed', $result->get_error_code() );
 	}
-
-	// ── save_records ────────────────────────────────────────────────────
 
 	/**
 	 * Returns WP_Error when credentials are missing.
@@ -208,8 +200,6 @@ final class IndexTest extends TestCase {
 		$this->assertWPError( $result );
 		$this->assertSame( 'onesearch_algolia_save_records_failed', $result->get_error_code() );
 	}
-
-	// ── search ──────────────────────────────────────────────────────────
 
 	/**
 	 * Returns WP_Error when credentials are missing.
@@ -272,8 +262,6 @@ final class IndexTest extends TestCase {
 		$this->assertSame( 'algolia_set_settings_failed', $result->get_error_code() );
 	}
 
-	// ── index_all_posts ─────────────────────────────────────────────────
-
 	/**
 	 * Returns WP_Error when delete_by fails (no credentials).
 	 */
@@ -301,8 +289,6 @@ final class IndexTest extends TestCase {
 		$this->assertTrue( $result );
 		$this->assertNotEmpty( $recorded_paths );
 	}
-
-	// ── helpers ────────────────────────────────────────────────────────
 
 	/**
 	 * Set governing-site context with valid Algolia credentials.
