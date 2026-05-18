@@ -39,8 +39,6 @@ class Search_ControllerTest extends TestCase {
 		$this->controller = new Search_Controller();
 	}
 
-	// ── Route registration ──────────────────────────────────────────────
-
 	/**
 	 * Verify re-index route is always registered.
 	 *
@@ -91,8 +89,6 @@ class Search_ControllerTest extends TestCase {
 		$this->assertArrayNotHasKey( $ns . '/indexable-entities', $routes );
 	}
 
-	// ── get_algolia_credentials ─────────────────────────────────────────
-
 	/**
 	 * Returns empty strings when credentials are not set.
 	 */
@@ -125,8 +121,6 @@ class Search_ControllerTest extends TestCase {
 		$this->assertSame( 'TEST_APP_ID', $data['app_id'] );
 		$this->assertSame( 'TEST_WRITE_KEY', $data['write_key'] );
 	}
-
-	// ── update_algolia_credentials ──────────────────────────────────────
 
 	/**
 	 * Returns 400 error when app_id is empty.
@@ -186,8 +180,6 @@ class Search_ControllerTest extends TestCase {
 		$this->assertSame( 'onesearch_algolia_credentials_invalid', $response->get_error_code() );
 	}
 
-	// ── get_indexable_entities ───────────────────────────────────────────
-
 	/**
 	 * Returns stored indexable entities.
 	 */
@@ -218,8 +210,6 @@ class Search_ControllerTest extends TestCase {
 		$this->assertTrue( $data['success'] );
 		$this->assertSame( [], $data['indexableEntities'] );
 	}
-
-	// ── set_indexable_entities ───────────────────────────────────────────
 
 	/**
 	 * Saves valid entities and persists to database.
@@ -272,8 +262,6 @@ class Search_ControllerTest extends TestCase {
 		$this->assertTrue( $data['success'] );
 		$this->assertSame( [], $data['indexableEntities'] );
 	}
-
-	// ── reindex ─────────────────────────────────────────────────────────
 
 	/**
 	 * Reindex on governing site without Algolia credentials returns failure response.

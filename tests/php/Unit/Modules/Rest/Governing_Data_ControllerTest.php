@@ -39,8 +39,6 @@ class Governing_Data_ControllerTest extends TestCase {
 		$this->controller = new Governing_Data_Controller();
 	}
 
-	// ── Route registration ──────────────────────────────────────────────
-
 	/**
 	 * Governing site registers brand-config GET and all-post-types.
 	 *
@@ -93,8 +91,6 @@ class Governing_Data_ControllerTest extends TestCase {
 		$this->assertArrayNotHasKey( $ns . '/brand-config', $routes );
 		$this->assertArrayHasKey( $ns . '/all-post-types', $routes );
 	}
-
-	// ── get_brand_config ────────────────────────────────────────────────
 
 	/**
 	 * Returns 403 when origin is empty.
@@ -200,8 +196,6 @@ class Governing_Data_ControllerTest extends TestCase {
 		$this->assertSame( [], $data['search_settings']['searchable_sites'] );
 	}
 
-	// ── delete_brand_config_cache ───────────────────────────────────────
-
 	/**
 	 * Clears the transient and returns success.
 	 */
@@ -226,8 +220,6 @@ class Governing_Data_ControllerTest extends TestCase {
 
 		$this->assertTrue( $data['success'] );
 	}
-
-	// ── get_all_post_types ──────────────────────────────────────────────
 
 	/**
 	 * Returns local post types for a non-governing site.

@@ -19,8 +19,6 @@ use PHPUnit\Framework\Attributes\CoversClass;
  */
 #[CoversClass( Governing_Data_Handler::class )]
 class Governing_Data_HandlerTest extends TestCase {
-	// ── get_brand_config ────────────────────────────────────────────────
-
 	/**
 	 * Returns error when site is not a consumer site.
 	 */
@@ -92,8 +90,6 @@ class Governing_Data_HandlerTest extends TestCase {
 		$this->assertSame( 'onesearch_no_key', $result->get_error_code() );
 	}
 
-	// ── get_all_brand_post_types ────────────────────────────────────────
-
 	/**
 	 * Returns error when site is not a governing site.
 	 */
@@ -161,8 +157,6 @@ class Governing_Data_HandlerTest extends TestCase {
 		$this->assertNotEmpty( $result['errors'] );
 		$this->assertStringContainsString( 'Invalid response received', $result['errors'][0]['message'] );
 	}
-
-	// ── clear_brand_config_cache ────────────────────────────────────────
 
 	/**
 	 * Deletes transient for non-governing site.

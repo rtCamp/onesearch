@@ -37,8 +37,6 @@ class Basic_Options_ControllerTest extends TestCase {
 		$this->controller = new Basic_Options_Controller();
 	}
 
-	// ── Route registration ──────────────────────────────────────────────
-
 	/**
 	 * Verify all expected routes are registered.
 	 *
@@ -56,8 +54,6 @@ class Basic_Options_ControllerTest extends TestCase {
 		$this->assertArrayHasKey( $ns . '/secret-key', $routes );
 		$this->assertArrayHasKey( $ns . '/governing-site', $routes );
 	}
-
-	// ── get_site_type ───────────────────────────────────────────────────
 
 	/**
 	 * Returns governing site type when configured.
@@ -97,8 +93,6 @@ class Basic_Options_ControllerTest extends TestCase {
 		$this->assertTrue( $data['success'] );
 		$this->assertNull( $data['site_type'] );
 	}
-
-	// ── get_shared_sites ────────────────────────────────────────────────
 
 	/**
 	 * Returns empty array when no shared sites are configured.
@@ -140,8 +134,6 @@ class Basic_Options_ControllerTest extends TestCase {
 		$this->assertCount( 2, $data['shared_sites'] );
 		$this->assertSame( 'Brand A', $data['shared_sites'][0]['name'] );
 	}
-
-	// ── set_shared_sites ────────────────────────────────────────────────
 
 	/**
 	 * Returns 400 when duplicate site URLs exist.
@@ -239,8 +231,6 @@ class Basic_Options_ControllerTest extends TestCase {
 		$this->assertSame( [], $data['shared_sites'] );
 	}
 
-	// ── health_check ────────────────────────────────────────────────────
-
 	/**
 	 * Returns success response.
 	 */
@@ -251,8 +241,6 @@ class Basic_Options_ControllerTest extends TestCase {
 		$this->assertTrue( $data['success'] );
 		$this->assertArrayHasKey( 'message', $data );
 	}
-
-	// ── get_governing_site ──────────────────────────────────────────────
 
 	/**
 	 * Returns stored governing site URL.
@@ -280,8 +268,6 @@ class Basic_Options_ControllerTest extends TestCase {
 		$this->assertNull( $data['governing_site_url'] );
 	}
 
-	// ── remove_governing_site ───────────────────────────────────────────
-
 	/**
 	 * Removes the governing site option and returns success.
 	 */
@@ -306,8 +292,6 @@ class Basic_Options_ControllerTest extends TestCase {
 
 		$this->assertTrue( $data['success'] );
 	}
-
-	// ── secret-key ─────────────────────────────────────────────────────────
 
 	/**
 	 * GET secret-key returns a non-empty key (auto-generated if absent).

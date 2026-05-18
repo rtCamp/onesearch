@@ -65,8 +65,6 @@ class Abstract_REST_ControllerTest extends TestCase {
 		$this->controller = new Concrete_REST_Controller();
 	}
 
-	// ── register_hooks ──────────────────────────────────────────────────
-
 	/**
 	 * Verify register_hooks adds the rest_api_init action.
 	 */
@@ -74,8 +72,6 @@ class Abstract_REST_ControllerTest extends TestCase {
 		$this->controller->register_hooks();
 		$this->assertIsInt( has_action( 'rest_api_init', [ $this->controller, 'register_routes' ] ) );
 	}
-
-	// ── check_api_permissions: same-origin ──────────────────────────────
 
 	/**
 	 * Admin from same origin is allowed.
@@ -126,8 +122,6 @@ class Abstract_REST_ControllerTest extends TestCase {
 
 		$this->assertFalse( $this->controller->check_api_permissions( $request ) );
 	}
-
-	// ── check_api_permissions: cross-origin with token ──────────────────
 
 	/**
 	 * Cross-origin denied when X-OneSearch-Token header is missing.
@@ -263,8 +257,6 @@ class Abstract_REST_ControllerTest extends TestCase {
 
 		$this->assertTrue( $this->controller->check_api_permissions( $request ) );
 	}
-
-	// ── is_url_from_host ────────────────────────────────────────────────
 
 	/**
 	 * Matching host returns true.
