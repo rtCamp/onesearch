@@ -9,6 +9,7 @@ declare( strict_types = 1 );
 
 namespace OneSearch\Tests\Unit\Modules\Rest;
 
+use OneSearch\Modules\Rest\Abstract_REST_Controller;
 use OneSearch\Modules\Rest\Basic_Options_Controller;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
@@ -19,12 +20,12 @@ use WP_REST_Request;
  * Tests for the basic options REST endpoints.
  */
 #[CoversClass( Basic_Options_Controller::class )]
-#[CoversClass( \OneSearch\Modules\Rest\Abstract_REST_Controller::class )]
+#[CoversClass( Abstract_REST_Controller::class )]
 class Basic_Options_ControllerTest extends TestCase {
 	/**
-	 * Controller under test.
+	 * REST server.
 	 */
-	private Basic_Options_Controller $controller;
+	private ?\WP_REST_Server $server;
 
 	/**
 	 * {@inheritDoc}
@@ -33,20 +34,33 @@ class Basic_Options_ControllerTest extends TestCase {
 		parent::set_up();
 
 		global $wp_rest_server;
+		$wp_rest_server = new \WP_REST_Server();
+		$this->server   = $wp_rest_server;
+
+		// Register the controller's routes on rest_api_init.
+		( new Basic_Options_Controller() )->register_hooks();
+		do_action( 'rest_api_init' );
+
+		// Most endpoints require manage_options; authenticate as an admin.
+		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		wp_set_current_user( $admin_id );
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	public function tear_down(): void {
+		global $wp_rest_server;
 		$wp_rest_server = null;
 
-		$this->controller = new Basic_Options_Controller();
+		parent::tear_down();
 	}
 
 	/**
 	 * Verify all expected routes are registered.
-	 *
-	 * @expectedIncorrectUsage register_rest_route
 	 */
 	public function test_register_routes_registers_expected_endpoints(): void {
-		$this->controller->register_routes();
-
-		$routes = rest_get_server()->get_routes();
+		$routes = $this->server->get_routes();
 		$ns     = '/' . Basic_Options_Controller::NAMESPACE;
 
 		$this->assertArrayHasKey( $ns . '/site-type', $routes );
@@ -62,9 +76,11 @@ class Basic_Options_ControllerTest extends TestCase {
 	public function test_get_site_type_returns_governing(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
 
-		$response = $this->controller->get_site_type();
+		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/site-type' );
+		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
+		$this->assertSame( 200, $response->get_status() );
 		$this->assertTrue( $data['success'] );
 		$this->assertSame( Settings::SITE_TYPE_GOVERNING, $data['site_type'] );
 	}
@@ -75,7 +91,8 @@ class Basic_Options_ControllerTest extends TestCase {
 	public function test_get_site_type_returns_consumer(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
 
-		$response = $this->controller->get_site_type();
+		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/site-type' );
+		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
 		$this->assertTrue( $data['success'] );
@@ -88,7 +105,8 @@ class Basic_Options_ControllerTest extends TestCase {
 	public function test_get_site_type_returns_null_when_unset(): void {
 		delete_option( Settings::OPTION_SITE_TYPE );
 
-		$response = $this->controller->get_site_type();
+		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/site-type' );
+		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
 		$this->assertTrue( $data['success'] );
@@ -101,7 +119,8 @@ class Basic_Options_ControllerTest extends TestCase {
 	public function test_get_shared_sites_returns_empty_when_unset(): void {
 		delete_option( Settings::OPTION_GOVERNING_SHARED_SITES );
 
-		$response = $this->controller->get_shared_sites();
+		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/shared-sites' );
+		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
 		$this->assertTrue( $data['success'] );
@@ -128,7 +147,8 @@ class Basic_Options_ControllerTest extends TestCase {
 			]
 		);
 
-		$response = $this->controller->get_shared_sites();
+		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/shared-sites' );
+		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
 		$this->assertTrue( $data['success'] );
@@ -161,10 +181,10 @@ class Basic_Options_ControllerTest extends TestCase {
 		);
 		$request->set_header( 'Content-Type', 'application/json' );
 
-		$response = $this->controller->set_shared_sites( $request );
+		$response = $this->server->dispatch( $request );
 
-		$this->assertInstanceOf( \WP_Error::class, $response );
-		$this->assertSame( 'duplicate_site_url', $response->get_error_code() );
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'duplicate_site_url', $response->get_data()['code'] );
 	}
 
 	/**
@@ -192,9 +212,10 @@ class Basic_Options_ControllerTest extends TestCase {
 		);
 		$request->set_header( 'Content-Type', 'application/json' );
 
-		$response = $this->controller->set_shared_sites( $request );
+		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
+		$this->assertSame( 200, $response->get_status() );
 		$this->assertTrue( $data['success'] );
 		$this->assertCount( 2, $data['shared_sites'] );
 
@@ -211,7 +232,7 @@ class Basic_Options_ControllerTest extends TestCase {
 		$request->set_body( wp_json_encode( [ 'sites_data' => [] ] ) );
 		$request->set_header( 'Content-Type', 'application/json' );
 
-		$response = $this->controller->set_shared_sites( $request );
+		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
 		$this->assertSame( [], $data['shared_sites'] );
@@ -225,18 +246,18 @@ class Basic_Options_ControllerTest extends TestCase {
 		$request->set_body( wp_json_encode( [ 'other' => 'data' ] ) );
 		$request->set_header( 'Content-Type', 'application/json' );
 
-		$response = $this->controller->set_shared_sites( $request );
-		$data     = $response->get_data();
+		$response = $this->server->dispatch( $request );
 
-		// sites_data falls back to [] so this should succeed with empty data.
-		$this->assertSame( [], $data['shared_sites'] );
+		// sites_data is required by the route schema → request fails validation.
+		$this->assertSame( 400, $response->get_status() );
 	}
 
 	/**
 	 * Returns success response.
 	 */
 	public function test_health_check_returns_success(): void {
-		$response = $this->controller->health_check();
+		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/health-check' );
+		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
 		$this->assertTrue( $data['success'] );
@@ -249,7 +270,8 @@ class Basic_Options_ControllerTest extends TestCase {
 	public function test_get_governing_site_returns_stored_url(): void {
 		Settings::set_parent_site_url( 'https://governing.example.com' );
 
-		$response = $this->controller->get_governing_site();
+		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/governing-site' );
+		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
 		$this->assertTrue( $data['success'] );
@@ -262,7 +284,8 @@ class Basic_Options_ControllerTest extends TestCase {
 	public function test_get_governing_site_returns_null_when_unset(): void {
 		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
 
-		$response = $this->controller->get_governing_site();
+		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/governing-site' );
+		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
 		$this->assertTrue( $data['success'] );
@@ -275,7 +298,8 @@ class Basic_Options_ControllerTest extends TestCase {
 	public function test_remove_governing_site_deletes_option(): void {
 		Settings::set_parent_site_url( 'https://governing.example.com' );
 
-		$response = $this->controller->remove_governing_site();
+		$request  = new WP_REST_Request( 'DELETE', '/onesearch/v1/governing-site' );
+		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
 		$this->assertTrue( $data['success'] );
@@ -288,7 +312,8 @@ class Basic_Options_ControllerTest extends TestCase {
 	public function test_remove_governing_site_succeeds_when_already_unset(): void {
 		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
 
-		$response = $this->controller->remove_governing_site();
+		$request  = new WP_REST_Request( 'DELETE', '/onesearch/v1/governing-site' );
+		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
 		$this->assertTrue( $data['success'] );
@@ -296,18 +321,10 @@ class Basic_Options_ControllerTest extends TestCase {
 
 	/**
 	 * GET secret-key returns a non-empty key (auto-generated if absent).
-	 *
-	 * @expectedIncorrectUsage register_rest_route
 	 */
 	public function test_get_secret_key_returns_key(): void {
-		$this->controller->register_routes();
-
-		$routes = rest_get_server()->get_routes();
-		$ns     = '/' . Basic_Options_Controller::NAMESPACE;
-
-		// Invoke the GET callback directly from the registered route.
-		$callback = $routes[ $ns . '/secret-key' ][0]['callback'];
-		$response = call_user_func( $callback );
+		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/secret-key' );
+		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
 		$this->assertTrue( $data['success'] );
@@ -316,24 +333,16 @@ class Basic_Options_ControllerTest extends TestCase {
 
 	/**
 	 * PUT secret-key regenerates and returns a new key.
-	 *
-	 * @expectedIncorrectUsage register_rest_route
 	 */
 	public function test_regenerate_secret_key_returns_new_key(): void {
-		$this->controller->register_routes();
-
-		$routes = rest_get_server()->get_routes();
-		$ns     = '/' . Basic_Options_Controller::NAMESPACE;
-
 		// Get the current key first.
-		$get_callback = $routes[ $ns . '/secret-key' ][0]['callback'];
-		$old_data     = call_user_func( $get_callback )->get_data();
-		$old_key      = $old_data['secret_key'];
+		$get_request = new WP_REST_Request( 'GET', '/onesearch/v1/secret-key' );
+		$old_key     = $this->server->dispatch( $get_request )->get_data()['secret_key'];
 
-		// Invoke the PUT/PATCH callback.
-		$put_callback = $routes[ $ns . '/secret-key' ][1]['callback'];
-		$response     = call_user_func( $put_callback );
-		$data         = $response->get_data();
+		// Regenerate via PUT.
+		$put_request = new WP_REST_Request( 'PUT', '/onesearch/v1/secret-key' );
+		$response    = $this->server->dispatch( $put_request );
+		$data        = $response->get_data();
 
 		$this->assertTrue( $data['success'] );
 		$this->assertNotEmpty( $data['secret_key'] );

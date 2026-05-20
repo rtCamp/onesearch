@@ -9,6 +9,7 @@ declare( strict_types = 1 );
 
 namespace OneSearch\Tests\Unit\Modules\Rest;
 
+use OneSearch\Modules\Rest\Abstract_REST_Controller;
 use OneSearch\Modules\Rest\Governing_Data_Controller;
 use OneSearch\Modules\Rest\Governing_Data_Handler;
 use OneSearch\Modules\Search\Settings as Search_Settings;
@@ -21,12 +22,12 @@ use WP_REST_Request;
  * Tests for the governing data REST endpoints.
  */
 #[CoversClass( Governing_Data_Controller::class )]
-#[CoversClass( \OneSearch\Modules\Rest\Abstract_REST_Controller::class )]
+#[CoversClass( Abstract_REST_Controller::class )]
 class Governing_Data_ControllerTest extends TestCase {
 	/**
-	 * Controller under test.
+	 * REST server.
 	 */
-	private Governing_Data_Controller $controller;
+	private ?\WP_REST_Server $server;
 
 	/**
 	 * {@inheritDoc}
@@ -35,22 +36,43 @@ class Governing_Data_ControllerTest extends TestCase {
 		parent::set_up();
 
 		global $wp_rest_server;
+		$wp_rest_server = new \WP_REST_Server();
+		$this->server   = $wp_rest_server;
+
+		// Most endpoints require manage_options; authenticate as an admin.
+		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		wp_set_current_user( $admin_id );
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	public function tear_down(): void {
+		global $wp_rest_server;
 		$wp_rest_server = null;
 
-		$this->controller = new Governing_Data_Controller();
+		parent::tear_down();
+	}
+
+	/**
+	 * Hook the controller's routes onto the test REST server.
+	 *
+	 * Call AFTER any option setup that affects which routes are registered.
+	 */
+	private function init_routes(): void {
+		( new Governing_Data_Controller() )->register_hooks();
+		do_action( 'rest_api_init' );
 	}
 
 	/**
 	 * Governing site registers brand-config GET and all-post-types.
-	 *
-	 * @expectedIncorrectUsage register_rest_route
 	 */
 	public function test_register_routes_for_governing_site(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
 
-		$this->controller->register_routes();
+		$this->init_routes();
 
-		$routes = rest_get_server()->get_routes();
+		$routes = $this->server->get_routes();
 		$ns     = '/' . Governing_Data_Controller::NAMESPACE;
 
 		$this->assertArrayHasKey( $ns . '/brand-config', $routes );
@@ -60,15 +82,13 @@ class Governing_Data_ControllerTest extends TestCase {
 
 	/**
 	 * Consumer site registers brand-config DELETE and all-post-types.
-	 *
-	 * @expectedIncorrectUsage register_rest_route
 	 */
 	public function test_register_routes_for_consumer_site(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
 
-		$this->controller->register_routes();
+		$this->init_routes();
 
-		$routes = rest_get_server()->get_routes();
+		$routes = $this->server->get_routes();
 		$ns     = '/' . Governing_Data_Controller::NAMESPACE;
 
 		$this->assertArrayHasKey( $ns . '/brand-config', $routes );
@@ -78,15 +98,13 @@ class Governing_Data_ControllerTest extends TestCase {
 
 	/**
 	 * Standalone site only registers all-post-types.
-	 *
-	 * @expectedIncorrectUsage register_rest_route
 	 */
 	public function test_register_routes_for_standalone_site(): void {
 		delete_option( Settings::OPTION_SITE_TYPE );
 
-		$this->controller->register_routes();
+		$this->init_routes();
 
-		$routes = rest_get_server()->get_routes();
+		$routes = $this->server->get_routes();
 		$ns     = '/' . Governing_Data_Controller::NAMESPACE;
 
 		$this->assertArrayNotHasKey( $ns . '/brand-config', $routes );
@@ -95,19 +113,27 @@ class Governing_Data_ControllerTest extends TestCase {
 
 	/**
 	 * Returns 403 when origin is empty.
+	 *
+	 * No origin -> auth layer falls back to manage_options (admin is set in set_up),
+	 * so the request reaches the controller which itself rejects the empty origin.
 	 */
 	public function test_get_brand_config_rejects_empty_origin(): void {
-		$request = new WP_REST_Request( 'GET', '/onesearch/v1/brand-config' );
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		$this->init_routes();
 
-		$response = $this->controller->get_brand_config( $request );
+		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/brand-config' );
+		$response = $this->server->dispatch( $request );
 
-		$this->assertInstanceOf( \WP_Error::class, $response );
-		$this->assertSame( 'onesearch_unauthorized_site', $response->get_error_code() );
-		$this->assertSame( 403, $response->get_error_data()['status'] );
+		$this->assertSame( 403, $response->get_status() );
+		$this->assertSame( 'onesearch_unauthorized_site', $response->get_data()['code'] );
 	}
 
 	/**
-	 * Returns 403 when origin is not a known shared site.
+	 * Rejects an origin that does not belong to any shared site.
+	 *
+	 * The cross-site auth layer requires a valid X-OneSearch-Token for any non-same-host
+	 * origin; an unknown origin cannot present one, so the request is rejected at the
+	 * permission layer (401) before the controller runs.
 	 */
 	public function test_get_brand_config_rejects_unknown_origin(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
@@ -120,29 +146,30 @@ class Governing_Data_ControllerTest extends TestCase {
 				],
 			]
 		);
+		$this->init_routes();
 
 		$request = new WP_REST_Request( 'GET', '/onesearch/v1/brand-config' );
 		$request->set_header( 'origin', 'https://unknown.example.com' );
 
-		$response = $this->controller->get_brand_config( $request );
+		$response = $this->server->dispatch( $request );
 
-		$this->assertInstanceOf( \WP_Error::class, $response );
-		$this->assertSame( 'onesearch_unauthorized_site', $response->get_error_code() );
+		$this->assertGreaterThanOrEqual( 400, $response->get_status() );
 	}
 
 	/**
-	 * Returns full brand config for a known shared site.
+	 * Returns full brand config for a known shared site presenting a valid token.
 	 */
 	public function test_get_brand_config_returns_config_for_known_site(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
 
 		$site_url = 'https://brand.example.com/';
+		$api_key  = 'the-key';
 		Settings::set_shared_sites(
 			[
 				[
 					'name'    => 'Brand Site',
 					'url'     => $site_url,
-					'api_key' => 'the-key',
+					'api_key' => $api_key,
 				],
 			]
 		);
@@ -153,13 +180,16 @@ class Governing_Data_ControllerTest extends TestCase {
 				'write_key' => 'TEST_KEY',
 			]
 		);
+		$this->init_routes();
 
 		$request = new WP_REST_Request( 'GET', '/onesearch/v1/brand-config' );
 		$request->set_header( 'origin', $site_url );
+		$request->set_header( 'X-OneSearch-Token', $api_key );
 
-		$response = $this->controller->get_brand_config( $request );
+		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
+		$this->assertSame( 200, $response->get_status() );
 		$this->assertTrue( $data['success'] );
 		$this->assertArrayHasKey( 'algolia_credentials', $data );
 		$this->assertSame( 'TEST_APP', $data['algolia_credentials']['app_id'] );
@@ -174,25 +204,29 @@ class Governing_Data_ControllerTest extends TestCase {
 	public function test_get_brand_config_returns_default_search_settings(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
 
+		$api_key = 'brand-key';
 		Settings::set_shared_sites(
 			[
 				[
 					'name'    => 'Brand',
 					'url'     => 'https://brand.example.com',
-					'api_key' => 'key',
+					'api_key' => $api_key,
 				],
 			]
 		);
 
 		// No search settings configured.
 		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
+		$this->init_routes();
 
 		$request = new WP_REST_Request( 'GET', '/onesearch/v1/brand-config' );
 		$request->set_header( 'origin', 'https://brand.example.com' );
+		$request->set_header( 'X-OneSearch-Token', $api_key );
 
-		$response = $this->controller->get_brand_config( $request );
+		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
+		$this->assertSame( 200, $response->get_status() );
 		$this->assertFalse( $data['search_settings']['algolia_enabled'] );
 		$this->assertSame( [], $data['search_settings']['searchable_sites'] );
 	}
@@ -201,11 +235,15 @@ class Governing_Data_ControllerTest extends TestCase {
 	 * Clears the transient and returns success.
 	 */
 	public function test_delete_brand_config_cache_clears_transient(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
 		set_transient( Governing_Data_Handler::TRANSIENT_KEY, [ 'cached' => true ], 3600 );
+		$this->init_routes();
 
-		$response = $this->controller->delete_brand_config_cache();
+		$request  = new WP_REST_Request( 'DELETE', '/onesearch/v1/brand-config' );
+		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
+		$this->assertSame( 200, $response->get_status() );
 		$this->assertTrue( $data['success'] );
 		$this->assertFalse( get_transient( Governing_Data_Handler::TRANSIENT_KEY ) );
 	}
@@ -214,11 +252,15 @@ class Governing_Data_ControllerTest extends TestCase {
 	 * Returns success even when transient was already absent.
 	 */
 	public function test_delete_brand_config_cache_succeeds_when_no_cache(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
 		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
+		$this->init_routes();
 
-		$response = $this->controller->delete_brand_config_cache();
+		$request  = new WP_REST_Request( 'DELETE', '/onesearch/v1/brand-config' );
+		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
+		$this->assertSame( 200, $response->get_status() );
 		$this->assertTrue( $data['success'] );
 	}
 
@@ -227,10 +269,13 @@ class Governing_Data_ControllerTest extends TestCase {
 	 */
 	public function test_get_all_post_types_returns_local_types_for_non_governing(): void {
 		delete_option( Settings::OPTION_SITE_TYPE );
+		$this->init_routes();
 
-		$response = $this->controller->get_all_post_types();
+		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/all-post-types' );
+		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
+		$this->assertSame( 200, $response->get_status() );
 		$this->assertTrue( $data['success'] );
 
 		// Every WP install has at least 'post' and 'page'.
@@ -256,9 +301,13 @@ class Governing_Data_ControllerTest extends TestCase {
 				],
 			]
 		);
+		$this->init_routes();
 
-		$response = $this->controller->get_all_post_types();
+		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/all-post-types' );
+		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
+
+		$this->assertSame( 200, $response->get_status() );
 
 		// Should still include the local site's post types.
 		$site_url = trailingslashit( get_site_url() );
@@ -272,8 +321,10 @@ class Governing_Data_ControllerTest extends TestCase {
 	 */
 	public function test_get_all_post_types_post_type_structure(): void {
 		delete_option( Settings::OPTION_SITE_TYPE );
+		$this->init_routes();
 
-		$response = $this->controller->get_all_post_types();
+		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/all-post-types' );
+		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
 		$site_url   = trailingslashit( get_site_url() );
