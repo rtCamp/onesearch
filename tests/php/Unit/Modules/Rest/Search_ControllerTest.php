@@ -21,6 +21,7 @@ use WP_REST_Request;
  * Tests for the search REST endpoints.
  */
 #[CoversClass( Search_Controller::class )]
+#[CoversClass( \OneSearch\Modules\Rest\Abstract_REST_Controller::class )]
 class Search_ControllerTest extends TestCase {
 	/**
 	 * Controller under test.

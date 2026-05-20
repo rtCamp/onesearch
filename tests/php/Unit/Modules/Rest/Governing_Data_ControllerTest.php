@@ -21,6 +21,7 @@ use WP_REST_Request;
  * Tests for the governing data REST endpoints.
  */
 #[CoversClass( Governing_Data_Controller::class )]
+#[CoversClass( \OneSearch\Modules\Rest\Abstract_REST_Controller::class )]
 class Governing_Data_ControllerTest extends TestCase {
 	/**
 	 * Controller under test.

@@ -19,6 +19,7 @@ use WP_REST_Request;
  * Tests for the basic options REST endpoints.
  */
 #[CoversClass( Basic_Options_Controller::class )]
+#[CoversClass( \OneSearch\Modules\Rest\Abstract_REST_Controller::class )]
 class Basic_Options_ControllerTest extends TestCase {
 	/**
 	 * Controller under test.
