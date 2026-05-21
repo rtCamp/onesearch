@@ -305,10 +305,12 @@ final class IndexTest extends TestCase {
 
 	/**
 	 * Set site context with valid Algolia credentials.
+	 *
+	 * @param string $site_type Site type (governing or consumer).
 	 */
-	private function set_credentials( $site_type ): void {
+	private function set_credentials( string $site_type ): void {
 
-		if ( $site_type === Settings::SITE_TYPE_GOVERNING ) {
+		if ( Settings::SITE_TYPE_GOVERNING === $site_type ) {
 			update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
 			Search_Settings::set_algolia_credentials(
 				[
@@ -317,7 +319,7 @@ final class IndexTest extends TestCase {
 				]
 			);
 		}
-		if ( $site_type === Settings::SITE_TYPE_CONSUMER ) {
+		if ( Settings::SITE_TYPE_CONSUMER === $site_type ) {
 			update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
 			Settings::set_parent_site_url( 'https://governing.example.com' );
 
