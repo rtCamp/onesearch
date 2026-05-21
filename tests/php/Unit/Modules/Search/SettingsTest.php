@@ -25,6 +25,7 @@ final class SettingsTest extends TestCase {
 	 */
 	protected function tearDown(): void {
 		delete_option( Settings::OPTION_SITE_TYPE );
+		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
 		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
 		delete_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );
 		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
@@ -265,6 +266,45 @@ final class SettingsTest extends TestCase {
 		$settings->on_site_type_change( '', Settings::SITE_TYPE_GOVERNING );
 
 		$this->assertTrue( true );
+	}
+
+	/**
+	 * Deletes Algolia index when site type changes to consumer.
+	 *
+	 * When the site type is updated to 'consumer', on_site_type_change should
+	 * call delete_index() which triggers an Algolia delete request.
+	 */
+	public function test_on_site_type_change_deletes_index_for_consumer(): void {
+		// Set site type to consumer (simulates the option already being saved
+		// before the update_option_ hook fires).
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		update_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL, 'https://governing.example.com' );
+
+		// Prime brand config cache so Algolia credentials resolve via consumer path.
+		$cached_config = [
+			'algolia_credentials' => [
+				'app_id'    => 'test-app',
+				'write_key' => 'test-key',
+			],
+			'search_settings'     => [
+				'algolia_enabled'  => true,
+				'searchable_sites' => [],
+			],
+			'indexable_entities'  => [ 'post' ],
+			'available_sites'     => [],
+		];
+
+		$method = new \ReflectionMethod( Governing_Data_Handler::class, 'set_brand_config_cache' );
+		$method->invoke( null, $cached_config );
+
+		$recorded_paths = [];
+		$this->mock_algolia_http_client( $recorded_paths );
+
+		$settings = new Search_Settings();
+		$settings->on_site_type_change( Settings::SITE_TYPE_GOVERNING, Settings::SITE_TYPE_CONSUMER );
+
+		// delete_index() on a consumer site calls deleteBy, which hits Algolia.
+		$this->assertNotEmpty( $recorded_paths, 'Changing to consumer should trigger Algolia delete_index call.' );
 	}
 
 	/**

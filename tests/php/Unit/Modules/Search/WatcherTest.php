@@ -217,4 +217,65 @@ final class WatcherTest extends TestCase {
 		$method = new \ReflectionMethod( Governing_Data_Handler::class, 'set_brand_config_cache' );
 		$method->invoke( null, $cached_config );
 	}
+
+	/**
+	 * Indexable post triggers Algolia saveObjects (reindex) call.
+	 * This verifies the full integration flow for a governing site.
+	 */
+	public function test_on_post_transition_triggers_algolia_reindex(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		update_option(
+			Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS,
+			[
+				'app_id'    => 'test-app',
+				'write_key' => 'test-key',
+			]
+		);
+		update_option(
+			Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES,
+			[
+				'entities' => [
+					Utils::normalize_url( get_site_url() ) => [ 'post' ],
+				],
+			]
+		);
+
+		$recorded_paths = [];
+		$this->mock_algolia_http_client( $recorded_paths );
+
+		$post    = self::factory()->post->create_and_get( [ 'post_status' => 'publish' ] );
+		$watcher = new Watcher();
+
+		// Transition from 'draft' to 'publish' (should trigger reindex).
+		$watcher->on_post_transition( 'publish', 'draft', $post );
+
+		// Assert that a /batch (saveObjects) call was made.
+		$batch_calls = array_filter( $recorded_paths, static fn ( $p ) => str_contains( $p, '/batch' ) );
+		$this->assertNotEmpty( $batch_calls, 'Happy path should trigger Algolia reindex (saveObjects).' );
+	}
+
+	/**
+	 * Indexable post triggers Algolia saveObjects (reindex) call on a consumer (brand) site.
+	 * This verifies the full integration flow where credentials and indexable entities
+	 * are resolved from the governing site's brand config cache.
+	 */
+	public function test_on_post_transition_triggers_algolia_reindex_consumer_site(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		update_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL, 'https://governing.example.com' );
+
+		$this->set_consumer_brand_config_cache( 'test-app', 'test-key' );
+
+		$recorded_paths = [];
+		$this->mock_algolia_http_client( $recorded_paths );
+
+		$post    = self::factory()->post->create_and_get( [ 'post_status' => 'publish' ] );
+		$watcher = new Watcher();
+
+		// Transition from 'draft' to 'publish' (should trigger reindex).
+		$watcher->on_post_transition( 'publish', 'draft', $post );
+
+		// Assert that a /batch (saveObjects) call was made.
+		$batch_calls = array_filter( $recorded_paths, static fn ( $p ) => str_contains( $p, '/batch' ) );
+		$this->assertNotEmpty( $batch_calls, 'Consumer site happy path should trigger Algolia reindex (saveObjects).' );
+	}
 }
