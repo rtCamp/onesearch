@@ -94,24 +94,20 @@ final class SettingsTest extends TestCase {
 		$this->assertArrayHasKey( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS, $registered );
 	}
 
-	/**
-	 * Ensures register_settings sanitizes algolia credentials payload.
-	 */
+			/**
+			 * Ensures register_settings sanitizes algolia credentials payload.
+			 */
 	public function test_register_settings_sanitizes_algolia_credentials(): void {
 		$settings = new Search_Settings();
 		$settings->register_settings();
 
-		$registered = get_registered_settings();
-		$sanitize   = $registered[ Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS ]['sanitize_callback'] ?? null;
+		$raw = [
+			'app_id'    => ' <b>app-id</b> ',
+			'write_key' => "\n<script>alert(1)</script>write-key\t",
+		];
 
-		$this->assertIsCallable( $sanitize );
-
-		$sanitized = $sanitize(
-			[
-				'app_id'    => ' <b>app-id</b> ',
-				'write_key' => "\n<script>alert(1)</script>write-key\t",
-			]
-		);
+		update_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS, $raw );
+		$sanitized = get_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
 
 		$this->assertSame( 'app-id', $sanitized['app_id'] );
 		$this->assertSame( 'write-key', $sanitized['write_key'] );

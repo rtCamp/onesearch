@@ -9,6 +9,7 @@ declare(strict_types = 1);
 
 namespace OneSearch\Tests\Unit\Modules\Search;
 
+use OneSearch\Modules\Rest\Governing_Data_Handler;
 use OneSearch\Modules\Search\Index;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
@@ -26,9 +27,6 @@ final class IndexTest extends TestCase {
 	 */
 	protected function tearDown(): void {
 		AlgoliaSDK::resetHttpClient();
-
-		delete_option( Settings::OPTION_SITE_TYPE );
-		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
 
 		parent::tearDown();
 	}
@@ -52,7 +50,7 @@ final class IndexTest extends TestCase {
 	 * Returns SearchIndex when credentials are valid.
 	 */
 	public function test_get_index_returns_search_index_with_valid_credentials(): void {
-		$this->set_governing_credentials();
+		$this->set_credentials( Settings::SITE_TYPE_GOVERNING );
 
 		$index  = new Index();
 		$result = $index->get_index();
@@ -64,7 +62,7 @@ final class IndexTest extends TestCase {
 	 * Caches the index instance on subsequent calls.
 	 */
 	public function test_get_index_returns_same_instance_on_second_call(): void {
-		$this->set_governing_credentials();
+		$this->set_credentials( Settings::SITE_TYPE_GOVERNING );
 
 		$index  = new Index();
 		$first  = $index->get_index();
@@ -87,10 +85,25 @@ final class IndexTest extends TestCase {
 	}
 
 	/**
-	 * Returns true for delete_index with valid credentials.
+	 * Returns true for delete_index with valid credentials on governing sites.
 	 */
 	public function test_delete_index_returns_true_with_valid_credentials(): void {
-		$this->set_governing_credentials();
+		$this->set_credentials( Settings::SITE_TYPE_GOVERNING );
+
+		$recorded_paths = [];
+		$this->mock_algolia_http_client( $recorded_paths );
+
+		$result = ( new Index() )->delete_index();
+
+		$this->assertTrue( $result );
+		$this->assertNotEmpty( $recorded_paths );
+	}
+
+	/**
+	 * Returns true for delete_index with valid credentials on consumer site.
+	 */
+	public function test_delete_index_returns_true_with_valid_credentials_on_consumer(): void {
+		$this->set_credentials( Settings::SITE_TYPE_CONSUMER );
 
 		$recorded_paths = [];
 		$this->mock_algolia_http_client( $recorded_paths );
@@ -118,7 +131,7 @@ final class IndexTest extends TestCase {
 	 * Returns true for delete_by with valid credentials.
 	 */
 	public function test_delete_by_returns_true_with_valid_credentials(): void {
-		$this->set_governing_credentials();
+		$this->set_credentials( Settings::SITE_TYPE_GOVERNING );
 
 		$recorded_paths = [];
 		$this->mock_algolia_http_client( $recorded_paths );
@@ -133,7 +146,7 @@ final class IndexTest extends TestCase {
 	 * Returns WP_Error when SDK throws during delete_by failure.
 	 */
 	public function test_delete_by_returns_error_when_sdk_throws(): void {
-		$this->set_governing_credentials();
+		$this->set_credentials( Settings::SITE_TYPE_GOVERNING );
 
 		$recorded_paths = [];
 		$this->mock_algolia_http_client( $recorded_paths, null, '/deleteBy' );
@@ -161,7 +174,7 @@ final class IndexTest extends TestCase {
 	 * Returns true for save_records with valid credentials.
 	 */
 	public function test_save_records_returns_true_with_valid_credentials(): void {
-		$this->set_governing_credentials();
+		$this->set_credentials( Settings::SITE_TYPE_GOVERNING );
 
 		$recorded_paths = [];
 		$this->mock_algolia_http_client( $recorded_paths );
@@ -183,7 +196,7 @@ final class IndexTest extends TestCase {
 	 * Returns WP_Error when SDK throws during save_records.
 	 */
 	public function test_save_records_returns_error_when_sdk_throws(): void {
-		$this->set_governing_credentials();
+		$this->set_credentials( Settings::SITE_TYPE_GOVERNING );
 
 		$recorded_paths = [];
 		$this->mock_algolia_http_client( $recorded_paths, null, '/batch' );
@@ -218,7 +231,7 @@ final class IndexTest extends TestCase {
 	 * Returns search payload for search with valid credentials.
 	 */
 	public function test_search_returns_results_with_valid_credentials(): void {
-		$this->set_governing_credentials();
+		$this->set_credentials( Settings::SITE_TYPE_GOVERNING );
 
 		$recorded_paths = [];
 
@@ -236,7 +249,7 @@ final class IndexTest extends TestCase {
 	 * Returns WP_Error when SDK throws during search.
 	 */
 	public function test_search_returns_error_when_sdk_throws(): void {
-		$this->set_governing_credentials();
+		$this->set_credentials( Settings::SITE_TYPE_GOVERNING );
 
 		$recorded_paths = [];
 		$this->mock_algolia_http_client( $recorded_paths, null, '/query' );
@@ -251,7 +264,7 @@ final class IndexTest extends TestCase {
 	 * Returns WP_Error when SDK throws while setting index settings.
 	 */
 	public function test_delete_by_returns_set_settings_error_when_sdk_throws_on_settings(): void {
-		$this->set_governing_credentials();
+		$this->set_credentials( Settings::SITE_TYPE_GOVERNING );
 
 		$recorded_paths = [];
 		$this->mock_algolia_http_client( $recorded_paths, null, '/settings' );
@@ -279,7 +292,7 @@ final class IndexTest extends TestCase {
 	 * Returns true when index_all_posts is called with no post types and valid credentials.
 	 */
 	public function test_index_all_posts_returns_true_with_valid_credentials_and_no_post_types(): void {
-		$this->set_governing_credentials();
+		$this->set_credentials( Settings::SITE_TYPE_GOVERNING );
 
 		$recorded_paths = [];
 		$this->mock_algolia_http_client( $recorded_paths );
@@ -291,15 +304,42 @@ final class IndexTest extends TestCase {
 	}
 
 	/**
-	 * Set governing-site context with valid Algolia credentials.
+	 * Set site context with valid Algolia credentials.
 	 */
-	private function set_governing_credentials(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-		Search_Settings::set_algolia_credentials(
-			[
-				'app_id'    => 'TEST_APP',
-				'write_key' => 'TEST_KEY',
-			]
-		);
+	private function set_credentials( $site_type ): void {
+
+		if ( $site_type === Settings::SITE_TYPE_GOVERNING ) {
+			update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+			Search_Settings::set_algolia_credentials(
+				[
+					'app_id'    => 'TEST_APP',
+					'write_key' => 'TEST_KEY',
+				]
+			);
+		}
+		if ( $site_type === Settings::SITE_TYPE_CONSUMER ) {
+			update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+			Settings::set_parent_site_url( 'https://governing.example.com' );
+
+			// Pre-populate the brand-config cache so Algolia::get_algolia_credentials()
+			// on a consumer site resolves locally instead of making an HTTP request
+			// to the governing site.
+			set_transient(
+				Governing_Data_Handler::TRANSIENT_KEY,
+				[
+					'algolia_credentials' => [
+						'app_id'    => 'TEST_APP',
+						'write_key' => 'TEST_KEY',
+					],
+					'search_settings'     => [
+						'algolia_enabled'  => true,
+						'searchable_sites' => [],
+					],
+					'indexable_entities'  => [],
+					'available_sites'     => [],
+				],
+				HOUR_IN_SECONDS
+			);
+		}
 	}
 }
