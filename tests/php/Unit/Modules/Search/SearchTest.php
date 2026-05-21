@@ -9,7 +9,6 @@ declare(strict_types = 1);
 
 namespace OneSearch\Tests\Unit\Modules\Search;
 
-use OneSearch\Modules\Rest\Governing_Data_Handler;
 use OneSearch\Modules\Search\Search;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
@@ -27,15 +26,7 @@ final class SearchTest extends TestCase {
 	 * {@inheritDoc}
 	 */
 	protected function tearDown(): void {
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited, SlevomatCodingStandard.Variables.UnusedVariable.UnusedVariable -- Resetting test state.
-
 		AlgoliaSDK::resetHttpClient();
-
-		delete_option( Settings::OPTION_SITE_TYPE );
-		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
-		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
-		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
-		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
 
 		parent::tearDown();
 	}

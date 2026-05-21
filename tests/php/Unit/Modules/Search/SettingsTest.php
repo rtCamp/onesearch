@@ -13,6 +13,7 @@ use OneSearch\Modules\Rest\Governing_Data_Handler;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
+use OneSearch\Vendor\Algolia\AlgoliaSearch\Algolia as AlgoliaSDK;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
@@ -24,13 +25,7 @@ final class SettingsTest extends TestCase {
 	 * {@inheritDoc}
 	 */
 	protected function tearDown(): void {
-		delete_option( Settings::OPTION_SITE_TYPE );
-		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
-		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
-		delete_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );
-		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
-		delete_option( Settings::OPTION_GOVERNING_SHARED_SITES );
-		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
+		AlgoliaSDK::resetHttpClient();
 
 		parent::tearDown();
 	}
@@ -121,20 +116,16 @@ final class SettingsTest extends TestCase {
 		$settings = new Search_Settings();
 		$settings->register_settings();
 
-		$registered = get_registered_settings();
-		$sanitize   = $registered[ Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS ]['sanitize_callback'] ?? null;
+		$raw = [
+			' https://example.com/site '  => [
+				'algolia_enabled'  => 1,
+				'searchable_sites' => [ ' https://child.example.com/<b>x</b> ' ],
+			],
+			'https://example.com/invalid' => 'not-array',
+		];
 
-		$this->assertIsCallable( $sanitize );
-
-		$sanitized = $sanitize(
-			[
-				' https://example.com/site '  => [
-					'algolia_enabled'  => 1,
-					'searchable_sites' => [ ' https://child.example.com/<b>x</b> ' ],
-				],
-				'https://example.com/invalid' => 'not-array',
-			]
-		);
+		update_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS, $raw );
+		$sanitized = get_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
 
 		$this->assertArrayHasKey( 'https://example.com/site/', $sanitized );
 		$this->assertTrue( $sanitized['https://example.com/site/']['algolia_enabled'] );

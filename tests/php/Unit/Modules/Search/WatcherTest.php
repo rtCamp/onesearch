@@ -29,12 +29,6 @@ final class WatcherTest extends TestCase {
 	protected function tearDown(): void {
 		AlgoliaSDK::resetHttpClient();
 
-		delete_option( Settings::OPTION_SITE_TYPE );
-		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
-		delete_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );
-		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
-		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
-
 		parent::tearDown();
 	}
 
