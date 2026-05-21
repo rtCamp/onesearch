@@ -274,4 +274,136 @@ class Search_Controller_GoverningSiteTest extends TestCase {
 		$this->assertFalse( $data['success'] );
 		$this->assertArrayHasKey( 'message', $data );
 	}
+
+	/**
+	 * Governing reindex fans out to each shared site via wp_safe_remote_post.
+	 */
+	public function test_reindex_dispatches_to_each_shared_site(): void {
+		delete_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Site A',
+					'url'     => 'https://site-a.example.com/',
+					'api_key' => 'key-a',
+				],
+				[
+					'name'    => 'Site B',
+					'url'     => 'https://site-b.example.com/',
+					'api_key' => 'key-b',
+				],
+			]
+		);
+
+		$requested_urls = [];
+		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( false === strpos( $url, '/re-index' ) ) {
+				return $preempt;
+			}
+			$requested_urls[] = $url;
+			return [
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
+				],
+				'body'     => wp_json_encode( [ 'success' => true ] ),
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$request = new WP_REST_Request( 'POST', '/onesearch/v1/re-index' );
+		$this->server->dispatch( $request );
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertCount( 2, $requested_urls );
+		$this->assertStringContainsString( 'site-a.example.com', $requested_urls[0] );
+		$this->assertStringContainsString( 'site-b.example.com', $requested_urls[1] );
+	}
+
+	/**
+	 * Non-200 from a child site flips `success` to false on the governing response.
+	 */
+	public function test_reindex_records_child_non_200_as_failure(): void {
+		delete_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );
+		Search_Settings::set_algolia_credentials(
+			[
+				'app_id'    => 'APP',
+				'write_key' => 'KEY',
+			]
+		);
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Site A',
+					'url'     => 'https://site-a.example.com/',
+					'api_key' => 'key-a',
+				],
+			]
+		);
+
+		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( false === strpos( $url, '/re-index' ) ) {
+				return $preempt;
+			}
+			return [
+				'response' => [
+					'code'    => 500,
+					'message' => 'Internal Server Error',
+				],
+				'body'     => '',
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$request  = new WP_REST_Request( 'POST', '/onesearch/v1/re-index' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertFalse( $data['success'] );
+	}
+
+	/**
+	 * A WP_Error from a child site flips `success` to false on the governing response.
+	 */
+	public function test_reindex_records_child_wp_error_as_failure(): void {
+		delete_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );
+		Search_Settings::set_algolia_credentials(
+			[
+				'app_id'    => 'APP',
+				'write_key' => 'KEY',
+			]
+		);
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Site A',
+					'url'     => 'https://site-a.example.com/',
+					'api_key' => 'key-a',
+				],
+			]
+		);
+
+		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( false === strpos( $url, '/re-index' ) ) {
+				return $preempt;
+			}
+			return new \WP_Error( 'http_request_failed', 'cURL timeout' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$request  = new WP_REST_Request( 'POST', '/onesearch/v1/re-index' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertFalse( $data['success'] );
+	}
 }

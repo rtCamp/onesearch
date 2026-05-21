@@ -152,7 +152,18 @@ class Governing_Data_HandlerTest extends TestCase {
 			]
 		);
 
+		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( false === strpos( $url, 'test.example.com' ) ) {
+				return $preempt;
+			}
+			return new \WP_Error( 'http_request_failed', 'cURL error 6: Could not resolve host' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
 		$result = Governing_Data_Handler::get_all_brand_post_types();
+
+		remove_filter( 'pre_http_request', $filter );
+
 		$this->assertIsArray( $result );
 		$this->assertNotEmpty( $result['errors'] );
 		$this->assertStringContainsString( 'Invalid response received', $result['errors'][0]['message'] );
@@ -245,5 +256,287 @@ class Governing_Data_HandlerTest extends TestCase {
 
 		$this->assertCount( 1, $requested_urls, 'Only one HTTP request should be made.' );
 		$this->assertStringContainsString( 'site-a.example.com', $requested_urls[0], 'Request should target Site A.' );
+	}
+
+	/**
+	 * Successful brand-config fetch returns sanitized payload and caches it.
+	 */
+	public function test_get_brand_config_returns_payload_on_success(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
+		Settings::regenerate_api_key();
+
+		$payload = [
+			'algolia_credentials' => [
+				'app_id'    => 'REMOTE_APP',
+				'write_key' => 'REMOTE_KEY',
+			],
+			'search_settings'     => [
+				'algolia_enabled'  => true,
+				'searchable_sites' => [ 'https://a.example.com/' ],
+			],
+			'indexable_entities'  => [ 'post', 'page' ],
+			'available_sites'     => [ 'https://a.example.com/' ],
+		];
+
+		$filter = static function ( $preempt, $args, $url ) use ( $payload ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( false === strpos( $url, '/brand-config' ) ) {
+				return $preempt;
+			}
+			return [
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
+				],
+				'body'     => wp_json_encode( $payload ),
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$result = Governing_Data_Handler::get_brand_config();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'REMOTE_APP', $result['algolia_credentials']['app_id'] );
+		$this->assertSame( 'REMOTE_KEY', $result['algolia_credentials']['write_key'] );
+		$this->assertTrue( $result['search_settings']['algolia_enabled'] );
+		$this->assertSame( [ 'post', 'page' ], $result['indexable_entities'] );
+		$this->assertSame( [ 'https://a.example.com/' ], $result['available_sites'] );
+		$this->assertNotFalse( get_transient( Governing_Data_Handler::TRANSIENT_KEY ), 'Successful fetch should populate the cache.' );
+	}
+
+	/**
+	 * Non-200 response from the governing site returns the failed-to-connect error.
+	 */
+	public function test_get_brand_config_returns_error_on_non_200(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
+		Settings::regenerate_api_key();
+
+		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( false === strpos( $url, '/brand-config' ) ) {
+				return $preempt;
+			}
+			return [
+				'response' => [
+					'code'    => 502,
+					'message' => 'Bad Gateway',
+				],
+				'body'     => '',
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$result = Governing_Data_Handler::get_brand_config();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'onesearch_rest_failed_to_connect', $result->get_error_code() );
+	}
+
+	/**
+	 * A 200 response with a non-JSON body returns the invalid-response error.
+	 */
+	public function test_get_brand_config_returns_error_on_invalid_json(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
+		Settings::regenerate_api_key();
+
+		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( false === strpos( $url, '/brand-config' ) ) {
+				return $preempt;
+			}
+			return [
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
+				],
+				'body'     => 'not-json',
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$result = Governing_Data_Handler::get_brand_config();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'onesearch_rest_invalid_response', $result->get_error_code() );
+	}
+
+	/**
+	 * A WP_Error from the remote layer is propagated unchanged.
+	 */
+	public function test_get_brand_config_propagates_wp_error(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
+		Settings::regenerate_api_key();
+
+		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( false === strpos( $url, '/brand-config' ) ) {
+				return $preempt;
+			}
+			return new \WP_Error( 'http_request_failed', 'cURL error 7' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$result = Governing_Data_Handler::get_brand_config();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'http_request_failed', $result->get_error_code() );
+	}
+
+	/**
+	 * Successful per-site responses are merged into the `sites` map.
+	 */
+	public function test_get_all_brand_post_types_aggregates_remote_responses(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Site A',
+					'url'     => 'https://site-a.example.com/',
+					'api_key' => 'key-a',
+				],
+			]
+		);
+
+		$remote_payload = [
+			'sites'  => [
+				'https://site-a.example.com/' => [
+					'site_name'  => 'Site A',
+					'site_url'   => 'https://site-a.example.com/',
+					'post_types' => [
+						[
+							'slug'     => 'post',
+							'label'    => 'Posts',
+							'restBase' => 'posts',
+						],
+					],
+				],
+			],
+			'errors' => [],
+		];
+
+		$filter = static function ( $preempt, $args, $url ) use ( $remote_payload ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( false === strpos( $url, 'site-a.example.com' ) ) {
+				return $preempt;
+			}
+			return [
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
+				],
+				'body'     => wp_json_encode( $remote_payload ),
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$result = Governing_Data_Handler::get_all_brand_post_types();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'https://site-a.example.com/', $result['sites'] );
+		$this->assertSame( 'Site A', $result['sites']['https://site-a.example.com/']['site_name'] );
+		$this->assertSame( [], $result['errors'] );
+	}
+
+	/**
+	 * Non-200 responses from shared sites are recorded under `errors`.
+	 */
+	public function test_get_all_brand_post_types_reports_non_200_responses(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Site A',
+					'url'     => 'https://site-a.example.com/',
+					'api_key' => 'key-a',
+				],
+			]
+		);
+
+		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( false === strpos( $url, 'site-a.example.com' ) ) {
+				return $preempt;
+			}
+			return [
+				'response' => [
+					'code'    => 500,
+					'message' => 'Internal Server Error',
+				],
+				'body'     => '',
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$result = Governing_Data_Handler::get_all_brand_post_types();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( [], $result['sites'] );
+		$this->assertNotEmpty( $result['errors'] );
+		$this->assertStringContainsString( '500', $result['errors'][0]['message'] );
+	}
+
+	/**
+	 * Malformed JSON from shared sites is recorded under `errors`.
+	 */
+	public function test_get_all_brand_post_types_reports_invalid_json(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Site A',
+					'url'     => 'https://site-a.example.com/',
+					'api_key' => 'key-a',
+				],
+			]
+		);
+
+		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( false === strpos( $url, 'site-a.example.com' ) ) {
+				return $preempt;
+			}
+			return [
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
+				],
+				'body'     => 'not-json',
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$result = Governing_Data_Handler::get_all_brand_post_types();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( [], $result['sites'] );
+		$this->assertNotEmpty( $result['errors'] );
+		$this->assertStringContainsString( 'invalid response', $result['errors'][0]['message'] );
 	}
 }

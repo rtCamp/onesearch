@@ -84,4 +84,89 @@ class Search_Controller_ConsumerSiteTest extends TestCase {
 		$this->assertSame( 400, $response->get_status() );
 		$this->assertSame( 'no_parent_url', $data['code'] );
 	}
+
+	/**
+	 * Consumer reindex propagates a non-200 brand-config response from the parent
+	 * as a `onesearch_rest_failed_to_connect` error.
+	 */
+	public function test_reindex_propagates_brand_config_failure_from_parent(): void {
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
+		Settings::regenerate_api_key();
+
+		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( false === strpos( $url, '/brand-config' ) ) {
+				return $preempt;
+			}
+			return [
+				'response' => [
+					'code'    => 500,
+					'message' => 'Server Error',
+				],
+				'body'     => '',
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$request  = new WP_REST_Request( 'POST', '/onesearch/v1/re-index' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertSame( 500, $response->get_status() );
+		$this->assertSame( 'onesearch_rest_failed_to_connect', $data['code'] );
+	}
+
+	/**
+	 * Consumer reindex reaches the indexing step when the parent returns a valid
+	 * brand-config payload; without Algolia credentials, indexing reports failure
+	 * but the brand-config fetch path is fully traversed.
+	 */
+	public function test_reindex_proceeds_when_parent_returns_valid_brand_config(): void {
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
+		Settings::regenerate_api_key();
+
+		$payload = [
+			'algolia_credentials' => [
+				'app_id'    => '',
+				'write_key' => '',
+			],
+			'search_settings'     => [
+				'algolia_enabled'  => false,
+				'searchable_sites' => [],
+			],
+			'indexable_entities'  => [ 'post' ],
+			'available_sites'     => [],
+		];
+
+		$filter = static function ( $preempt, $args, $url ) use ( $payload ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( false === strpos( $url, '/brand-config' ) ) {
+				return $preempt;
+			}
+			return [
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
+				],
+				'body'     => wp_json_encode( $payload ),
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$request  = new WP_REST_Request( 'POST', '/onesearch/v1/re-index' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertArrayHasKey( 'success', $data );
+		$this->assertArrayHasKey( 'message', $data );
+	}
 }
