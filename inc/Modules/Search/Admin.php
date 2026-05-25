@@ -11,7 +11,6 @@ namespace OneSearch\Modules\Search;
 
 use OneSearch\Contracts\Interfaces\Registrable;
 use OneSearch\Modules\Core\Assets;
-use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 
 /**
@@ -34,7 +33,7 @@ final class Admin implements Registrable {
 	 * {@inheritDoc}
 	 */
 	public function register_hooks(): void {
-		if ( ! Settings::is_governing_site() || empty( Search_Settings::get_algolia_credentials() ) ) {
+		if ( ! Settings::is_governing_site() ) {
 			return;
 		}
 		add_action( 'admin_menu', [ $this, 'add_submenu' ] );
@@ -45,7 +44,7 @@ final class Admin implements Registrable {
 	 * Register the settings page.
 	 */
 	public function add_submenu(): void {
-		// Register the "Indices and Search" submenu only for governing sites with Algolia credentials.
+		// Register the "Indices and Search" submenu for governing sites.
 		add_submenu_page(
 			self::MENU_SLUG,
 			__( 'Indices and Search', 'onesearch' ),

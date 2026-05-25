@@ -22,6 +22,10 @@ export interface OneSearchSettings {
 	restNamespace: string;
 	currentSiteUrl: string;
 	indexableEntities?: Record< string, string[] >;
+	algoliaCredentials?: {
+		app_id: string | null;
+		write_key: string | null;
+	};
 }
 
 export interface OneSearchOnboarding {

@@ -3,7 +3,7 @@
  */
 import { useState, useEffect, createRoot } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
-import { Snackbar } from '@wordpress/components';
+import { Snackbar, Card, CardBody, Button } from '@wordpress/components';
 
 /**
  * External dependencies
@@ -49,6 +49,14 @@ interface FetchAllPostTypesResponse {
 }
 
 const OneSearchSettingsPage = () => {
+	const gSharedSites = window.OneSearchSettings.sharedSites || [];
+	const gAlgoliaCreds = window.OneSearchSettings.algoliaCredentials;
+	const hasAlgoliaCreds = !! (
+		gAlgoliaCreds?.app_id && gAlgoliaCreds?.write_key
+	);
+	const hasBrandSites = gSharedSites.length > 0;
+	const hasPrerequisites = hasBrandSites && hasAlgoliaCreds;
+
 	const [ siteType, setSiteType ] = useState< SiteType >( '' );
 	const [ showModal, setShowModal ] = useState( false );
 	const [ editingIndex, setEditingIndex ] = useState< number | null >( null );
@@ -288,45 +296,69 @@ const OneSearchSettingsPage = () => {
 				) }
 			</>
 
-			{ siteType === 'governing-site' && (
-				<SiteIndexableEntities
-					sites={ sites }
-					allPostTypes={ allPostTypes }
-					currentSiteUrl={ withTrailingSlash( CURRENT_SITE_URL ) }
-					setNotice={ setNotice }
-					onEntitiesSaved={ handleEntitiesSaved }
-					saving={ saving }
-					setSaving={ setSaving }
-				/>
+			{ siteType === 'governing-site' && ! hasPrerequisites && (
+				<Card>
+					<CardBody>
+						<h2>{ __( 'Setup Required', 'onesearch' ) }</h2>
+						<p>
+							{ __(
+								'You need to add at least one Brand Site and configure your Algolia credentials before you can set up indices and search.',
+								'onesearch'
+							) }
+						</p>
+						<Button
+							variant="primary"
+							href={ window.OneSearchSettings.setupUrl }
+						>
+							{ __( 'Go to Settings', 'onesearch' ) }
+						</Button>
+					</CardBody>
+				</Card>
 			) }
 
-			{ siteType === 'governing-site' && (
-				<SiteSearchSettings
-					setNotice={ setNotice }
-					indexableEntities={ indexableEntities }
-					allPostTypes={ allPostTypes }
-					isIndexableEntitiesSaving={ saving }
-				/>
-			) }
+			{ siteType === 'governing-site' && hasPrerequisites && (
+				<>
+					<SiteIndexableEntities
+						sites={ sites }
+						allPostTypes={ allPostTypes }
+						currentSiteUrl={ withTrailingSlash( CURRENT_SITE_URL ) }
+						setNotice={ setNotice }
+						onEntitiesSaved={ handleEntitiesSaved }
+						saving={ saving }
+						setSaving={ setSaving }
+					/>
 
-			{ showModal && (
-				<SiteModal
-					formData={ formData }
-					setFormData={ setFormData }
-					onSubmit={ handleFormSubmit }
-					onClose={ () => {
-						setShowModal( false );
-						setEditingIndex( null );
-						setFormData( { name: '', url: '', api_key: '' } );
-					} }
-					editing={ editingIndex !== null }
-					sites={ sites }
-					originalData={
-						editingIndex !== null
-							? sites[ editingIndex ]
-							: undefined
-					}
-				/>
+					<SiteSearchSettings
+						setNotice={ setNotice }
+						indexableEntities={ indexableEntities }
+						allPostTypes={ allPostTypes }
+						isIndexableEntitiesSaving={ saving }
+					/>
+
+					{ showModal && (
+						<SiteModal
+							formData={ formData }
+							setFormData={ setFormData }
+							onSubmit={ handleFormSubmit }
+							onClose={ () => {
+								setShowModal( false );
+								setEditingIndex( null );
+								setFormData( {
+									name: '',
+									url: '',
+									api_key: '',
+								} );
+							} }
+							editing={ editingIndex !== null }
+							sites={ sites }
+							originalData={
+								editingIndex !== null
+									? sites[ editingIndex ]
+									: undefined
+							}
+						/>
+					) }
+				</>
 			) }
 		</>
 	);
