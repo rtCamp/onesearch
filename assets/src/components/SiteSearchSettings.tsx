@@ -430,7 +430,6 @@ const SiteSearchSettings = ( {
 						variant="secondary"
 						onClick={ () => handleBulkToggle( true ) }
 						disabled={
-							! hasAlgoliaCredentials ||
 							saving ||
 							allSites.length === 0 ||
 							isIndexableEntitiesSaving ||
@@ -450,7 +449,6 @@ const SiteSearchSettings = ( {
 						variant="secondary"
 						onClick={ () => handleBulkToggle( false ) }
 						disabled={
-							! hasAlgoliaCredentials ||
 							saving ||
 							allSites.length === 0 ||
 							isIndexableEntitiesSaving ||
@@ -467,10 +465,7 @@ const SiteSearchSettings = ( {
 						variant="primary"
 						onClick={ handleSave }
 						disabled={
-							! hasAlgoliaCredentials ||
-							saving ||
-							! isDirty ||
-							isIndexableEntitiesSaving
+							saving || ! isDirty || isIndexableEntitiesSaving
 						}
 						isBusy={ saving }
 						className="onesearch-btn-save"
@@ -573,7 +568,6 @@ const SiteSearchSettings = ( {
 												siteSettings.algolia_enabled
 											}
 											disabled={
-												! hasAlgoliaCredentials ||
 												! hasEntities ||
 												saving ||
 												isIndexableEntitiesSaving
@@ -691,7 +685,6 @@ const SiteSearchSettings = ( {
 																isSelf
 															}
 															disabled={
-																! hasAlgoliaCredentials ||
 																isSelf ||
 																saving ||
 																isIndexableEntitiesSaving
