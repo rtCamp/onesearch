@@ -210,6 +210,20 @@ const SiteIndexableEntities = ( {
 	};
 
 	const handleReIndex = async (): Promise< boolean > => {
+		const creds = window.OneSearchSettings?.algoliaCredentials;
+		if ( ! creds?.app_id || ! creds?.write_key ) {
+			setNotice( {
+				message: __(
+					'Algolia is not configured. Please add your Algolia credentials in Settings first.',
+					'onesearch'
+				),
+				type: 'error',
+			} );
+			setReindexing( false );
+			setShowReindexingModal( false );
+			return false;
+		}
+
 		try {
 			setReindexing( true );
 			// @todo use @wordpress/api-fetch everywhere internal.

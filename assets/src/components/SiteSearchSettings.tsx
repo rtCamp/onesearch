@@ -76,6 +76,10 @@ const SiteSearchSettings = ( {
 	// Get all sites from sharedSites and governing site
 	const sharedSites = window.OneSearchSettings?.sharedSites || [];
 	const currentSiteUrl = window.OneSearchSettings?.currentSiteUrl || '';
+	const algoliaCreds = window.OneSearchSettings?.algoliaCredentials;
+	const hasAlgoliaCredentials = !! (
+		algoliaCreds?.app_id && algoliaCreds?.write_key
+	);
 	const [ initialSettings, setInitialSettings ] = useState<
 		Record< string, SiteSearchSetting >
 	>( {} );
@@ -118,7 +122,8 @@ const SiteSearchSettings = ( {
 	useEffect( () => {
 		if (
 			! indexableEntities ||
-			Object.keys( searchSettings ).length === 0
+			Object.keys( searchSettings ).length === 0 ||
+			! hasAlgoliaCredentials
 		) {
 			return;
 		}
@@ -348,6 +353,9 @@ const SiteSearchSettings = ( {
 
 	// Save the settings.
 	const handleSave = async () => {
+		if ( ! hasAlgoliaCredentials ) {
+			return;
+		}
 		setSaving( true );
 		await apiFetch< {
 			onesearch_sites_search_settings: Record<
@@ -422,6 +430,7 @@ const SiteSearchSettings = ( {
 						variant="secondary"
 						onClick={ () => handleBulkToggle( true ) }
 						disabled={
+							! hasAlgoliaCredentials ||
 							saving ||
 							allSites.length === 0 ||
 							isIndexableEntitiesSaving ||
@@ -441,6 +450,7 @@ const SiteSearchSettings = ( {
 						variant="secondary"
 						onClick={ () => handleBulkToggle( false ) }
 						disabled={
+							! hasAlgoliaCredentials ||
 							saving ||
 							allSites.length === 0 ||
 							isIndexableEntitiesSaving ||
@@ -457,7 +467,10 @@ const SiteSearchSettings = ( {
 						variant="primary"
 						onClick={ handleSave }
 						disabled={
-							saving || ! isDirty || isIndexableEntitiesSaving
+							! hasAlgoliaCredentials ||
+							saving ||
+							! isDirty ||
+							isIndexableEntitiesSaving
 						}
 						isBusy={ saving }
 						className="onesearch-btn-save"
@@ -470,6 +483,19 @@ const SiteSearchSettings = ( {
 			</CardHeader>
 			<CardBody className="onesearch-body">
 				{ /* Notice for warnings */ }
+				{ ! hasAlgoliaCredentials && (
+					<Notice
+						status="warning"
+						isDismissible={ false }
+						className="onesearch-notice"
+					>
+						{ __(
+							'Algolia is not configured. Add your credentials in Settings to enable search configuration.',
+							'onesearch'
+						) }
+					</Notice>
+				) }
+
 				{ localNotice && (
 					<Notice
 						status={ localNotice.type }
@@ -547,6 +573,7 @@ const SiteSearchSettings = ( {
 												siteSettings.algolia_enabled
 											}
 											disabled={
+												! hasAlgoliaCredentials ||
 												! hasEntities ||
 												saving ||
 												isIndexableEntitiesSaving
@@ -664,6 +691,7 @@ const SiteSearchSettings = ( {
 																isSelf
 															}
 															disabled={
+																! hasAlgoliaCredentials ||
 																isSelf ||
 																saving ||
 																isIndexableEntitiesSaving

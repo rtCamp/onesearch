@@ -297,23 +297,38 @@ const OneSearchSettingsPage = () => {
 			</>
 
 			{ siteType === 'governing-site' && ! hasPrerequisites && (
-				<Card>
-					<CardBody>
-						<h2>{ __( 'Setup Required', 'onesearch' ) }</h2>
-						<p>
-							{ __(
-								'You need to add at least one Brand Site and configure your Algolia credentials before you can set up indices and search.',
-								'onesearch'
-							) }
-						</p>
-						<Button
-							variant="primary"
-							href={ window.OneSearchSettings.setupUrl }
-						>
-							{ __( 'Go to Settings', 'onesearch' ) }
-						</Button>
-					</CardBody>
-				</Card>
+				<div
+					style={ {
+						display: 'flex',
+						justifyContent: 'center',
+						alignItems: 'center',
+						height: 'calc(100vh - 100px)',
+					} }
+				>
+					<Card
+						style={ {
+							maxWidth: '480px',
+							width: '100%',
+							margin: '0 auto',
+						} }
+					>
+						<CardBody>
+							<h2>{ __( 'Setup Required', 'onesearch' ) }</h2>
+							<p>
+								{ __(
+									'You need to add at least one Brand Site and configure your Algolia credentials before you can set up indices and search.',
+									'onesearch'
+								) }
+							</p>
+							<Button
+								variant="primary"
+								href={ window.OneSearchSettings.setupUrl }
+							>
+								{ __( 'Go to Settings', 'onesearch' ) }
+							</Button>
+						</CardBody>
+					</Card>
+				</div>
 			) }
 
 			{ siteType === 'governing-site' && hasPrerequisites && (
