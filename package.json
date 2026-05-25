@@ -62,7 +62,7 @@
 		"@types/react": "^18.3.28",
 		"@types/react-dom": "^18.3.7",
 		"@types/wordpress__block-editor": "^15.0.6",
-		"@typescript-eslint/eslint-plugin": "^8.59.3",
+		"@typescript-eslint/eslint-plugin": "^8.59.4",
 		"@typescript-eslint/parser": "^8.59.3",
 		"@wordpress/babel-preset-default": "^8.46.0",
 		"@wordpress/e2e-test-utils-playwright": "^1.46.0",
