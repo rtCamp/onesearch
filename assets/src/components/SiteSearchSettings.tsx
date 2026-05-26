@@ -76,10 +76,6 @@ const SiteSearchSettings = ( {
 	// Get all sites from sharedSites and governing site
 	const sharedSites = window.OneSearchSettings?.sharedSites || [];
 	const currentSiteUrl = window.OneSearchSettings?.currentSiteUrl || '';
-	const algoliaCreds = window.OneSearchSettings?.algoliaCredentials;
-	const hasAlgoliaCredentials = !! (
-		algoliaCreds?.app_id && algoliaCreds?.write_key
-	);
 	const [ initialSettings, setInitialSettings ] = useState<
 		Record< string, SiteSearchSetting >
 	>( {} );
@@ -122,8 +118,7 @@ const SiteSearchSettings = ( {
 	useEffect( () => {
 		if (
 			! indexableEntities ||
-			Object.keys( searchSettings ).length === 0 ||
-			! hasAlgoliaCredentials
+			Object.keys( searchSettings ).length === 0
 		) {
 			return;
 		}
@@ -353,9 +348,6 @@ const SiteSearchSettings = ( {
 
 	// Save the settings.
 	const handleSave = async () => {
-		if ( ! hasAlgoliaCredentials ) {
-			return;
-		}
 		setSaving( true );
 		await apiFetch< {
 			onesearch_sites_search_settings: Record<
@@ -477,20 +469,6 @@ const SiteSearchSettings = ( {
 				</div>
 			</CardHeader>
 			<CardBody className="onesearch-body">
-				{ /* Notice for warnings */ }
-				{ ! hasAlgoliaCredentials && (
-					<Notice
-						status="warning"
-						isDismissible={ false }
-						className="onesearch-notice"
-					>
-						{ __(
-							'Algolia is not configured. Add your credentials in Settings to enable search configuration.',
-							'onesearch'
-						) }
-					</Notice>
-				) }
-
 				{ localNotice && (
 					<Notice
 						status={ localNotice.type }
