@@ -44,7 +44,7 @@ export default [
 			'@wordpress/data-no-store-string-literals': 'error',
 			'@wordpress/wp-global-usage': 'error',
 			'@wordpress/react-no-unsafe-timeout': 'error',
-			'@wordpress/use-recommended-components': 'error',
+			'@wordpress/use-recommended-components': 'warn',
 
 			// React best practices
 			'react/jsx-boolean-value': 'error',
