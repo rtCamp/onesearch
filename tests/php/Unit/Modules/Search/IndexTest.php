@@ -304,6 +304,36 @@ final class IndexTest extends TestCase {
 	}
 
 	/**
+	 * Paginates batch indexing when there are more than 100 posts.
+	 */
+	public function test_index_all_posts_paginates_with_more_than_batch_size_posts(): void {
+		$this->set_credentials( Settings::SITE_TYPE_GOVERNING );
+
+		for ( $i = 0; $i < 110; $i++ ) {
+			self::factory()->post->create(
+				[
+					'post_title'   => "Batch Post $i",
+					'post_content' => "Content for batch post $i.",
+					'post_status'  => 'publish',
+				]
+			);
+		}
+
+		$recorded_paths = [];
+		$this->mock_algolia_http_client( $recorded_paths );
+
+		$result = ( new Index() )->index_all_posts( [ 'post' ] );
+
+		$this->assertTrue( $result );
+
+		$batch_calls = array_filter(
+			$recorded_paths,
+			static fn ( string $path ) => str_contains( $path, '/batch' )
+		);
+		$this->assertGreaterThanOrEqual( 2, count( $batch_calls ), 'Expected at least 2 batch save calls for 110 posts (page 1: 100, page 2: 10).' );
+	}
+
+	/**
 	 * Set site context with valid Algolia credentials.
 	 *
 	 * @param string $site_type Site type (governing or consumer).
