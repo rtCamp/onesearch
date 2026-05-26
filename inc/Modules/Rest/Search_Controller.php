@@ -210,17 +210,6 @@ class Search_Controller extends Abstract_REST_Controller {
 	 * If the site is a governing site, trigger the reindex on children as well.
 	 */
 	public function reindex(): \WP_REST_Response|\WP_Error {
-		if ( Settings::is_governing_site() ) {
-			$creds = Search_Settings::get_algolia_credentials();
-			if ( empty( $creds['app_id'] ) || empty( $creds['write_key'] ) ) {
-				return new \WP_Error(
-					'onesearch_algolia_not_configured',
-					__( 'Algolia is not configured. Please add your Algolia credentials in Settings first.', 'onesearch' ),
-					[ 'status' => 400 ]
-				);
-			}
-		}
-
 		$errors = [];
 
 		// If Governing, trigger re-index on children as well.
