@@ -1,13 +1,18 @@
 /**
  * WordPress dependencies
  */
-import { useState, useEffect, createRoot } from '@wordpress/element';
+import { Button, Card, CardBody, Snackbar } from '@wordpress/components';
+import { createRoot, useEffect, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
-import { Snackbar, Card, CardBody, Button } from '@wordpress/components';
 
 /**
  * External dependencies
  */
+import type {
+	BrandSite,
+	defaultBrandSite,
+	NoticeType,
+} from '@/admin/settings/page';
 import SiteIndexableEntities from '@/components/SiteIndexableEntities';
 import SiteModal from '@/components/SiteModal';
 import SiteSearchSettings, {
@@ -15,15 +20,10 @@ import SiteSearchSettings, {
 } from '@/components/SiteSearchSettings';
 import {
 	API_NAMESPACE,
-	NONCE,
 	CURRENT_SITE_URL,
+	NONCE,
 	withTrailingSlash,
 } from '@/js/utils';
-import type {
-	BrandSite,
-	defaultBrandSite,
-	NoticeType,
-} from '@/admin/settings/page';
 import type { SiteType } from '@/types/global';
 
 type BrandSiteFormData = typeof defaultBrandSite;
@@ -50,12 +50,8 @@ interface FetchAllPostTypesResponse {
 
 const OneSearchSettingsPage = () => {
 	const gSharedSites = window.OneSearchSettings.sharedSites || [];
-	const gAlgoliaCreds = window.OneSearchSettings.algoliaCredentials;
-	const hasAlgoliaCreds = !! (
-		gAlgoliaCreds?.app_id && gAlgoliaCreds?.write_key
-	);
 	const hasBrandSites = gSharedSites.length > 0;
-	const hasPrerequisites = hasBrandSites && hasAlgoliaCreds;
+	const hasPrerequisites = hasBrandSites;
 
 	const [ siteType, setSiteType ] = useState< SiteType >( '' );
 	const [ showModal, setShowModal ] = useState( false );

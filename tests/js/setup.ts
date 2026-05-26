@@ -22,10 +22,6 @@ Object.defineProperty( window, 'OneSearchSettings', {
 		currentSiteUrl: 'https://governing.example.com/',
 		siteType: 'governing-site',
 		setupUrl: '/wp-admin/admin.php?page=onesearch-settings',
-		algoliaCredentials: {
-			app_id: 'test-app-id',
-			write_key: 'test-write-key',
-		},
 	},
 	writable: true,
 } );
