@@ -12,6 +12,8 @@ namespace OneSearch\Modules\Rest;
 use OneSearch\Modules\Jobs\ReindexJob;
 use OneSearch\Modules\Jobs\SyncJob;
 use OneSearch\Modules\Scheduler\JobScheduler;
+use OneSearch\Modules\Settings\Settings;
+use OneSearch\Utils;
 use WP_REST_Response;
 use WP_REST_Server;
 
@@ -33,9 +35,7 @@ class Job_Controller extends Abstract_REST_Controller {
 				[
 					'methods'             => WP_REST_Server::READABLE,
 					'callback'            => [ $this, 'get_jobs' ],
-					'permission_callback' => static function () {
-						return current_user_can( 'manage_options' );
-					},
+					'permission_callback' => [ $this, 'check_job_read_permissions' ],
 				],
 			]
 		);
@@ -47,9 +47,33 @@ class Job_Controller extends Abstract_REST_Controller {
 				[
 					'methods'             => WP_REST_Server::READABLE,
 					'callback'            => [ $this, 'get_job_history' ],
+					'permission_callback' => [ $this, 'check_job_read_permissions' ],
+				],
+			]
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/jobs/remote-status',
+			[
+				[
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => [ $this, 'get_remote_job_status' ],
 					'permission_callback' => static function () {
 						return current_user_can( 'manage_options' );
 					},
+					'args'                => [
+						'site_url' => [
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'esc_url_raw',
+						],
+						'job_id'   => [
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						],
+					],
 				],
 			]
 		);
@@ -89,9 +113,7 @@ class Job_Controller extends Abstract_REST_Controller {
 				[
 					'methods'             => WP_REST_Server::READABLE,
 					'callback'            => [ $this, 'get_job_children' ],
-					'permission_callback' => static function () {
-						return current_user_can( 'manage_options' );
-					},
+					'permission_callback' => [ $this, 'check_job_read_permissions' ],
 					'args'                => [
 						'id' => [
 							'required'          => true,
@@ -131,9 +153,7 @@ class Job_Controller extends Abstract_REST_Controller {
 				[
 					'methods'             => WP_REST_Server::READABLE,
 					'callback'            => [ $this, 'get_job' ],
-					'permission_callback' => static function () {
-						return current_user_can( 'manage_options' );
-					},
+					'permission_callback' => [ $this, 'check_job_read_permissions' ],
 					'args'                => [
 						'id' => [
 							'required'          => true,
@@ -476,5 +496,130 @@ class Job_Controller extends Abstract_REST_Controller {
 		}
 
 		return $brand_config['indexable_entities'] ?? [];
+	}
+
+	/**
+	 * Permission check for job read endpoints.
+	 *
+	 * Allows access via WordPress admin session (manage_options)
+	 * OR via the X-OneSearch-Token header (for remote governing-site requests).
+	 *
+	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
+	 * @return bool|\WP_Error
+	 */
+	public function check_job_read_permissions( $request ) {
+		if ( current_user_can( 'manage_options' ) ) {
+			return true;
+		}
+
+		$token = $request->get_header( 'X-OneSearch-Token' );
+		if ( empty( $token ) ) {
+			return false;
+		}
+
+		$api_key = Settings::get_api_key();
+
+		return ! empty( $api_key ) && hash_equals( $api_key, sanitize_text_field( wp_unslash( $token ) ) );
+	}
+
+	/**
+	 * Proxy endpoint: fetch job status from a remote (child) site.
+	 *
+	 * The governing site calls this to poll a child site's job status
+	 * without exposing the child's API key to the browser.
+	 *
+	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public function get_remote_job_status( $request ) {
+		$site_url = $request->get_param( 'site_url' );
+		$job_id   = $request->get_param( 'job_id' );
+
+		// Look up the API key for this child site.
+		$shared_sites = Settings::get_shared_sites();
+		$site_key     = '';
+		$matched_url  = '';
+
+		foreach ( $shared_sites as $url => $site_data ) {
+			if ( Utils::normalize_url( $url ) === Utils::normalize_url( $site_url ) ) {
+				$site_key    = $site_data['api_key'] ?? '';
+				$matched_url = $url;
+				break;
+			}
+		}
+
+		if ( empty( $site_key ) ) {
+			return new \WP_Error(
+				'onesearch_unknown_site',
+				__( 'Site not found in shared sites.', 'onesearch' ),
+				[ 'status' => 404 ]
+			);
+		}
+
+		$base_url       = untrailingslashit( $matched_url );
+		$namespace      = self::NAMESPACE;
+		$encoded_job_id = rawurlencode( $job_id );
+
+		$headers = [
+			'Content-Type'      => 'application/json',
+			'X-OneSearch-Token' => $site_key,
+		];
+
+		// Fetch job status.
+		$job_response = wp_safe_remote_get(
+			sprintf( '%s/wp-json/%s/jobs/%s', $base_url, $namespace, $encoded_job_id ),
+			[
+				'headers' => $headers,
+				'timeout' => 10, // phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout
+			]
+		);
+
+		// Fetch children.
+		$children_response = wp_safe_remote_get(
+			sprintf( '%s/wp-json/%s/jobs/%s/children', $base_url, $namespace, $encoded_job_id ),
+			[
+				'headers' => $headers,
+				'timeout' => 10, // phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout
+			]
+		);
+
+		$job_data      = null;
+		$children_data = [];
+
+		// Parse job response.
+		if ( ! is_wp_error( $job_response ) ) {
+			$code = wp_remote_retrieve_response_code( $job_response );
+			$body = wp_remote_retrieve_body( $job_response );
+			if ( 200 === $code ) {
+				$decoded  = json_decode( $body, true );
+				$job_data = $decoded['job'] ?? null;
+			}
+		}
+
+		// Parse children response.
+		if ( ! is_wp_error( $children_response ) ) {
+			$code = wp_remote_retrieve_response_code( $children_response );
+			$body = wp_remote_retrieve_body( $children_response );
+			if ( 200 === $code ) {
+				$decoded       = json_decode( $body, true );
+				$children_data = $decoded['children'] ?? [];
+			}
+		}
+
+		if ( ! $job_data ) {
+			return new \WP_Error(
+				'onesearch_remote_job_not_found',
+				__( 'Job not found on remote site.', 'onesearch' ),
+				[ 'status' => 404 ]
+			);
+		}
+
+		return new WP_REST_Response(
+			[
+				'success'  => true,
+				'job'      => $job_data,
+				'children' => $children_data,
+			]
+		);
 	}
 }

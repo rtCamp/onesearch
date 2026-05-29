@@ -2,27 +2,27 @@
  * WordPress dependencies
  */
 import {
-	Card,
-	CardHeader,
-	CardBody,
 	Button,
-	__experimentalText as Text,
+	Card,
+	CardBody,
+	CardHeader,
 	Modal,
+	__experimentalText as Text,
 } from '@wordpress/components';
 
 /**
  * External dependencies
  */
-import { useState, useEffect, useCallback, useRef } from 'react';
 import { __, sprintf } from '@wordpress/i18n';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
  * Internal dependencies
  */
-import MultiSelectChips from './MultiSelectChips';
-import { API_NAMESPACE, NONCE, withTrailingSlash } from '@/js/utils';
 import type { NoticeType } from '@/admin/settings/page';
+import { API_NAMESPACE, NONCE, withTrailingSlash } from '@/js/utils';
 import type { OneSearchSharedSite } from '@/types/global';
+import MultiSelectChips from './MultiSelectChips';
 import type { PostTypeOption } from './SiteSearchSettings';
 
 interface EntitiesMap {
@@ -119,10 +119,12 @@ const SiteIndexableEntities = ( {
 	const [ retrying, setRetrying ] = useState< Record< string, boolean > >(
 		{}
 	);
+	const [ cancelling, setCancelling ] = useState( false );
 	const [ showHistory, setShowHistory ] = useState( false );
 	const intervalRef = useRef< ReturnType< typeof setInterval > | null >(
 		null
 	);
+	const siteStatesRef = useRef< SiteJobState[] >( [] );
 
 	const entitySelectorsDisabled = saving || reindexing;
 
@@ -168,6 +170,35 @@ const SiteIndexableEntities = ( {
 		[]
 	);
 
+	const fetchRemoteJobStatus = useCallback(
+		async (
+			siteUrl: string,
+			jobId: string
+		): Promise< {
+			reindexJob: JobStatus | null;
+			children: JobStatus[];
+		} | null > => {
+			try {
+				const params = new URLSearchParams( {
+					site_url: siteUrl,
+					job_id: jobId,
+				} );
+				const res = await fetch(
+					`${ API_NAMESPACE }/jobs/remote-status?${ params.toString() }`,
+					{ headers: { 'X-WP-Nonce': NONCE } }
+				);
+				const data = await res.json();
+				return {
+					reindexJob: data.job || null,
+					children: data.children || [],
+				};
+			} catch {
+				return null;
+			}
+		},
+		[]
+	);
+
 	const fetchHistory = useCallback( async () => {
 		try {
 			const res = await fetch( `${ API_NAMESPACE }/jobs/history`, {
@@ -185,54 +216,69 @@ const SiteIndexableEntities = ( {
 		[ currentSiteUrl ]
 	);
 
-	const pollAllSites = useCallback(
-		async ( state: SiteJobState[] ) => {
-			const updated = await Promise.all(
-				state.map( async ( s ) => {
-					// Only poll the governing site's ReindexJob for children.
-					if ( isCurrentSite( s.site.site_url ) && s.site.job_id ) {
-						const result = await fetchJobWithChildren(
-							s.site.job_id
-						);
-						if ( result ) {
-							return { ...s, ...result };
-						}
-					}
-					// For child sites, poll only the ReindexJob status.
-					if ( s.site.job_id ) {
-						try {
-							const res = await fetch(
-								`${ API_NAMESPACE }/jobs/${ encodeURIComponent(
-									s.site.job_id
-								) }`,
-								{ headers: { 'X-WP-Nonce': NONCE } }
-							);
-							const data = await res.json();
-							return { ...s, reindexJob: data.job || null };
-						} catch {
-							return s;
-						}
+	const pollAllSites = useCallback( async () => {
+		const current = siteStatesRef.current;
+		if ( current.length === 0 ) {
+			return;
+		}
+
+		const updated = await Promise.all(
+			current.map( async ( s ) => {
+				if ( ! s.site.job_id ) {
+					return s;
+				}
+				if ( isCurrentSite( s.site.site_url ) ) {
+					const result = await fetchJobWithChildren( s.site.job_id );
+					if ( result ) {
+						return { ...s, ...result };
 					}
 					return s;
-				} )
-			);
-			setSiteStates( updated );
+				}
+				const result = await fetchRemoteJobStatus(
+					s.site.site_url,
+					s.site.job_id
+				);
+				if ( result ) {
+					return { ...s, ...result };
+				}
+				return s;
+			} )
+		);
 
-			const allTerminal = updated.every(
-				( s ) =>
-					! s.reindexJob ||
-					[ 'completed', 'failed', 'cancelled' ].includes(
-						s.reindexJob.status
-					)
+		setSiteStates( ( prev ) => {
+			// Preserve expanded state from the latest render.
+			const expandedMap = new Map(
+				prev.map( ( s ) => [ s.site.site_url, s.expanded ] )
 			);
-			if ( allTerminal ) {
-				stopPolling();
-				setReindexing( false );
-				fetchHistory();
-			}
-		},
-		[ isCurrentSite, fetchJobWithChildren, stopPolling, fetchHistory ]
-	);
+			return updated.map( ( s ) => ( {
+				...s,
+				expanded: expandedMap.get( s.site.site_url ) ?? s.expanded,
+			} ) );
+		} );
+
+		const allTerminal = updated.every(
+			( s ) =>
+				! s.reindexJob ||
+				[ 'completed', 'failed', 'cancelled' ].includes(
+					s.reindexJob.status
+				)
+		);
+		if ( allTerminal ) {
+			stopPolling();
+			setReindexing( false );
+			fetchHistory();
+		}
+	}, [
+		isCurrentSite,
+		fetchJobWithChildren,
+		fetchRemoteJobStatus,
+		stopPolling,
+		fetchHistory,
+	] );
+
+	useEffect( () => {
+		siteStatesRef.current = siteStates;
+	}, [ siteStates ] );
 
 	useEffect( () => {
 		return () => stopPolling();
@@ -457,15 +503,13 @@ const SiteIndexableEntities = ( {
 					expanded: false,
 				} ) );
 				setSiteStates( initial );
+				siteStatesRef.current = initial;
 
 				// Start polling.
-				const interval = setInterval(
-					() => pollAllSites( initial ),
-					2000
-				);
+				const interval = setInterval( () => pollAllSites(), 2000 );
 				intervalRef.current = interval;
 				// Do an immediate fetch.
-				pollAllSites( initial );
+				pollAllSites();
 				return true;
 			}
 
@@ -491,11 +535,39 @@ const SiteIndexableEntities = ( {
 	};
 
 	const handleModalClose = () => {
+		setShowReindexingModal( false );
+	};
+
+	const handleCancelJob = async () => {
+		setCancelling( true );
+		const activeJobs = siteStates.filter(
+			( s ) =>
+				s.reindexJob &&
+				! [ 'completed', 'failed', 'cancelled' ].includes(
+					s.reindexJob.status
+				) &&
+				s.site.job_id
+		);
+
+		await Promise.all(
+			activeJobs.map( ( s ) =>
+				fetch(
+					`${ API_NAMESPACE }/jobs/${ encodeURIComponent(
+						s.site.job_id
+					) }`,
+					{
+						method: 'DELETE',
+						headers: { 'X-WP-Nonce': NONCE },
+					}
+				).catch( () => {} )
+			)
+		);
+
 		stopPolling();
 		setReindexing( false );
 		setSiteStates( [] );
+		setCancelling( false );
 		setShowReindexingModal( false );
-		setShowHistory( false );
 	};
 
 	const isDirty =
@@ -589,26 +661,31 @@ const SiteIndexableEntities = ( {
 	);
 
 	const renderSiteRow = ( state: SiteJobState ) => {
-		const isLocal = isCurrentSite( state.site.site_url );
+		const hasChildren = state.children.length > 0;
+		const canExpand =
+			hasChildren ||
+			( !! state.reindexJob &&
+				state.reindexJob.status !== 'completed' &&
+				state.reindexJob.status !== 'cancelled' );
 
 		return (
 			<div key={ state.site.site_url } className="onesearch-job-site-row">
 				<div
 					className="onesearch-job-site-header"
 					onClick={ () =>
-						isLocal ? toggleExpand( state.site.site_url ) : null
+						canExpand ? toggleExpand( state.site.site_url ) : null
 					}
 					onKeyDown={ ( e ) => {
-						if ( e.key === 'Enter' && isLocal ) {
+						if ( e.key === 'Enter' && canExpand ) {
 							toggleExpand( state.site.site_url );
 						}
 					} }
-					role={ isLocal ? 'button' : undefined }
-					tabIndex={ isLocal ? 0 : undefined }
-					style={ { cursor: isLocal ? 'pointer' : 'default' } }
+					role={ canExpand ? 'button' : undefined }
+					tabIndex={ canExpand ? 0 : undefined }
+					style={ { cursor: canExpand ? 'pointer' : 'default' } }
 				>
 					<span className="onesearch-job-site-name">
-						{ isLocal && state.children.length > 0 && (
+						{ canExpand && (
 							<span className="onesearch-job-expand-icon">
 								{ state.expanded ? '▾ ' : '▸ ' }
 							</span>
@@ -623,7 +700,7 @@ const SiteIndexableEntities = ( {
 					</div>
 				</div>
 
-				{ isLocal && state.expanded && state.children.length > 0 && (
+				{ state.expanded && hasChildren && (
 					<div className="onesearch-batch-list">
 						{ state.children.map( ( child, idx ) =>
 							renderBatchRow( child, idx )
@@ -631,9 +708,8 @@ const SiteIndexableEntities = ( {
 					</div>
 				) }
 
-				{ isLocal &&
-					state.expanded &&
-					state.children.length === 0 &&
+				{ state.expanded &&
+					! hasChildren &&
 					state.reindexJob &&
 					state.reindexJob.status !== 'completed' && (
 						<Text variant="muted" className="onesearch-batch-list">
@@ -674,9 +750,14 @@ const SiteIndexableEntities = ( {
 						<div className="onesearch-entities-controls">
 							<Button
 								variant="secondary"
-								onClick={ () =>
-									setShowReindexingModal( ( prev ) => ! prev )
-								}
+								onClick={ () => {
+									setShowReindexingModal( ( prev ) => {
+										if ( ! prev ) {
+											fetchHistory();
+										}
+										return ! prev;
+									} );
+								} }
 								disabled={
 									isEmptySavedEntities() && ! reindexing
 								}
@@ -820,12 +901,6 @@ const SiteIndexableEntities = ( {
 							</p>
 							<div className="onesearch-modal-actions">
 								<Button
-									variant="secondary"
-									onClick={ handleModalClose }
-								>
-									{ __( 'Cancel', 'onesearch' ) }
-								</Button>
-								<Button
 									variant="primary"
 									onClick={ () => handleReIndex() }
 								>
@@ -856,9 +931,14 @@ const SiteIndexableEntities = ( {
 								<Button
 									variant="secondary"
 									size="small"
-									onClick={ handleModalClose }
+									onClick={ handleCancelJob }
+									isBusy={ cancelling }
+									disabled={ cancelling }
+									className="onesearch-btn-cancel"
 								>
-									{ __( 'Close', 'onesearch' ) }
+									{ cancelling
+										? __( 'Cancelling…', 'onesearch' )
+										: __( 'Cancel Job', 'onesearch' ) }
 								</Button>
 							</div>
 
