@@ -67,6 +67,14 @@ if ( ! \OneSearch\Autoloader::autoload() ) {
 	return;
 }
 
+// Load Action Scheduler early, before plugins_loaded, so its own hooks register on time.
+if ( ! function_exists( 'as_enqueue_async_action' ) ) {
+	$onesearch_as_path = ONESEARCH_DIR . 'vendor/woocommerce/action-scheduler/action-scheduler.php';
+	if ( file_exists( $onesearch_as_path ) ) {
+		require_once $onesearch_as_path; // phpcs:ignore WordPressVIPMinimum.Files.IncludingFile.UsingVariable
+	}
+}
+
 // Load the plugin.
 if ( class_exists( '\OneSearch\Main' ) ) {
 	\OneSearch\Main::instance();
