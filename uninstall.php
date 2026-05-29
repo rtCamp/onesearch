@@ -76,6 +76,8 @@ function delete_proxy_attachment(): void {
  * Deletes options.
  */
 function delete_options(): void {
+	global $wpdb;
+
 	$options = [
 		// Add more options as needed.
 		PLUGIN_PREFIX . 'version', // Set by Main::activate().
@@ -93,17 +95,34 @@ function delete_options(): void {
 
 		// Shared proxy attachment used for remote post thumbnails.
 		PLUGIN_PREFIX . 'proxy_attachment_id',
+
+		// Job scheduler options.
+		PLUGIN_PREFIX . 'active_jobs',
 	];
 
 	foreach ( $options as $option ) {
 		delete_option( $option );
 	}
+
+	// Delete all job status options (onesearch_job_status_*).
+	$job_status_options = $wpdb->get_col( // phpcs:ignore WordPressVIPMinimum.DirectDBQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$wpdb->prepare(
+			"SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s",
+			PLUGIN_PREFIX . 'job_status_%'
+		)
+	);
+
+	foreach ( $job_status_options as $option_name ) {
+		delete_option( $option_name );
+	}
 }
 
-/**
- * Deletes transients.
- */
+	/**
+	 * Deletes transients.
+	 */
 function delete_transients(): void {
+	global $wpdb;
+
 	$transients = [
 		// Governing site transients.
 		PLUGIN_PREFIX . 'brand_config_cache',
@@ -111,6 +130,23 @@ function delete_transients(): void {
 
 	foreach ( $transients as $transient ) {
 		delete_transient( $transient );
+	}
+
+	// Delete all job status transients (onesearch_job_status_*).
+	$job_transients = $wpdb->get_col( // phpcs:ignore WordPressVIPMinimum.DirectDBQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$wpdb->prepare(
+			"SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s",
+			'_transient_' . PLUGIN_PREFIX . 'job_status_%',
+			'_transient_timeout_' . PLUGIN_PREFIX . 'job_status_%'
+		)
+	);
+
+	foreach ( $job_transients as $transient_name ) {
+		if ( 0 === strpos( $transient_name, '_transient_timeout_' ) ) {
+			delete_transient( substr( $transient_name, 18 ) );
+		} elseif ( 0 === strpos( $transient_name, '_transient_' ) ) {
+			delete_transient( substr( $transient_name, 11 ) );
+		}
 	}
 }
 
