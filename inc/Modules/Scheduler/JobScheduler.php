@@ -463,10 +463,10 @@ final class JobScheduler {
 	/**
 	 * Called after Action Scheduler finishes executing an action.
 	 *
-	 * @param int    $action_id The AS action ID that just executed.
-	 * @param string $context   Execution context.
+	 * @param int                     $action_id The AS action ID that just executed.
+	 * @param \ActionScheduler_Action $action    The action that was executed.
 	 */
-	public function on_action_after( int $action_id, string $context ): void { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+	public function on_action_after( int $action_id, $action ): void { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
 		// No-op. Available for future logging/monitoring hooks.
 	}
 

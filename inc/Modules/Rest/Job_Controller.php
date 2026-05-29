@@ -10,6 +10,7 @@ declare( strict_types = 1 );
 namespace OneSearch\Modules\Rest;
 
 use OneSearch\Modules\Jobs\ReindexJob;
+use OneSearch\Modules\Jobs\SyncJob;
 use OneSearch\Modules\Scheduler\JobScheduler;
 use WP_REST_Response;
 use WP_REST_Server;
@@ -41,21 +42,14 @@ class Job_Controller extends Abstract_REST_Controller {
 
 		register_rest_route(
 			self::NAMESPACE,
-			'/jobs/(?P<id>[a-zA-Z0-9_.]+)',
+			'/jobs/history',
 			[
 				[
 					'methods'             => WP_REST_Server::READABLE,
-					'callback'            => [ $this, 'get_job' ],
+					'callback'            => [ $this, 'get_job_history' ],
 					'permission_callback' => static function () {
 						return current_user_can( 'manage_options' );
 					},
-					'args'                => [
-						'id' => [
-							'required'          => true,
-							'type'              => 'string',
-							'sanitize_callback' => 'sanitize_text_field',
-						],
-					],
 				],
 			]
 		);
@@ -90,11 +84,11 @@ class Job_Controller extends Abstract_REST_Controller {
 
 		register_rest_route(
 			self::NAMESPACE,
-			'/jobs/(?P<id>[a-zA-Z0-9_.]+)',
+			'/jobs/(?P<id>[a-zA-Z0-9_.]+)/children',
 			[
 				[
-					'methods'             => WP_REST_Server::DELETABLE,
-					'callback'            => [ $this, 'cancel_job' ],
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => [ $this, 'get_job_children' ],
 					'permission_callback' => static function () {
 						return current_user_can( 'manage_options' );
 					},
@@ -111,11 +105,53 @@ class Job_Controller extends Abstract_REST_Controller {
 
 		register_rest_route(
 			self::NAMESPACE,
-			'/jobs/(?P<id>[a-zA-Z0-9_.]+)/children',
+			'/jobs/(?P<id>[a-zA-Z0-9_.]+)/retry',
+			[
+				[
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => [ $this, 'retry_job' ],
+					'permission_callback' => static function () {
+						return current_user_can( 'manage_options' );
+					},
+					'args'                => [
+						'id' => [
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						],
+					],
+				],
+			]
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/jobs/(?P<id>[a-zA-Z0-9_.]+)',
 			[
 				[
 					'methods'             => WP_REST_Server::READABLE,
-					'callback'            => [ $this, 'get_job_children' ],
+					'callback'            => [ $this, 'get_job' ],
+					'permission_callback' => static function () {
+						return current_user_can( 'manage_options' );
+					},
+					'args'                => [
+						'id' => [
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						],
+					],
+				],
+			]
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/jobs/(?P<id>[a-zA-Z0-9_.]+)',
+			[
+				[
+					'methods'             => WP_REST_Server::DELETABLE,
+					'callback'            => [ $this, 'cancel_job' ],
 					'permission_callback' => static function () {
 						return current_user_can( 'manage_options' );
 					},
@@ -312,6 +348,105 @@ class Job_Controller extends Abstract_REST_Controller {
 			[
 				'success'  => true,
 				'children' => $children,
+			]
+		);
+	}
+
+	/**
+	 * Retry a failed SyncJob batch by cancelling the old and creating a new one.
+	 *
+	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public function retry_job( $request ) {
+		$job_id    = $request->get_param( 'id' );
+		$scheduler = new JobScheduler();
+		$status    = $scheduler->get_status( $job_id );
+
+		if ( ! $status ) {
+			return new \WP_Error(
+				'onesearch_job_not_found',
+				__( 'Job not found.', 'onesearch' ),
+				[ 'status' => 404 ]
+			);
+		}
+
+		if ( 'failed' !== ( $status['status'] ?? '' ) ) {
+			return new \WP_Error(
+				'onesearch_retry_not_failed',
+				__( 'Only failed jobs can be retried.', 'onesearch' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		// Cancel the old failed SyncJob.
+		$scheduler->cancel( $job_id );
+
+		// Create a new SyncJob with the same data.
+		$post_ids   = $status['data']['post_ids'] ?? [];
+		$post_types = $status['data']['post_types'] ?? [];
+		$new_job    = new SyncJob();
+		$new_job->set_data(
+			[
+				'post_ids'   => $post_ids,
+				'post_types' => $post_types,
+			]
+		);
+		$new_job->set_parent_id( $status['parent_id'] ?? '' );
+		$new_job->set_group( $status['group'] ?? 'sync' );
+		$new_job->set_max_retries( 2 );
+		$new_job->set_retry_delay_seconds( 30 );
+
+		try {
+			$scheduler->schedule( $new_job );
+		} catch ( \Throwable $e ) {
+			return new \WP_Error(
+				'onesearch_retry_failed',
+				$e->getMessage(),
+				[ 'status' => 500 ]
+			);
+		}
+
+		return new WP_REST_Response(
+			[
+				'success' => true,
+				'message' => __( 'Batch retry scheduled.', 'onesearch' ),
+				'job_id'  => $new_job->get_id(),
+			]
+		);
+	}
+
+	/**
+	 * Get job history: all terminal (completed, failed, cancelled) jobs.
+	 *
+	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
+	 */
+	public function get_job_history( $request ): WP_REST_Response { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+		global $wpdb;
+
+		$prefix  = 'onesearch_job_status_';
+		$results = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+			$wpdb->prepare(
+				"SELECT option_value FROM {$wpdb->options} WHERE option_name LIKE %s AND option_name NOT LIKE %s ORDER BY option_id DESC LIMIT 50",
+				$prefix . '%',
+				$prefix . '%_action_%'
+			)
+		);
+
+		$jobs = [];
+		if ( $results ) {
+			foreach ( $results as $row ) {
+				$data = maybe_unserialize( $row->option_value );
+				if ( is_array( $data ) && in_array( $data['status'] ?? '', [ 'completed', 'failed', 'cancelled' ], true ) ) {
+					$jobs[] = $data;
+				}
+			}
+		}
+
+		return new WP_REST_Response(
+			[
+				'success' => true,
+				'jobs'    => $jobs,
 			]
 		);
 	}

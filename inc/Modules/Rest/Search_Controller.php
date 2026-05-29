@@ -212,14 +212,19 @@ class Search_Controller extends Abstract_REST_Controller {
 	 * Schedules an async ReindexJob instead of blocking until complete.
 	 */
 	public function reindex(): \WP_REST_Response|\WP_Error {
+		$jobs   = [];
 		$errors = [];
 
 		// If Governing, trigger re-index on children as well.
 		if ( Settings::is_governing_site() ) {
-			$child_errors = $this->reindex_child_sites();
+			$child_result = $this->reindex_child_sites();
 
-			if ( is_array( $child_errors ) ) {
-				$errors = array_merge( $errors, $child_errors );
+			if ( isset( $child_result['jobs'] ) ) {
+				$jobs = array_merge( $jobs, $child_result['jobs'] );
+			}
+
+			if ( isset( $child_result['errors'] ) ) {
+				$errors = array_merge( $errors, $child_result['errors'] );
 			}
 		}
 
@@ -241,14 +246,31 @@ class Search_Controller extends Abstract_REST_Controller {
 		$job->set_retry_delay_seconds( 60 );
 
 		$scheduler = new JobScheduler();
+		$job_id    = null;
 
 		try {
 			$scheduler->schedule( $job );
+			$job_id = $job->get_id();
 		} catch ( \Throwable $e ) {
 			$errors[] = [
 				'site_url' => get_site_url(),
 				'message'  => $e->getMessage(),
 			];
+		}
+
+		// Add local site to the jobs list.
+		$local_site_name = Settings::is_governing_site() ? __( 'Governing Site', 'onesearch' ) : get_bloginfo( 'name' );
+		$local_site_url  = get_site_url();
+
+		if ( $job_id ) {
+			array_unshift(
+				$jobs,
+				[
+					'site_name' => $local_site_name,
+					'site_url'  => $local_site_url,
+					'job_id'    => $job_id,
+				]
+			);
 		}
 
 		return rest_ensure_response(
@@ -257,7 +279,8 @@ class Search_Controller extends Abstract_REST_Controller {
 				'message' => empty( $errors )
 					? __( 'Re-indexing scheduled successfully.', 'onesearch' )
 					: implode( "\n", array_column( $errors, 'message' ) ),
-				'job_id'  => $job->get_id(),
+				'job_id'  => $job_id,
+				'jobs'    => $jobs,
 			]
 		);
 	}
@@ -324,12 +347,13 @@ class Search_Controller extends Abstract_REST_Controller {
 	/**
 	 * Trigger batch reindexing of all child sites (for governing sites).
 	 *
-	 * @return true|array{site_url: string, message: string}[] Array of errors encountered, true if successful.
+	 * @return array{ jobs: array<int,array{site_name:string,site_url:string,job_id:string}>, errors: array<int,array{site_url:string,message:string}> }
 	 */
-	private function reindex_child_sites() {
+	private function reindex_child_sites(): array {
 		$shared_sites = Settings::get_shared_sites();
 
-		$errors = [];
+		$child_jobs = [];
+		$errors     = [];
 		// Build the requests array for each site.
 		foreach ( $shared_sites as $site_data ) {
 			if ( empty( $site_data['url'] ) || empty( $site_data['api_key'] ) ) {
@@ -389,8 +413,20 @@ class Search_Controller extends Abstract_REST_Controller {
 				];
 				continue;
 			}
+
+			// Capture the child job ID from the child's response.
+			if ( ! empty( $response_data['job_id'] ) ) {
+				$child_jobs[] = [
+					'site_name' => $site_data['name'] ?? $site_data['url'],
+					'site_url'  => $site_data['url'],
+					'job_id'    => $response_data['job_id'],
+				];
+			}
 		}
 
-		return $errors ?: true;
+		return [
+			'jobs'   => $child_jobs,
+			'errors' => $errors,
+		];
 	}
 }

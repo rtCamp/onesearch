@@ -23,6 +23,8 @@ parameters:
 		- onesearch.php
 	stubFiles:
 		- tests/phpstan/stubs/wordpress-extended.php
+	scanFiles:
+		- tests/phpstan/stubs/action-scheduler.php
 	paths:
 		- onesearch.php
 		- uninstall.php
