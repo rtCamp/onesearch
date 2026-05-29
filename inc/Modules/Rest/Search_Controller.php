@@ -9,7 +9,8 @@ declare(strict_types = 1);
 
 namespace OneSearch\Modules\Rest;
 
-use OneSearch\Modules\Search\Index;
+use OneSearch\Modules\Jobs\ReindexJob;
+use OneSearch\Modules\Scheduler\JobScheduler;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Utils;
@@ -208,6 +209,7 @@ class Search_Controller extends Abstract_REST_Controller {
 	 * Reindex the current site.
 	 *
 	 * If the site is a governing site, trigger the reindex on children as well.
+	 * Schedules an async ReindexJob instead of blocking until complete.
 	 */
 	public function reindex(): \WP_REST_Response|\WP_Error {
 		$errors = [];
@@ -227,13 +229,25 @@ class Search_Controller extends Abstract_REST_Controller {
 			return $post_types;
 		}
 
-		// Index the current site.
-		$indexed = ( new Index() )->index_all_posts( $post_types );
+		// Schedule an async ReindexJob for the local site.
+		$job = new ReindexJob();
+		$job->set_data(
+			[
+				'post_types' => $post_types,
+				'batch_size' => 10,
+			]
+		);
+		$job->set_max_retries( 2 );
+		$job->set_retry_delay_seconds( 60 );
 
-		if ( is_wp_error( $indexed ) ) {
+		$scheduler = new JobScheduler();
+
+		try {
+			$scheduler->schedule( $job );
+		} catch ( \Throwable $e ) {
 			$errors[] = [
 				'site_url' => get_site_url(),
-				'message'  => $indexed->get_error_message() ?: __( 'Re-index failed.', 'onesearch' ),
+				'message'  => $e->getMessage(),
 			];
 		}
 
@@ -242,7 +256,8 @@ class Search_Controller extends Abstract_REST_Controller {
 				'success' => empty( $errors ),
 				'message' => empty( $errors )
 					? __( 'Re-indexing scheduled successfully.', 'onesearch' )
-					: __( 'Re-indexing was unsuccessful. Please try again later.', 'onesearch' ),
+					: implode( "\n", array_column( $errors, 'message' ) ),
+				'job_id'  => $job->get_id(),
 			]
 		);
 	}

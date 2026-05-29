@@ -26,6 +26,7 @@ final class Main {
 	private const REGISTRABLE_CLASSES = [
 		Modules\Core\Assets::class,
 		Modules\Core\Rest::class,
+		Modules\Scheduler\Bootstrap::class,
 		Modules\Settings\Admin::class,
 		Modules\Settings\Settings::class,
 		Modules\Search\Admin::class,
@@ -34,6 +35,7 @@ final class Main {
 		Modules\Search\Watcher::class,
 		Modules\Rest\Basic_Options_Controller::class,
 		Modules\Rest\Governing_Data_Controller::class,
+		Modules\Rest\Job_Controller::class,
 		Modules\Rest\Search_Controller::class,
 	];
 
