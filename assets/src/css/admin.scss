@@ -543,6 +543,21 @@ body {
 	margin-top: 24px;
 }
 
+.onesearch-modal-actions .onesearch-btn-cancel,
+.onesearch-job-panel-header .onesearch-btn-cancel {
+	background: #d63638 !important;
+	border-color: #d63638 !important;
+	color: #fff !important;
+	box-shadow: none !important;
+}
+
+.onesearch-modal-actions .onesearch-btn-cancel:hover,
+.onesearch-job-panel-header .onesearch-btn-cancel:hover {
+	background: #a02a2c !important;
+	border-color: #a02a2c !important;
+	color: #fff !important;
+}
+
 .onesearch-job-panel {
 	margin: 0 -24px;
 }
