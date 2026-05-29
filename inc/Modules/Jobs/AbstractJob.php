@@ -30,7 +30,7 @@ namespace OneSearch\Modules\Jobs;
  * @see \OneSearch\Modules\Jobs\SyncJob                           Concrete leaf job — syncs posts to Algolia
  * @see \OneSearch\Modules\Jobs\ReindexJob                        Concrete parent job — chunks posts into SyncJobs
  */
-abstract class AbstractJob implements \JsonSerializable {
+abstract class AbstractJob {
 	/**
 	 * Job is waiting to be processed.
 	 *
@@ -202,8 +202,6 @@ abstract class AbstractJob implements \JsonSerializable {
 	 */
 	abstract public function handle(): void;
 
-	// ─── Getters ──────────────────────────────────────────────────────────
-
 	/**
 	 * Get the unique job identifier.
 	 *
@@ -353,8 +351,6 @@ abstract class AbstractJob implements \JsonSerializable {
 	public function get_data(): array {
 		return $this->data;
 	}
-
-	// ─── Setters (fluent) ─────────────────────────────────────────────────
 
 	/**
 	 * Set the job ID. Used when reconstructing a job from storage.
@@ -506,8 +502,6 @@ abstract class AbstractJob implements \JsonSerializable {
 		return $this;
 	}
 
-	// ─── Progress & State Transitions ─────────────────────────────────────
-
 	/**
 	 * Update progress to a specific value, clamped to [0, progress_total].
 	 *
@@ -556,8 +550,6 @@ abstract class AbstractJob implements \JsonSerializable {
 		$this->updated_at = time();
 	}
 
-	// ─── Query Methods ─────────────────────────────────────────────────────
-
 	/**
 	 * Check if this parent job still has child jobs that haven't finished.
 	 *
@@ -584,8 +576,6 @@ abstract class AbstractJob implements \JsonSerializable {
 	public function should_retry(): bool {
 		return $this->retry_count <= $this->max_retries;
 	}
-
-	// ─── Serialization ─────────────────────────────────────────────────────
 
 	/**
 	 * Serialize the job to an associative array for wp_options storage.
@@ -642,14 +632,5 @@ abstract class AbstractJob implements \JsonSerializable {
 		$job->created_at          = (int) ( $data['created_at'] ?? time() );
 		$job->updated_at          = (int) ( $data['updated_at'] ?? time() );
 		return $job;
-	}
-
-	/**
-	 * Serialize to JSON for REST API responses.
-	 *
-	 * @return array<string, mixed> The same as to_array().
-	 */
-	public function jsonSerialize(): array {
-		return $this->to_array();
 	}
 }
