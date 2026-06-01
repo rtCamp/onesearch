@@ -242,7 +242,7 @@ class Search_Controller extends Abstract_REST_Controller {
 		$job->set_data(
 			[
 				'post_types' => $post_types,
-				'batch_size' => 10,
+				'batch_size' => 30,
 			]
 		);
 		$job->set_max_retries( 2 );
