@@ -357,7 +357,6 @@ final class JobScheduler {
 	 * @param int    $retry     Current retry attempt number (0 on first run).
 	 *
 	 * @throws \InvalidArgumentException If job_class or job_id is missing/invalid.
-	 * @throws \RuntimeException         If the job is not found in storage.
 	 */
 	public function execute_job( string $job_class, string $job_id, int $retry = 0 ): void {
 		if ( ! $job_class || ! $job_id || ! class_exists( $job_class ) ) {
@@ -366,7 +365,13 @@ final class JobScheduler {
 
 		$stored = $this->get_status( $job_id );
 		if ( ! $stored ) {
-			throw new \RuntimeException( sprintf( 'Job %s not found in storage.', esc_html( $job_id ) ) );
+			error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+				sprintf(
+					'[OneSearch] Job %s not found in storage — action will be skipped.',
+					esc_html( $job_id )
+				)
+			);
+			return;
 		}
 
 		/** @var \OneSearch\Modules\Jobs\AbstractJob $job */
