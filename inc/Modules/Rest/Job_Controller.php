@@ -9,6 +9,7 @@ declare( strict_types = 1 );
 
 namespace OneSearch\Modules\Rest;
 
+use OneSearch\Modules\Jobs\AbstractJob;
 use OneSearch\Modules\Jobs\ReindexJob;
 use OneSearch\Modules\Jobs\SyncJob;
 use OneSearch\Modules\Scheduler\JobScheduler;
@@ -373,12 +374,14 @@ class Job_Controller extends Abstract_REST_Controller {
 	}
 
 	/**
-	 * Retry a failed SyncJob batch by cancelling the old and creating a new one.
+	 * Retry a failed SyncJob batch using the same job ID.
 	 *
 	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
 	 * @return \WP_REST_Response|\WP_Error
 	 */
 	public function retry_job( $request ) {
+		global $wpdb;
+
 		$job_id    = $request->get_param( 'id' );
 		$scheduler = new JobScheduler();
 		$status    = $scheduler->get_status( $job_id );
@@ -399,26 +402,22 @@ class Job_Controller extends Abstract_REST_Controller {
 			);
 		}
 
-		// Cancel the old failed SyncJob.
-		$scheduler->cancel( $job_id );
+		// Unschedule any remaining retry actions for this job.
+		$group     = 'onesearch_' . ( $status['group'] ?? 'default' );
+		$action_id = get_option( JobScheduler::OPTION_PREFIX . $job_id . '_action_id', 0 );
+		if ( $action_id ) {
+			$args = get_option( JobScheduler::OPTION_PREFIX . $job_id . '_action_args', [] );
+			as_unschedule_action( JobScheduler::HOOK, $args, $group );
+		}
 
-		// Create a new SyncJob with the same data.
-		$post_ids   = $status['data']['post_ids'] ?? [];
-		$post_types = $status['data']['post_types'] ?? [];
-		$new_job    = new SyncJob();
-		$new_job->set_data(
-			[
-				'post_ids'   => $post_ids,
-				'post_types' => $post_types,
-			]
-		);
-		$new_job->set_parent_id( $status['parent_id'] ?? '' );
-		$new_job->set_group( $status['group'] ?? 'sync' );
-		$new_job->set_max_retries( 2 );
-		$new_job->set_retry_delay_seconds( 30 );
+		// Reconstruct, reset, and reschedule the same job.
+		$job = SyncJob::from_array( $status );
+		$job->set_status( AbstractJob::STATUS_PENDING );
+		$job->set_retry_count( 0 );
+		$job->clear_error();
 
 		try {
-			$scheduler->schedule( $new_job );
+			$scheduler->schedule( $job );
 		} catch ( \Throwable $e ) {
 			return new \WP_Error(
 				'onesearch_retry_failed',
@@ -427,13 +426,63 @@ class Job_Controller extends Abstract_REST_Controller {
 			);
 		}
 
+		// If this child had a parent, reset parent tracking.
+		$parent_id = $status['parent_id'] ?? '';
+		if ( $parent_id ) {
+			$this->reset_parent_for_retry( $scheduler, $wpdb, $parent_id );
+		}
+
 		return new WP_REST_Response(
 			[
 				'success' => true,
 				'message' => __( 'Batch retry scheduled.', 'onesearch' ),
-				'job_id'  => $new_job->get_id(),
+				'job_id'  => $job->get_id(),
 			]
 		);
+	}
+
+	/**
+	 * Decrement the parent's children_done counter and set back to RUNNING if terminal.
+	 *
+	 * @param \OneSearch\Modules\Scheduler\JobScheduler $scheduler The job scheduler instance.
+	 * @param \wpdb                                     $wpdb      WordPress database abstraction.
+	 * @param string                                    $parent_id The parent job ID.
+	 */
+	private function reset_parent_for_retry( JobScheduler $scheduler, $wpdb, string $parent_id ): void {
+		$parent_key  = JobScheduler::OPTION_PREFIX . $parent_id;
+		$parent_data = $scheduler->get_status( $parent_id );
+		if ( ! $parent_data ) {
+			return;
+		}
+
+		// Decrement children_done counter to compensate for the retried child.
+		$counter_key = JobScheduler::OPTION_PREFIX . $parent_id . '_children_done';
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+		$wpdb->query(
+			// @phpstan-ignore argument.type
+			$wpdb->prepare(
+				// @phpstan-ignore argument.type
+				"UPDATE {$wpdb->options} SET option_value = GREATEST(CAST(option_value AS UNSIGNED) - 1, 0) WHERE option_name = %s",
+				$counter_key
+			)
+		);
+		wp_cache_delete( $counter_key, 'options' );
+		$parent_data['children_completed'] = (int) get_option( $counter_key, 0 );
+
+		// If parent was terminal, reset to RUNNING.
+		if ( in_array( $parent_data['status'] ?? '', JobScheduler::TERMINAL_STATUSES, true ) ) {
+			$parent_data['status']     = AbstractJob::STATUS_RUNNING;
+			$parent_data['updated_at'] = time();
+		}
+
+		$is_terminal = in_array( $parent_data['status'], JobScheduler::TERMINAL_STATUSES, true );
+		if ( $is_terminal ) {
+			update_option( $parent_key, $parent_data, false );
+			delete_transient( $parent_key );
+		} else {
+			set_transient( $parent_key, $parent_data, JobScheduler::TRANSIENT_EXPIRATION );
+			$scheduler->add_to_active_index( $parent_id );
+		}
 	}
 
 	/**
@@ -447,7 +496,7 @@ class Job_Controller extends Abstract_REST_Controller {
 		$prefix  = 'onesearch_job_status_';
 		$results = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
 			$wpdb->prepare(
-				"SELECT option_value FROM {$wpdb->options} WHERE option_name LIKE %s AND option_name NOT LIKE %s ORDER BY option_id DESC LIMIT 50",
+				"SELECT option_value FROM {$wpdb->options} WHERE option_name LIKE %s AND option_name NOT LIKE %s ORDER BY option_id DESC",
 				$prefix . '%',
 				$prefix . '%_action_%'
 			)
@@ -458,7 +507,10 @@ class Job_Controller extends Abstract_REST_Controller {
 			foreach ( $results as $row ) {
 				$data = maybe_unserialize( $row->option_value );
 				if ( is_array( $data ) && in_array( $data['status'] ?? '', [ 'completed', 'failed', 'cancelled' ], true ) ) {
-					$jobs[] = $data;
+					// Only show parent (top-level) jobs, not individual batches.
+					if ( empty( $data['parent_id'] ) ) {
+						$jobs[] = $data;
+					}
 				}
 			}
 		}
