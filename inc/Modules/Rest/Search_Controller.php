@@ -234,7 +234,9 @@ class Search_Controller extends Abstract_REST_Controller {
 			return $post_types;
 		}
 
-		// Schedule an async ReindexJob for the local site.
+		// Create and execute the ReindexJob synchronously.
+		// The parent job runs in this request (resolve posts, clear index,
+		// schedule child SyncJobs). Only the child SyncJobs run async via AS.
 		$job = new ReindexJob();
 		$job->set_data(
 			[
@@ -251,6 +253,11 @@ class Search_Controller extends Abstract_REST_Controller {
 		try {
 			$scheduler->schedule( $job );
 			$job_id = $job->get_id();
+
+			// Execute synchronously: resolve posts, clear index, schedule children.
+			$job->mark_running();
+			$scheduler->persist_job( $job );
+			$job->handle();
 		} catch ( \Throwable $e ) {
 			$errors[] = [
 				'site_url' => get_site_url(),

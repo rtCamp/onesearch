@@ -236,9 +236,10 @@ final class JobScheduler {
 		}
 
 		if ( $status && ! in_array( $status['status'], self::TERMINAL_STATUSES, true ) ) {
-			$status['status']     = AbstractJob::STATUS_CANCELLED;
-			$status['updated_at'] = time();
-			$key                  = self::OPTION_PREFIX . $job_id;
+			$status['status']      = AbstractJob::STATUS_CANCELLED;
+			$status['finished_at'] = time();
+			$status['updated_at']  = time();
+			$key                   = self::OPTION_PREFIX . $job_id;
 
 			update_option( $key, $status, false );
 			delete_transient( $key );
@@ -289,7 +290,7 @@ final class JobScheduler {
 			[
 				'group'    => 'onesearch_' . $group,
 				'status'   => [ \ActionScheduler_Store::STATUS_PENDING, \ActionScheduler_Store::STATUS_RUNNING ],
-				'per_page' => 500,
+				'per_page' => 0,
 			]
 		);
 
@@ -319,7 +320,7 @@ final class JobScheduler {
 		$job->set_status( AbstractJob::STATUS_PENDING );
 		$this->persist_job( $job );
 
-		$delay = $job->get_retry_delay_seconds() * $job->get_retry_count();
+		$delay = $job->get_retry_delay_seconds() * (int) pow( 2, $job->get_retry_count() - 1 );
 
 		$args = [
 			'job_class' => get_class( $job ),
@@ -492,9 +493,15 @@ final class JobScheduler {
 	/**
 	 * Notify a parent job that one of its children has completed.
 	 *
+	 * Uses an atomic SQL counter for _children_done to prevent race conditions
+	 * when multiple children complete simultaneously. A transient lock guards
+	 * the parent data write to prevent concurrent overwrites.
+	 *
 	 * @param \OneSearch\Modules\Jobs\AbstractJob $job The child job that just completed or failed.
 	 */
 	private function notify_parent( AbstractJob $job ): void {
+		global $wpdb;
+
 		$parent_id = $job->get_parent_id();
 		if ( ! $parent_id ) {
 			return;
@@ -506,27 +513,56 @@ final class JobScheduler {
 		}
 
 		$counter_key = self::OPTION_PREFIX . $parent_id . '_children_done';
-		$done        = (int) get_option( $counter_key, 0 ) + 1;
-		update_option( $counter_key, $done, false );
 
-		$parent_data['children_completed'] = $done;
-		$parent_data['progress']           = $done;
-		$parent_data['updated_at']         = time();
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+		$wpdb->query(
+			$wpdb->prepare(
+				"INSERT INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, '1', 'no') ON DUPLICATE KEY UPDATE option_value = CAST(option_value AS UNSIGNED) + 1",
+				$counter_key
+			)
+		);
 
+		wp_cache_delete( $counter_key, 'options' );
+		$done        = (int) get_option( $counter_key, 0 );
 		$child_total = count( $parent_data['child_ids'] ?? [] );
-		if ( $child_total > 0 && $done >= $child_total ) {
-			$parent_data['status']   = AbstractJob::STATUS_COMPLETED;
-			$parent_data['progress'] = $parent_data['progress_total'];
-			delete_option( $counter_key );
-		}
 
 		$parent_key = self::OPTION_PREFIX . $parent_id;
-		if ( in_array( $parent_data['status'], self::TERMINAL_STATUSES, true ) ) {
-			update_option( $parent_key, $parent_data, false );
-			delete_transient( $parent_key );
-			$this->remove_from_active_index( $parent_id );
-		} else {
-			set_transient( $parent_key, $parent_data, self::TRANSIENT_EXPIRATION );
+		$lock_key   = $parent_key . '_lock';
+
+		if ( ! set_transient( $lock_key, 1, 10 ) ) {
+			return;
+		}
+
+		try {
+			$fresh = $this->get_status( $parent_id );
+			if ( $fresh ) {
+				$parent_data = $fresh;
+			}
+
+			if ( in_array( $parent_data['status'] ?? '', self::TERMINAL_STATUSES, true ) ) {
+				return;
+			}
+
+			$parent_data['children_completed'] = $done;
+			$parent_data['progress']           = min( $done, $parent_data['progress_total'] ?? $done );
+			$parent_data['updated_at']         = time();
+
+			if ( $child_total > 0 && $done >= $child_total ) {
+				$parent_data['status']      = AbstractJob::STATUS_COMPLETED;
+				$parent_data['progress']    = $parent_data['progress_total'];
+				$parent_data['finished_at'] = time();
+				delete_option( $counter_key );
+			}
+
+			if ( in_array( $parent_data['status'], self::TERMINAL_STATUSES, true ) ) {
+				update_option( $parent_key, $parent_data, false );
+				delete_transient( $parent_key );
+				$this->remove_from_active_index( $parent_id );
+			} else {
+				set_transient( $parent_key, $parent_data, self::TRANSIENT_EXPIRATION );
+			}
+		} finally {
+			delete_transient( $lock_key );
 		}
 	}
 
@@ -546,7 +582,7 @@ final class JobScheduler {
 	 *
 	 * @param string $job_id The job ID to add.
 	 */
-	private function add_to_active_index( string $job_id ): void {
+	public function add_to_active_index( string $job_id ): void {
 		$active = get_option( self::ACTIVE_JOBS_OPTION, [] );
 		if ( ! is_array( $active ) ) {
 			$active = [];

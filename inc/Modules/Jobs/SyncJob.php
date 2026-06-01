@@ -64,6 +64,7 @@ final class SyncJob extends AbstractJob {
 	 * post into Algolia records, and saves or deletes them as appropriate.
 	 *
 	 * @throws \InvalidArgumentException If post_ids is missing or empty.
+	 * @throws \RuntimeException         If any Algolia API operation fails.
 	 */
 	public function handle(): void {
 		$post_ids = $this->data['post_ids'] ?? [];
@@ -77,6 +78,7 @@ final class SyncJob extends AbstractJob {
 
 		$index       = new Index();
 		$post_record = new Post_Record();
+		$errors      = [];
 
 		foreach ( $post_ids as $i => $post_id ) {
 			$post = get_post( $post_id );
@@ -91,20 +93,39 @@ final class SyncJob extends AbstractJob {
 
 			if ( ! $should_index ) {
 				$site_post_id = sprintf( '%s_%d', Utils::normalize_url( get_site_url() ), $post_id );
-				$index->delete_by(
+				$result       = $index->delete_by(
 					[
 						'filters' => sprintf( 'site_post_id:"%s"', $site_post_id ),
 					]
 				);
+				if ( is_wp_error( $result ) ) {
+					$errors[] = sprintf(
+						'Failed to delete post %d from Algolia: %s',
+						$post_id,
+						esc_html( $result->get_error_message() )
+					);
+				}
 			} else {
 				$records = $post_record->to_records( $post );
 
 				if ( ! empty( $records ) ) {
-					$index->save_records( $records );
+					$result = $index->save_records( $records );
+					if ( is_wp_error( $result ) ) {
+						$errors[] = sprintf(
+							'Failed to save post %d to Algolia: %s',
+							$post_id,
+							esc_html( $result->get_error_message() )
+						);
+					}
 				}
 			}
 
 			$this->update_progress( $i + 1 );
+		}
+
+		if ( ! empty( $errors ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
+			throw new \RuntimeException( implode( '; ', $errors ) );
 		}
 
 		$this->mark_completed();
