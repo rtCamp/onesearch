@@ -81,7 +81,10 @@ interface JobStatus {
 	children_total?: number;
 	data?: Record< string, unknown >;
 	group?: string;
+	created_at?: number;
 	updated_at?: number;
+	finished_at?: number;
+	cancelled_at?: number;
 }
 
 interface SiteJobState {
@@ -720,24 +723,111 @@ const SiteIndexableEntities = ( {
 		);
 	};
 
-	const renderHistoryRow = ( job: JobStatus ) => (
-		<div key={ job.id } className="onesearch-job-site-row">
-			<div className="onesearch-job-site-header">
-				<span className="onesearch-job-site-name">
-					{ job.id.substring( 0, 20 ) }…
-				</span>
-				<Text variant="muted">{ job.group || 'reindex' }</Text>
-				<div className="onesearch-job-site-status">
-					{ renderJobStatusBadge( job.status, 'small' ) }
-					{ job.progress_total > 0 && (
-						<span className="onesearch-job-progress-text">
-							{ job.progress }/{ job.progress_total }
-						</span>
-					) }
-				</div>
-			</div>
-		</div>
-	);
+	const formatDuration = ( seconds: number ): string => {
+		if ( seconds < 60 ) {
+			return sprintf(
+				/* translators: %d: seconds */
+				__( '%ds', 'onesearch' ),
+				seconds
+			);
+		}
+		const mins = Math.floor( seconds / 60 );
+		const secs = seconds % 60;
+		if ( mins < 60 ) {
+			return sprintf(
+				/* translators: 1: minutes, 2: seconds */
+				__( '%1$dm %2$ds', 'onesearch' ),
+				mins,
+				secs
+			);
+		}
+		const hrs = Math.floor( mins / 60 );
+		const remainingMins = mins % 60;
+		return sprintf(
+			/* translators: 1: hours, 2: minutes */
+			__( '%1$dh %2$dm', 'onesearch' ),
+			hrs,
+			remainingMins
+		);
+	};
+
+	const formatTimestamp = ( ts?: number ): string =>
+		ts ? new Date( ts * 1000 ).toLocaleString() : '—';
+
+	const renderHistoryTable = () => {
+		if ( history.length === 0 ) {
+			return (
+				<Text variant="muted">
+					{ __( 'No past jobs.', 'onesearch' ) }
+				</Text>
+			);
+		}
+
+		return (
+			<table className="onesearch-history-table">
+				<thead>
+					<tr>
+						<th>{ __( 'ID', 'onesearch' ) }</th>
+						<th>{ __( 'Type', 'onesearch' ) }</th>
+						<th>{ __( 'Created at', 'onesearch' ) }</th>
+						<th>{ __( 'Duration', 'onesearch' ) }</th>
+						<th>{ __( 'Status', 'onesearch' ) }</th>
+						<th>{ __( 'Batches', 'onesearch' ) }</th>
+					</tr>
+				</thead>
+				<tbody>
+					{ history.map( ( job ) => {
+						const totalBatches =
+							job.children_total || job.progress_total;
+						const duration =
+							job.finished_at && job.created_at
+								? job.finished_at - job.created_at
+								: null;
+
+						return (
+							<tr key={ job.id }>
+								<td>
+									<code title={ job.id }>
+										{ job.id.substring( 0, 16 ) }…
+									</code>
+								</td>
+								<td>
+									<Text variant="muted">
+										{ job.group || 'reindex' }
+									</Text>
+								</td>
+								<td>
+									<Text variant="muted">
+										{ formatTimestamp( job.created_at ) }
+									</Text>
+								</td>
+								<td>
+									<Text variant="muted">
+										{ duration !== null
+											? formatDuration( duration )
+											: '—' }
+									</Text>
+								</td>
+								<td>
+									{ renderJobStatusBadge(
+										job.status,
+										'small'
+									) }
+								</td>
+								<td>
+									<Text variant="muted">
+										{ totalBatches > 0
+											? totalBatches
+											: '—' }
+									</Text>
+								</td>
+							</tr>
+						);
+					} ) }
+				</tbody>
+			</table>
+		);
+	};
 
 	return (
 		<>
@@ -968,14 +1058,7 @@ const SiteIndexableEntities = ( {
 							) }
 						</summary>
 						<div className="onesearch-job-panel-body">
-							{ history.length === 0 && (
-								<Text variant="muted">
-									{ __( 'No past jobs.', 'onesearch' ) }
-								</Text>
-							) }
-							{ history.map( ( job ) =>
-								renderHistoryRow( job )
-							) }
+							{ renderHistoryTable() }
 						</div>
 					</details>
 				</Modal>

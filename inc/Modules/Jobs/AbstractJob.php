@@ -163,6 +163,13 @@ abstract class AbstractJob {
 	protected int $children_completed = 0;
 
 	/**
+	 * Unix timestamp when the job reached a terminal state, null while active.
+	 *
+	 * @var int|null
+	 */
+	protected ?int $finished_at = null;
+
+	/**
 	 * Unix timestamp when the job was created.
 	 *
 	 * @var int
@@ -175,6 +182,13 @@ abstract class AbstractJob {
 	 * @var int
 	 */
 	protected int $updated_at;
+
+	/**
+	 * Unix timestamp when the job was cancelled, null if not cancelled.
+	 *
+	 * @var int|null
+	 */
+	protected ?int $cancelled_at = null;
 
 	/**
 	 * Initialize a new job with a unique ID and current timestamps.
@@ -344,6 +358,15 @@ abstract class AbstractJob {
 	}
 
 	/**
+	 * Get the Unix timestamp when the job reached a terminal state.
+	 *
+	 * @return int|null Unix timestamp, or null if the job is still active.
+	 */
+	public function get_finished_at(): ?int {
+		return $this->finished_at;
+	}
+
+	/**
 	 * Get the job's data payload.
 	 *
 	 * @return array<string, mixed> The data payload.
@@ -373,6 +396,13 @@ abstract class AbstractJob {
 	 * @param string $status One of the STATUS_* constants.
 	 */
 	public function set_status( string $status ): void {
+		$was_terminal = in_array( $this->status, [ self::STATUS_COMPLETED, self::STATUS_FAILED, self::STATUS_CANCELLED ], true );
+		$is_terminal  = in_array( $status, [ self::STATUS_COMPLETED, self::STATUS_FAILED, self::STATUS_CANCELLED ], true );
+
+		if ( $was_terminal && ! $is_terminal ) {
+			$this->finished_at = null;
+		}
+
 		$this->status     = $status;
 		$this->updated_at = time();
 	}
@@ -520,8 +550,17 @@ abstract class AbstractJob {
 	 * @param string $error Description of what went wrong.
 	 */
 	public function fail( string $error ): void {
-		$this->status     = self::STATUS_FAILED;
-		$this->error      = $error;
+		$this->status      = self::STATUS_FAILED;
+		$this->error       = $error;
+		$this->finished_at = time();
+		$this->updated_at  = time();
+	}
+
+	/**
+	 * Clear the error message, used when retrying a failed job.
+	 */
+	public function clear_error(): void {
+		$this->error      = null;
 		$this->updated_at = time();
 	}
 
@@ -537,17 +576,20 @@ abstract class AbstractJob {
 	 * Mark the job as COMPLETED and set progress to 100%.
 	 */
 	public function mark_completed(): void {
-		$this->status     = self::STATUS_COMPLETED;
-		$this->progress   = $this->progress_total;
-		$this->updated_at = time();
+		$this->status      = self::STATUS_COMPLETED;
+		$this->progress    = $this->progress_total;
+		$this->finished_at = time();
+		$this->updated_at  = time();
 	}
 
 	/**
 	 * Mark the job as CANCELLED.
 	 */
 	public function mark_cancelled(): void {
-		$this->status     = self::STATUS_CANCELLED;
-		$this->updated_at = time();
+		$this->status       = self::STATUS_CANCELLED;
+		$this->cancelled_at = time();
+		$this->finished_at  = time();
+		$this->updated_at   = time();
 	}
 
 	/**
@@ -599,6 +641,8 @@ abstract class AbstractJob {
 			'child_ids'           => $this->child_ids,
 			'children_completed'  => $this->children_completed,
 			'children_total'      => count( $this->child_ids ),
+			'cancelled_at'        => $this->cancelled_at,
+			'finished_at'         => $this->finished_at,
 			'created_at'          => $this->created_at,
 			'updated_at'          => $this->updated_at,
 		];
@@ -629,6 +673,8 @@ abstract class AbstractJob {
 		$job->parent_id           = $data['parent_id'] ?? $job->parent_id;
 		$job->child_ids           = $data['child_ids'] ?? $job->child_ids;
 		$job->children_completed  = (int) ( $data['children_completed'] ?? $job->children_completed );
+		$job->cancelled_at        = isset( $data['cancelled_at'] ) ? (int) $data['cancelled_at'] : null;
+		$job->finished_at         = isset( $data['finished_at'] ) ? (int) $data['finished_at'] : null;
 		$job->created_at          = (int) ( $data['created_at'] ?? time() );
 		$job->updated_at          = (int) ( $data['updated_at'] ?? time() );
 		return $job;

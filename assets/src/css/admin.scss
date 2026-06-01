@@ -696,7 +696,50 @@ body:has(.onesearch-setup-overlay) .onesearch-search-content {
 	color: #1d2327;
 }
 
+.onesearch-history-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 13px;
+
+	thead th {
+		text-align: left;
+		padding: 8px 12px;
+		font-weight: 600;
+		color: #1d2327;
+		border-bottom: 1px solid #e0e0e0;
+		font-size: 12px;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		white-space: nowrap;
+	}
+
+	tbody td {
+		padding: 10px 12px;
+		vertical-align: middle;
+		white-space: nowrap;
+
+		code {
+			font-size: 11px;
+		}
+	}
+
+	tbody tr + tr td {
+		border-top: 1px solid #f0f0f0;
+	}
+
+	td:first-child,
+	th:first-child {
+		padding-left: 0;
+	}
+
+	td:last-child,
+	th:last-child {
+		padding-right: 0;
+	}
+}
+
 .onesearch-job-history .onesearch-job-panel-body {
-	max-height: 300px;
+	max-height: 400px;
 	overflow-y: auto;
+	padding: 0 4px;
 }

@@ -83,9 +83,6 @@ final class ReindexJob extends AbstractJob {
 			return;
 		}
 
-		$this->progress_total = count( $post_ids );
-		$this->update_progress( 0 );
-
 		// Clear existing records before reindexing.
 		$indexer = new Index();
 		$indexer->delete_by(
@@ -140,34 +137,56 @@ final class ReindexJob extends AbstractJob {
 	}
 
 	/**
-	 * Resolve post IDs for the given post types.
+	 * Resolve post IDs for the given post types using paginated queries.
 	 *
 	 * @param string[] $post_types Post types to query.
 	 * @return int[] Array of post IDs.
 	 */
 	private function resolve_post_ids( array $post_types ): array {
 		$allowed_statuses = \OneSearch\Modules\Search\Post_Record::get_allowed_statuses( $post_types );
+		$post_ids         = [];
+		$page             = 1;
+		$per_page         = 500;
 
-		$query = new \WP_Query(
-			[
-				'post_type'      => $post_types,
-				'post_status'    => $allowed_statuses,
-				'posts_per_page' => -1,
-				'fields'         => 'ids',
-				'no_found_rows'  => true,
-			]
-		);
+		while ( true ) {
+			$query = new \WP_Query(
+				[
+					'post_type'              => $post_types,
+					'post_status'            => $allowed_statuses,
+					'posts_per_page'         => $per_page,
+					'paged'                  => $page,
+					'fields'                 => 'ids',
+					'no_found_rows'          => true,
+					'update_post_meta_cache' => false,
+					'update_post_term_cache' => false,
+				]
+			);
 
-		$posts = $query->posts;
-		if ( ! is_array( $posts ) ) {
-			return [];
+			$posts = $query->posts;
+			if ( ! is_array( $posts ) || empty( $posts ) ) {
+				break;
+			}
+
+			$post_ids = array_merge(
+				$post_ids,
+				array_map(
+					static function ( $p ): int {
+						if ( is_object( $p ) ) {
+							return (int) $p->ID;
+						}
+						return (int) $p;
+					},
+					$posts
+				)
+			);
+
+			if ( count( $posts ) < $per_page ) {
+				break;
+			}
+
+			++$page;
 		}
 
-		return array_map(
-			static function ( $post ) {
-				return is_object( $post ) ? intval( $post->ID ) : intval( $post );
-			},
-			$posts
-		);
+		return $post_ids;
 	}
 }
