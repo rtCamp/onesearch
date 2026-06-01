@@ -134,6 +134,20 @@ final class ReindexJob extends AbstractJob {
 
 		// Persist the parent job with child IDs so we can track completion.
 		$scheduler->persist_job( $this );
+
+		// REST-triggered reindexes do not run in wp-admin, so Action Scheduler's
+		// normal shutdown-based async dispatch may not fire. Dispatch the async
+		// runner directly when available, and fall back to cron nudging otherwise.
+		if (
+			class_exists( '\\ActionScheduler_AsyncRequest_QueueRunner' )
+			&& class_exists( '\\ActionScheduler_Store' )
+		) {
+			$runner = new \ActionScheduler_AsyncRequest_QueueRunner( \ActionScheduler_Store::instance() );
+			$runner->maybe_dispatch();
+			return;
+		}
+
+		spawn_cron();
 	}
 
 	/**
