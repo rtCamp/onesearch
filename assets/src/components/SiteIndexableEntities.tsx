@@ -102,6 +102,8 @@ const STATUS_LABELS: Record< string, string > = {
 	cancelled: 'Cancelled',
 };
 
+const TERMINAL_JOB_STATUSES = [ 'completed', 'failed', 'cancelled' ];
+
 const SiteIndexableEntities = ( {
 	sites,
 	allPostTypes,
@@ -259,13 +261,32 @@ const SiteIndexableEntities = ( {
 			} ) );
 		} );
 
-		const allTerminal = updated.every(
-			( s ) =>
-				! s.reindexJob ||
-				[ 'completed', 'failed', 'cancelled' ].includes(
-					s.reindexJob.status
-				)
-		);
+		const allTerminal = updated.every( ( s ) => {
+			if ( ! s.reindexJob ) {
+				return true;
+			}
+
+			if ( ! TERMINAL_JOB_STATUSES.includes( s.reindexJob.status ) ) {
+				return false;
+			}
+
+			const expectedChildCount =
+				s.reindexJob.children_total ??
+				s.reindexJob.child_ids?.length ??
+				s.children.length;
+
+			if ( expectedChildCount === 0 ) {
+				return true;
+			}
+
+			if ( s.children.length < expectedChildCount ) {
+				return false;
+			}
+
+			return s.children.every( ( child ) =>
+				TERMINAL_JOB_STATUSES.includes( child.status )
+			);
+		} );
 		if ( allTerminal ) {
 			stopPolling();
 			setReindexing( false );

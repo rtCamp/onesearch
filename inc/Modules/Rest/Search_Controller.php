@@ -209,7 +209,8 @@ class Search_Controller extends Abstract_REST_Controller {
 	 * Reindex the current site.
 	 *
 	 * If the site is a governing site, trigger the reindex on children as well.
-	 * Schedules an async ReindexJob instead of blocking until complete.
+	 * The parent ReindexJob runs in this request to resolve posts and enqueue
+	 * child SyncJobs; the child SyncJobs then run asynchronously via Action Scheduler.
 	 */
 	public function reindex(): \WP_REST_Response|\WP_Error {
 		$jobs   = [];
@@ -248,17 +249,23 @@ class Search_Controller extends Abstract_REST_Controller {
 		$job->set_retry_delay_seconds( 60 );
 
 		$scheduler = new JobScheduler();
-		$job_id    = null;
+		$job_id    = $job->get_id();
 
 		try {
-			$scheduler->schedule( $job );
-			$job_id = $job->get_id();
-
-			// Execute synchronously: resolve posts, clear index, schedule children.
 			$job->mark_running();
 			$scheduler->persist_job( $job );
 			$job->handle();
+
+			if ( $job->has_pending_children() ) {
+				$job->mark_running();
+			} elseif ( ! $job->is_finished() ) {
+				$job->mark_completed();
+			}
+
+			$scheduler->persist_job( $job );
 		} catch ( \Throwable $e ) {
+			$job->fail( $e->getMessage() );
+			$scheduler->persist_job( $job );
 			$errors[] = [
 				'site_url' => get_site_url(),
 				'message'  => $e->getMessage(),
