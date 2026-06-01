@@ -91,7 +91,7 @@ final class ReindexJob extends AbstractJob {
 			]
 		);
 
-		$batch_size = $this->data['batch_size'] ?? 10;
+		$batch_size = $this->data['batch_size'] ?? 30;
 		$batch_size = max( 1, min( $batch_size, 100 ) );
 		$batches    = array_chunk( $post_ids, $batch_size );
 		$scheduler  = new JobScheduler();

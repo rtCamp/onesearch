@@ -99,7 +99,7 @@ class Job_Controller extends Abstract_REST_Controller {
 						'batch_size' => [
 							'required'          => false,
 							'type'              => 'integer',
-							'default'           => 10,
+							'default'           => 30,
 							'sanitize_callback' => 'absint',
 						],
 					],
@@ -253,7 +253,7 @@ class Job_Controller extends Abstract_REST_Controller {
 	 */
 	public function create_reindex( $request ) {
 		$post_types = $request->get_param( 'post_types' ) ?: [];
-		$batch_size = $request->get_param( 'batch_size' ) ?: 10;
+		$batch_size = $request->get_param( 'batch_size' ) ?: 30;
 
 		// If no post_types specified, resolve from settings.
 		if ( empty( $post_types ) ) {
