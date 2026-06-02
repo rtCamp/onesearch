@@ -308,6 +308,38 @@ const SiteIndexableEntities = ( {
 		return () => stopPolling();
 	}, [] ); // eslint-disable-line react-hooks/exhaustive-deps
 
+	// On mount, check if a reindex was in progress before a page refresh.
+	useEffect( () => {
+		const restoreReindexState = async () => {
+			try {
+				const res = await fetch( `${ API_NAMESPACE }/re-index/status`, {
+					headers: { 'X-WP-Nonce': NONCE },
+				} );
+				const data = await res.json();
+				if ( data.success && data.active && data.jobs?.length ) {
+					const initial: SiteJobState[] = data.jobs.map(
+						( site: SiteJob ) => ( {
+							site,
+							reindexJob: null,
+							children: [],
+							expanded: false,
+						} )
+					);
+					setReindexing( true );
+					setShowReindexingModal( true );
+					setSiteStates( initial );
+					siteStatesRef.current = initial;
+					const interval = setInterval( () => pollAllSites(), 2000 );
+					intervalRef.current = interval;
+					pollAllSites();
+				}
+			} catch {
+				// Silently ignore — the status endpoint is best-effort.
+			}
+		};
+		restoreReindexState();
+	}, [] ); // eslint-disable-line react-hooks/exhaustive-deps
+
 	const handleRetry = async ( childJobId: string ) => {
 		setRetrying( ( prev ) => ( { ...prev, [ childJobId ]: true } ) );
 		try {
@@ -384,22 +416,6 @@ const SiteIndexableEntities = ( {
 			} );
 
 		return results;
-	};
-
-	const isEmptySavedEntities = (): boolean => {
-		if ( ! savedEntities || typeof savedEntities !== 'object' ) {
-			return true;
-		}
-
-		const keys = Object.keys( savedEntities );
-		if ( keys.length === 0 ) {
-			return true;
-		}
-
-		return keys.every( ( key ) => {
-			const value = savedEntities[ key ];
-			return ! Array.isArray( value ) || value.length === 0;
-		} );
 	};
 
 	const getIndexableEntities = useCallback( async () => {
@@ -869,9 +885,6 @@ const SiteIndexableEntities = ( {
 										return ! prev;
 									} );
 								} }
-								disabled={
-									isEmptySavedEntities() && ! reindexing
-								}
 								className="onesearch-btn-reindex"
 							>
 								{ reindexing && (

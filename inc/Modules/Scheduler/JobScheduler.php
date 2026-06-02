@@ -10,6 +10,7 @@ declare( strict_types = 1 );
 namespace OneSearch\Modules\Scheduler;
 
 use OneSearch\Modules\Jobs\AbstractJob;
+use OneSearch\Modules\Rest\Search_Controller;
 
 /**
  * Class - JobScheduler
@@ -244,6 +245,12 @@ final class JobScheduler {
 			update_option( $key, $status, false );
 			delete_transient( $key );
 			$this->remove_from_active_index( $job_id );
+
+			// If this is a parent ReindexJob being cancelled, clear the
+			// reindex state so the frontend knows it can start a new one.
+			if ( ! empty( $status['child_ids'] ?? [] ) ) {
+				Search_Controller::clear_reindex_state();
+			}
 		}
 
 		if ( $status ) {
@@ -499,8 +506,9 @@ final class JobScheduler {
 	 * Notify a parent job that one of its children has completed.
 	 *
 	 * Uses an atomic SQL counter for _children_done to prevent race conditions
-	 * when multiple children complete simultaneously. A transient lock guards
-	 * the parent data write to prevent concurrent overwrites.
+	 * when multiple children complete simultaneously. A spinlock with retries
+	 * guards the parent data write to prevent concurrent overwrites while
+	 * ensuring no notifications are silently dropped.
 	 *
 	 * @param \OneSearch\Modules\Jobs\AbstractJob $job The child job that just completed or failed.
 	 */
@@ -534,9 +542,17 @@ final class JobScheduler {
 		$parent_key = self::OPTION_PREFIX . $parent_id;
 		$lock_key   = $parent_key . '_lock';
 
-		if ( ! set_transient( $lock_key, 1, 10 ) ) {
-			return;
+		// Spinlock: retry acquiring the lock instead of silently dropping notifications.
+		$max_tries = 10;
+		for ( $attempt = 0; $attempt < $max_tries; ++$attempt ) {
+			if ( set_transient( $lock_key, 1, 15 ) ) {
+				break;
+			}
+			usleep( 100000 + $attempt * 50000 ); // 100ms base, +50ms per attempt.
 		}
+
+		// If lock was not acquired after all retries, proceed anyway —
+		// a race here is preferable to permanently losing the notification.
 
 		try {
 			$fresh = $this->get_status( $parent_id );
@@ -557,6 +573,7 @@ final class JobScheduler {
 				$parent_data['progress']    = $parent_data['progress_total'];
 				$parent_data['finished_at'] = time();
 				delete_option( $counter_key );
+				Search_Controller::clear_reindex_state();
 			}
 
 			if ( in_array( $parent_data['status'], self::TERMINAL_STATUSES, true ) ) {
@@ -594,6 +611,36 @@ final class JobScheduler {
 		}
 		if ( ! in_array( $job_id, $active, true ) ) {
 			$active[] = $job_id;
+			update_option( self::ACTIVE_JOBS_OPTION, $active, false );
+		}
+	}
+
+	/**
+	 * Add multiple job IDs to the active jobs index in a single write.
+	 *
+	 * More efficient than calling add_to_active_index() in a loop
+	 * because it performs only one option read and one option write.
+	 *
+	 * @param string[] $job_ids The job IDs to add.
+	 */
+	public function add_many_to_active_index( array $job_ids ): void {
+		if ( empty( $job_ids ) ) {
+			return;
+		}
+		$active = get_option( self::ACTIVE_JOBS_OPTION, [] );
+		if ( ! is_array( $active ) ) {
+			$active = [];
+		}
+		$changed  = false;
+		$existing = array_flip( $active );
+		foreach ( $job_ids as $id ) {
+			if ( ! isset( $existing[ $id ] ) ) {
+				$active[]        = $id;
+				$existing[ $id ] = true;
+				$changed         = true;
+			}
+		}
+		if ( $changed ) {
 			update_option( self::ACTIVE_JOBS_OPTION, $active, false );
 		}
 	}

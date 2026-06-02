@@ -26,16 +26,25 @@ final class Index {
 	/**
 	 * Flag to check whether settings were already set on this instance.
 	 *
+	 * Uses a static variable so that settings are only pushed to Algolia
+	 * once per PHP process, regardless of how many Index instances are created.
+	 *
 	 * @var bool
 	 */
-	private bool $index_settings_initialized = false;
+	private static bool $settings_initialized = false;
 
 	/**
-	 * The instance of the AlgoliaClient SearchIndex
+	 * Per-instance cache of the SearchIndex object.
 	 *
 	 * @var \OneSearch\Vendor\Algolia\AlgoliaSearch\SearchIndex|null
 	 */
 	private ?\OneSearch\Vendor\Algolia\AlgoliaSearch\SearchIndex $index = null;
+
+	/**
+	 * Transient key used to persist index-settings-initialization across
+	 * separate PHP requests (e.g. individual Action Scheduler runs).
+	 */
+	private const SETTINGS_INITIALIZED_KEY = 'onesearch_index_settings_initialized';
 
 	/**
 	 * Get the index, instantiating it if it doesn't exist.
@@ -238,8 +247,13 @@ final class Index {
 	 * @return true|\WP_Error
 	 */
 	private function set_settings(): bool|\WP_Error {
-		// Only initialize once per instance.
-		if ( $this->index_settings_initialized ) {
+		if ( self::$settings_initialized ) {
+			return true;
+		}
+
+		// Check if settings were already applied in a previous request.
+		if ( 'yes' === get_transient( self::SETTINGS_INITIALIZED_KEY ) ) {
+			self::$settings_initialized = true;
 			return true;
 		}
 
@@ -252,7 +266,8 @@ final class Index {
 		try {
 			$index->setSettings( Post_Record::get_index_settings() )->wait();
 
-			$this->index_settings_initialized = true;
+			self::$settings_initialized = true;
+			set_transient( self::SETTINGS_INITIALIZED_KEY, 'yes', 5 * MINUTE_IN_SECONDS );
 			return true;
 		} catch ( \Throwable $e ) {
 			return new \WP_Error(

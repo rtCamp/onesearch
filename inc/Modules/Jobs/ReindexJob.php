@@ -91,8 +91,8 @@ final class ReindexJob extends AbstractJob {
 			]
 		);
 
-		$batch_size = $this->data['batch_size'] ?? 30;
-		$batch_size = max( 1, min( $batch_size, 100 ) );
+		$batch_size = $this->data['batch_size'] ?? 100;
+		$batch_size = max( 1, min( $batch_size, 500 ) );
 		$batches    = array_chunk( $post_ids, $batch_size );
 		$scheduler  = new JobScheduler();
 		$group      = 'reindex_' . $this->get_id();
@@ -100,7 +100,9 @@ final class ReindexJob extends AbstractJob {
 		$this->set_progress_total( count( $batches ) );
 		$this->update_progress( 0 );
 
-		$scheduled = 0;
+		$scheduled          = 0;
+		$pending_active_ids = [];
+
 		foreach ( $batches as $batch ) {
 			$child = new SyncJob();
 			$child->set_data(
@@ -117,7 +119,14 @@ final class ReindexJob extends AbstractJob {
 			try {
 				$scheduler->schedule( $child );
 				$this->add_child_id( $child->get_id() );
+				$pending_active_ids[] = $child->get_id();
 				++$scheduled;
+
+				// Batch-add to active index every 50 children to reduce DB writes.
+				if ( count( $pending_active_ids ) >= 50 ) {
+					$scheduler->add_many_to_active_index( $pending_active_ids );
+					$pending_active_ids = [];
+				}
 			} catch ( \Throwable $e ) {
 				// If scheduling fails, cancel all already-scheduled children.
 				foreach ( $this->get_child_ids() as $child_id ) {
@@ -127,6 +136,11 @@ final class ReindexJob extends AbstractJob {
 					sprintf( 'Failed to schedule child SyncJob: %s', esc_html( $e->getMessage() ) )
 				);
 			}
+		}
+
+		// Flush any remaining pending active index entries.
+		if ( ! empty( $pending_active_ids ) ) {
+			$scheduler->add_many_to_active_index( $pending_active_ids );
 		}
 
 		$this->set_progress_total( $scheduled );
