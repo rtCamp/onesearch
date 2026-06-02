@@ -12,6 +12,10 @@ namespace OneSearch\Modules\Jobs;
 use OneSearch\Modules\Search\Index;
 use OneSearch\Modules\Search\Post_Record;
 use OneSearch\Utils;
+use function esc_html;
+use function get_post;
+use function get_site_url;
+use function is_wp_error;
 
 /**
  * Class - SyncJob
@@ -76,9 +80,12 @@ final class SyncJob extends AbstractJob {
 		$this->progress_total = count( $post_ids );
 		$this->update_progress( 0 );
 
-		$index       = new Index();
-		$post_record = new Post_Record();
-		$errors      = [];
+		$index          = new Index();
+		$post_record    = new Post_Record();
+		$errors         = [];
+		$batch_records  = [];
+		$delete_filters = [];
+		$site_url       = Utils::normalize_url( get_site_url() );
 
 		foreach ( $post_ids as $i => $post_id ) {
 			$post = get_post( $post_id );
@@ -92,35 +99,45 @@ final class SyncJob extends AbstractJob {
 			$should_index = in_array( $post->post_status, Post_Record::get_allowed_statuses( $post_types ), true );
 
 			if ( ! $should_index ) {
-				$site_post_id = sprintf( '%s_%d', Utils::normalize_url( get_site_url() ), $post_id );
-				$result       = $index->delete_by(
-					[
-						'filters' => sprintf( 'site_post_id:"%s"', $site_post_id ),
-					]
-				);
-				if ( is_wp_error( $result ) ) {
-					$errors[] = sprintf(
-						'Failed to delete post %d from Algolia: %s',
-						$post_id,
-						esc_html( $result->get_error_message() )
-					);
-				}
+				$delete_filters[] = sprintf( 'site_post_id:"%s_%d"', $site_url, $post_id );
 			} else {
 				$records = $post_record->to_records( $post );
 
 				if ( ! empty( $records ) ) {
-					$result = $index->save_records( $records );
-					if ( is_wp_error( $result ) ) {
-						$errors[] = sprintf(
-							'Failed to save post %d to Algolia: %s',
-							$post_id,
-							esc_html( $result->get_error_message() )
-						);
+					foreach ( $records as $record ) {
+						$batch_records[] = $record;
 					}
 				}
 			}
 
 			$this->update_progress( $i + 1 );
+		}
+
+		// Batch all deletions into a single Algolia call.
+		if ( ! empty( $delete_filters ) ) {
+			$result = $index->delete_by(
+				[
+					'filters' => implode( ' OR ', $delete_filters ),
+				]
+			);
+			if ( is_wp_error( $result ) ) {
+				$errors[] = sprintf(
+					'Failed to delete %d posts from Algolia: %s',
+					count( $delete_filters ),
+					esc_html( $result->get_error_message() )
+				);
+			}
+		}
+
+		if ( ! empty( $batch_records ) ) {
+			$result = $index->save_records( $batch_records );
+			if ( is_wp_error( $result ) ) {
+				$errors[] = sprintf(
+					'Failed to save %d Algolia records for batch: %s',
+					count( $batch_records ),
+					esc_html( $result->get_error_message() )
+				);
+			}
 		}
 
 		if ( ! empty( $errors ) ) {
