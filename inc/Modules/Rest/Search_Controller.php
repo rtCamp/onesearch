@@ -22,6 +22,20 @@ use WP_REST_Server;
  */
 class Search_Controller extends Abstract_REST_Controller {
 	/**
+	 * Option key for the active reindex state.
+	 *
+	 * Stores the jobs array so the frontend can restore progress UI
+	 * after a page refresh. Cleared when the reindex completes or is
+	 * cancelled.
+	 */
+	public const REINDEX_STATE_OPTION = 'onesearch_reindex_state';
+
+	/**
+	 * TTL in seconds for the reindex state transient.
+	 */
+	private const REINDEX_STATE_TTL = 3600;
+
+	/**
 	 * {@inheritDoc}
 	 */
 	public function register_routes(): void {
@@ -94,6 +108,17 @@ class Search_Controller extends Abstract_REST_Controller {
 			[
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => [ $this, 'reindex' ],
+				'permission_callback' => [ $this, 'check_api_permissions' ],
+			]
+		);
+
+		// Get active reindex state for UI persistence across page refreshes.
+		register_rest_route(
+			self::NAMESPACE,
+			'/re-index/status',
+			[
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => [ $this, 'get_reindex_status' ],
 				'permission_callback' => [ $this, 'check_api_permissions' ],
 			]
 		);
@@ -213,6 +238,16 @@ class Search_Controller extends Abstract_REST_Controller {
 	 * child SyncJobs; the child SyncJobs then run asynchronously via Action Scheduler.
 	 */
 	public function reindex(): \WP_REST_Response|\WP_Error {
+		// Guard: prevent starting a new reindex while one is already running.
+		$active_state = $this->get_active_reindex_state();
+		if ( null !== $active_state ) {
+			return new \WP_Error(
+				'onesearch_reindex_active',
+				__( 'A re-index is already in progress. Cancel it or wait for it to complete before starting a new one.', 'onesearch' ),
+				[ 'status' => 409 ]
+			);
+		}
+
 		$jobs   = [];
 		$errors = [];
 
@@ -242,7 +277,7 @@ class Search_Controller extends Abstract_REST_Controller {
 		$job->set_data(
 			[
 				'post_types' => $post_types,
-				'batch_size' => 30,
+				'batch_size' => 100,
 			]
 		);
 		$job->set_max_retries( 2 );
@@ -287,6 +322,9 @@ class Search_Controller extends Abstract_REST_Controller {
 			);
 		}
 
+		// Persist the reindex state so the UI can survive page refreshes.
+		set_transient( self::REINDEX_STATE_OPTION, $jobs, self::REINDEX_STATE_TTL );
+
 		return rest_ensure_response(
 			[
 				'success' => empty( $errors ),
@@ -297,6 +335,73 @@ class Search_Controller extends Abstract_REST_Controller {
 				'jobs'    => $jobs,
 			]
 		);
+	}
+
+	/**
+	 * Get the current reindex status for UI persistence.
+	 *
+	 * Used by the frontend on mount to detect if a reindex was in progress
+	 * before a page refresh, so it can restore the progress UI.
+	 */
+	public function get_reindex_status(): WP_REST_Response {
+		$state = $this->get_active_reindex_state();
+
+		return new WP_REST_Response(
+			[
+				'success' => true,
+				'active'  => null !== $state,
+				'jobs'    => $state,
+			]
+		);
+	}
+
+	/**
+	 * Helper to get the active reindex state, or null if none/broken.
+	 *
+	 * Validates that the stored job IDs still exist in storage
+	 * and haven't reached terminal status. If they're terminal,
+	 * the state is auto-cleaned up.
+	 *
+	 * @return array<int, array{site_name:string, site_url:string, job_id:string}>|null
+	 */
+	private function get_active_reindex_state(): ?array {
+		$state = get_transient( self::REINDEX_STATE_OPTION );
+
+		if ( ! is_array( $state ) || empty( $state ) ) {
+			return null;
+		}
+
+		$scheduler    = new JobScheduler();
+		$all_terminal = true;
+
+		foreach ( $state as $entry ) {
+			$job_id     = $entry['job_id'] ?? '';
+			$job_status = $scheduler->get_status( $job_id );
+
+			if ( ! $job_status ) {
+				continue;
+			}
+
+			if ( ! in_array( $job_status['status'] ?? '', JobScheduler::TERMINAL_STATUSES, true ) ) {
+				$all_terminal = false;
+			}
+		}
+
+		// If all jobs have finished, clean up the stale state.
+		if ( $all_terminal ) {
+			delete_transient( self::REINDEX_STATE_OPTION );
+			return null;
+		}
+
+		return $state;
+	}
+
+	/**
+	 * Clear the active reindex state — called when a reindex completes
+	 * or is cancelled.
+	 */
+	public static function clear_reindex_state(): void {
+		delete_transient( self::REINDEX_STATE_OPTION );
 	}
 
 	/**
