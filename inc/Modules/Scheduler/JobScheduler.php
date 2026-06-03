@@ -140,18 +140,19 @@ final class JobScheduler {
 	/**
 	 * Schedule a job for immediate async execution via Action Scheduler.
 	 *
-	 * @param \OneSearch\Modules\Jobs\AbstractJob $job The job to schedule. Modified (status set to PENDING).
+	 * @param \OneSearch\Modules\Jobs\AbstractJob $job               The job to schedule. Modified (status set to PENDING).
+	 * @param bool                                $skip_active_index Skip adding to active index (caller batches manually).
 	 * @return int The Action Scheduler action ID.
 	 *
 	 * @throws \RuntimeException If Action Scheduler is unavailable or returns an invalid ID.
 	 */
-	public function schedule( AbstractJob $job ): int {
+	public function schedule( AbstractJob $job, bool $skip_active_index = false ): int {
 		if ( ! function_exists( 'as_enqueue_async_action' ) ) {
-			throw new \RuntimeException( 'Action Scheduler is not available. Install woocommerce/action-scheduler.' );
+			throw new \RuntimeException( 'Action Scheduler dependency missing.' );
 		}
 
 		$job->set_status( AbstractJob::STATUS_PENDING );
-		$this->persist_job( $job );
+		$this->persist_job( $job, $skip_active_index );
 
 		$args = [
 			'job_class' => get_class( $job ),
@@ -188,6 +189,10 @@ final class JobScheduler {
 	 * @throws \RuntimeException If Action Scheduler rejects the recurring action.
 	 */
 	public function schedule_recurring( AbstractJob $job, int $interval_seconds ): int {
+		if ( ! function_exists( 'as_schedule_recurring_action' ) ) {
+			throw new \RuntimeException( 'Action Scheduler dependency missing.' );
+		}
+
 		$job->set_status( AbstractJob::STATUS_PENDING );
 		$this->persist_job( $job );
 
@@ -230,7 +235,7 @@ final class JobScheduler {
 			$group     = 'onesearch_' . ( $status['group'] ?? 'default' );
 			$action_id = get_option( self::OPTION_PREFIX . $job_id . '_action_id', 0 );
 
-			if ( $action_id ) {
+			if ( $action_id && function_exists( 'as_unschedule_action' ) ) {
 				$args = get_option( self::OPTION_PREFIX . $job_id . '_action_args', [] );
 				as_unschedule_action( self::HOOK, $args, $group );
 			}
@@ -486,9 +491,10 @@ final class JobScheduler {
 	/**
 	 * Persist the full job state using the dual storage strategy.
 	 *
-	 * @param \OneSearch\Modules\Jobs\AbstractJob $job The job whose state to persist.
+	 * @param \OneSearch\Modules\Jobs\AbstractJob $job               The job whose state to persist.
+	 * @param bool                                $skip_active_index Skip updating the active jobs index.
 	 */
-	public function persist_job( AbstractJob $job ): void {
+	public function persist_job( AbstractJob $job, bool $skip_active_index = false ): void {
 		$key  = self::OPTION_PREFIX . $job->get_id();
 		$data = $job->to_array();
 
@@ -498,7 +504,9 @@ final class JobScheduler {
 			$this->remove_from_active_index( $job->get_id() );
 		} else {
 			set_transient( $key, $data, self::TRANSIENT_EXPIRATION );
-			$this->add_to_active_index( $job->get_id() );
+			if ( ! $skip_active_index ) {
+				$this->add_to_active_index( $job->get_id() );
+			}
 		}
 	}
 
@@ -542,10 +550,19 @@ final class JobScheduler {
 		$parent_key = self::OPTION_PREFIX . $parent_id;
 		$lock_key   = $parent_key . '_lock';
 
-		// Spinlock: retry acquiring the lock instead of silently dropping notifications.
+		// Spinlock: use atomic INSERT IGNORE to avoid race conditions
+		// that set_transient() cannot prevent.
 		$max_tries = 10;
 		for ( $attempt = 0; $attempt < $max_tries; ++$attempt ) {
-			if ( set_transient( $lock_key, 1, 15 ) ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+			$acquired = $wpdb->query(
+				$wpdb->prepare(
+					"INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, '1', 'no')",
+					$lock_key
+				)
+			);
+			if ( $acquired ) {
+				wp_cache_delete( $lock_key, 'options' );
 				break;
 			}
 			usleep( 100000 + $attempt * 50000 ); // 100ms base, +50ms per attempt.
@@ -584,7 +601,9 @@ final class JobScheduler {
 				set_transient( $parent_key, $parent_data, self::TRANSIENT_EXPIRATION );
 			}
 		} finally {
-			delete_transient( $lock_key );
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+			$wpdb->delete( $wpdb->options, [ 'option_name' => $lock_key ] );
+			wp_cache_delete( $lock_key, 'options' );
 		}
 	}
 

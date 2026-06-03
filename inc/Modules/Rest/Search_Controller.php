@@ -22,13 +22,13 @@ use WP_REST_Server;
  */
 class Search_Controller extends Abstract_REST_Controller {
 	/**
-	 * Option key for the active reindex state.
+	 * Transient key for the active reindex state.
 	 *
 	 * Stores the jobs array so the frontend can restore progress UI
 	 * after a page refresh. Cleared when the reindex completes or is
 	 * cancelled.
 	 */
-	public const REINDEX_STATE_OPTION = 'onesearch_reindex_state';
+	public const REINDEX_STATE_TRANSIENT = 'onesearch_reindex_state';
 
 	/**
 	 * TTL in seconds for the reindex state transient.
@@ -339,7 +339,7 @@ class Search_Controller extends Abstract_REST_Controller {
 		}
 
 		// Persist the reindex state so the UI can survive page refreshes.
-		set_transient( self::REINDEX_STATE_OPTION, $jobs, self::REINDEX_STATE_TTL );
+		set_transient( self::REINDEX_STATE_TRANSIENT, $jobs, self::REINDEX_STATE_TTL );
 
 		return rest_ensure_response(
 			[
@@ -382,7 +382,7 @@ class Search_Controller extends Abstract_REST_Controller {
 	 * @return array<int, array{site_name:string, site_url:string, job_id:string}>|null
 	 */
 	private function get_active_reindex_state(): ?array {
-		$state = get_transient( self::REINDEX_STATE_OPTION );
+		$state = get_transient( self::REINDEX_STATE_TRANSIENT );
 
 		if ( ! is_array( $state ) || empty( $state ) ) {
 			return null;
@@ -406,7 +406,7 @@ class Search_Controller extends Abstract_REST_Controller {
 
 		// If all jobs have finished, clean up the stale state.
 		if ( $all_terminal ) {
-			delete_transient( self::REINDEX_STATE_OPTION );
+			delete_transient( self::REINDEX_STATE_TRANSIENT );
 			return null;
 		}
 
@@ -418,7 +418,7 @@ class Search_Controller extends Abstract_REST_Controller {
 	 * or is cancelled.
 	 */
 	public static function clear_reindex_state(): void {
-		delete_transient( self::REINDEX_STATE_OPTION );
+		delete_transient( self::REINDEX_STATE_TRANSIENT );
 	}
 
 	/**
