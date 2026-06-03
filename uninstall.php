@@ -117,9 +117,9 @@ function delete_options(): void {
 	}
 }
 
-	/**
-	 * Deletes transients.
-	 */
+/**
+ * Deletes transients.
+ */
 function delete_transients(): void {
 	global $wpdb;
 

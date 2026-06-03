@@ -49,6 +49,23 @@ class Job_Controller extends Abstract_REST_Controller {
 					'methods'             => WP_REST_Server::READABLE,
 					'callback'            => [ $this, 'get_job_history' ],
 					'permission_callback' => [ $this, 'check_job_read_permissions' ],
+					'args'                => [
+						'page'     => [
+							'required'          => false,
+							'type'              => 'integer',
+							'default'           => 1,
+							'minimum'           => 1,
+							'sanitize_callback' => 'absint',
+						],
+						'per_page' => [
+							'required'          => false,
+							'type'              => 'integer',
+							'default'           => 5,
+							'minimum'           => 1,
+							'maximum'           => 100,
+							'sanitize_callback' => 'absint',
+						],
+					],
 				],
 			]
 		);
@@ -486,39 +503,72 @@ class Job_Controller extends Abstract_REST_Controller {
 	}
 
 	/**
-	 * Get job history: all terminal (completed, failed, cancelled) jobs.
+	 * Get job history with pagination.
+	 *
+	 * Returns top-level terminal jobs (completed, failed, cancelled)
+	 * with pagination support.
 	 *
 	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
 	 */
-	public function get_job_history( $request ): WP_REST_Response { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+	public function get_job_history( $request ): WP_REST_Response {
 		global $wpdb;
 
-		$prefix  = 'onesearch_job_status_';
-		$results = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+		$page     = max( 1, (int) ( $request->get_param( 'page' ) ?? 1 ) );
+		$per_page = max( 1, min( 100, (int) ( $request->get_param( 'per_page' ) ?? 5 ) ) );
+		$offset   = ( $page - 1 ) * $per_page;
+
+		$prefix = JobScheduler::OPTION_PREFIX;
+
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
+		// The following LIKE patterns are static string literals, not user input.
+		// We intentionally embed them in the query to filter on serialized option_value.
+		$where_terminal = sprintf(
+			'( option_value LIKE \'%%"status";s:9:"completed"%%\' OR option_value LIKE \'%%"status";s:5:"failed"%%\' OR option_value LIKE \'%%"status";s:9:"cancelled"%%\' )'
+		);
+		$where_parent   = 'AND option_value LIKE \'%%"parent_id";N;%%\'';
+		$where_exclude  = 'AND option_name NOT LIKE %s';
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
+
+		// Count total matching rows.
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber,WordPress.DB.DirectDatabaseQuery
+		$total = (int) $wpdb->get_var(
 			$wpdb->prepare(
-				"SELECT option_value FROM {$wpdb->options} WHERE option_name LIKE %s AND option_name NOT LIKE %s ORDER BY option_id DESC",
+				"SELECT COUNT(*) FROM {$wpdb->options} WHERE option_name LIKE %s AND {$where_terminal} {$where_parent} {$where_exclude}",
 				$prefix . '%',
 				$prefix . '%_action_%'
 			)
 		);
 
+		// Fetch the page.
+		$results = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT option_value FROM {$wpdb->options} WHERE option_name LIKE %s AND {$where_terminal} {$where_parent} {$where_exclude} ORDER BY option_id DESC LIMIT %d OFFSET %d",
+				$prefix . '%',
+				$prefix . '%_action_%',
+				$per_page,
+				$offset
+			)
+		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber,WordPress.DB.DirectDatabaseQuery
+
 		$jobs = [];
 		if ( $results ) {
 			foreach ( $results as $row ) {
 				$data = maybe_unserialize( $row->option_value );
-				if ( is_array( $data ) && in_array( $data['status'] ?? '', [ 'completed', 'failed', 'cancelled' ], true ) ) {
-					// Only show parent (top-level) jobs, not individual batches.
-					if ( empty( $data['parent_id'] ) ) {
-						$jobs[] = $data;
-					}
+				if ( is_array( $data ) ) {
+					$jobs[] = $data;
 				}
 			}
 		}
 
 		return new WP_REST_Response(
 			[
-				'success' => true,
-				'jobs'    => $jobs,
+				'success'     => true,
+				'jobs'        => $jobs,
+				'total'       => $total,
+				'page'        => $page,
+				'per_page'    => $per_page,
+				'total_pages' => (int) ceil( $total / $per_page ),
 			]
 		);
 	}

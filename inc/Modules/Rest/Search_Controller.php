@@ -310,16 +310,32 @@ class Search_Controller extends Abstract_REST_Controller {
 		// Add local site to the jobs list.
 		$local_site_name = Settings::is_governing_site() ? __( 'Governing Site', 'onesearch' ) : get_bloginfo( 'name' );
 		$local_site_url  = get_site_url();
+		$local_batches   = $job->get_progress_total();
 
 		if ( $job_id ) {
 			array_unshift(
 				$jobs,
 				[
-					'site_name' => $local_site_name,
-					'site_url'  => $local_site_url,
-					'job_id'    => $job_id,
+					'site_name'   => $local_site_name,
+					'site_url'    => $local_site_url,
+					'job_id'      => $job_id,
+					'batch_count' => $local_batches,
 				]
 			);
+		}
+
+		// Compute combined total across all sites and store in the
+		// governing site's job data so the history table can display it.
+		if ( Settings::is_governing_site() ) {
+			$total_batches      = $local_batches;
+			$child_batch_counts = $child_result['batch_counts'] ?? [];
+			foreach ( $child_batch_counts as $count ) {
+				$total_batches += $count;
+			}
+			$job->set_data(
+				array_merge( $job->get_data() ?: [], [ 'total_batches' => $total_batches ] )
+			);
+			$scheduler->persist_job( $job );
 		}
 
 		// Persist the reindex state so the UI can survive page refreshes.
@@ -327,12 +343,13 @@ class Search_Controller extends Abstract_REST_Controller {
 
 		return rest_ensure_response(
 			[
-				'success' => empty( $errors ),
-				'message' => empty( $errors )
+				'success'     => empty( $errors ),
+				'message'     => empty( $errors )
 					? __( 'Re-indexing scheduled successfully.', 'onesearch' )
 					: implode( "\n", array_column( $errors, 'message' ) ),
-				'job_id'  => $job_id,
-				'jobs'    => $jobs,
+				'job_id'      => $job_id,
+				'batch_count' => $job->get_progress_total(),
+				'jobs'        => $jobs,
 			]
 		);
 	}
@@ -471,8 +488,9 @@ class Search_Controller extends Abstract_REST_Controller {
 	private function reindex_child_sites(): array {
 		$shared_sites = Settings::get_shared_sites();
 
-		$child_jobs = [];
-		$errors     = [];
+		$child_jobs   = [];
+		$errors       = [];
+		$batch_counts = [];
 		// Build the requests array for each site.
 		foreach ( $shared_sites as $site_data ) {
 			if ( empty( $site_data['url'] ) || empty( $site_data['api_key'] ) ) {
@@ -535,17 +553,20 @@ class Search_Controller extends Abstract_REST_Controller {
 
 			// Capture the child job ID from the child's response.
 			if ( ! empty( $response_data['job_id'] ) ) {
-				$child_jobs[] = [
-					'site_name' => $site_data['name'] ?? $site_data['url'],
-					'site_url'  => $site_data['url'],
-					'job_id'    => $response_data['job_id'],
+				$child_jobs[]   = [
+					'site_name'   => $site_data['name'] ?? $site_data['url'],
+					'site_url'    => $site_data['url'],
+					'job_id'      => $response_data['job_id'],
+					'batch_count' => (int) ( $response_data['batch_count'] ?? 0 ),
 				];
+				$batch_counts[] = (int) ( $response_data['batch_count'] ?? 0 );
 			}
 		}
 
 		return [
-			'jobs'   => $child_jobs,
-			'errors' => $errors,
+			'jobs'         => $child_jobs,
+			'errors'       => $errors,
+			'batch_counts' => $batch_counts,
 		];
 	}
 }
