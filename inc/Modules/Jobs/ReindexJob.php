@@ -117,7 +117,7 @@ final class ReindexJob extends AbstractJob {
 			$child->set_retry_delay_seconds( 30 );
 
 			try {
-				$scheduler->schedule( $child );
+				$scheduler->schedule( $child, true );
 				$this->add_child_id( $child->get_id() );
 				$pending_active_ids[] = $child->get_id();
 				++$scheduled;

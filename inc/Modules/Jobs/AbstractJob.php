@@ -124,7 +124,7 @@ abstract class AbstractJob {
 	protected int $retry_count = 0;
 
 	/**
-	 * Base delay in seconds between retries. Actual delay = retry_delay_seconds × retry_count.
+	 * Base delay in seconds between retries. Actual delay = retry_delay_seconds × 2^(retry_count - 1).
 	 *
 	 * @var int
 	 */
@@ -304,7 +304,7 @@ abstract class AbstractJob {
 	/**
 	 * Get the base delay in seconds between retry attempts.
 	 *
-	 * Actual delay is exponential: retry_delay_seconds × retry_count.
+	 * Actual delay is exponential: retry_delay_seconds × 2^(retry_count - 1).
 	 *
 	 * @return int Seconds.
 	 */
