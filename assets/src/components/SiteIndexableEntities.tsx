@@ -57,16 +57,27 @@ interface SiteJob {
 	site_name: string;
 	site_url: string;
 	job_id: string;
+	batch_count?: number;
 }
 
 interface ReIndexResponse {
 	success: boolean;
 	message?: string;
 	job_id?: string;
+	batch_count?: number;
 	jobs?: SiteJob[];
 	data?: {
 		status?: number;
 	};
+}
+
+interface HistoryResponse {
+	success: boolean;
+	jobs: JobStatus[];
+	total: number;
+	page: number;
+	per_page: number;
+	total_pages: number;
 }
 
 interface JobStatus {
@@ -121,11 +132,12 @@ const SiteIndexableEntities = ( {
 	const [ showReindexingModal, setShowReindexingModal ] = useState( false );
 	const [ siteStates, setSiteStates ] = useState< SiteJobState[] >( [] );
 	const [ history, setHistory ] = useState< JobStatus[] >( [] );
+	const [ historyPage, setHistoryPage ] = useState( 1 );
+	const [ historyTotalPages, setHistoryTotalPages ] = useState( 0 );
 	const [ retrying, setRetrying ] = useState< Record< string, boolean > >(
 		{}
 	);
 	const [ cancelling, setCancelling ] = useState( false );
-	const [ showHistory, setShowHistory ] = useState( false );
 	const intervalRef = useRef< ReturnType< typeof setInterval > | null >(
 		null
 	);
@@ -204,13 +216,22 @@ const SiteIndexableEntities = ( {
 		[]
 	);
 
-	const fetchHistory = useCallback( async () => {
+	const fetchHistory = useCallback( async ( page: number = 1 ) => {
 		try {
-			const res = await fetch( `${ API_NAMESPACE }/jobs/history`, {
+			const url = new URL(
+				`${ API_NAMESPACE }/jobs/history`,
+				window.location.origin
+			);
+			url.searchParams.set( 'page', String( page ) );
+			url.searchParams.set( 'per_page', '5' );
+
+			const res = await fetch( url.toString(), {
 				headers: { 'X-WP-Nonce': NONCE },
 			} );
-			const data = await res.json();
+			const data: HistoryResponse = await res.json();
 			setHistory( data.jobs || [] );
+			setHistoryPage( data.page || 1 );
+			setHistoryTotalPages( data.total_pages || 0 );
 		} catch {
 			// Silently fail for history.
 		}
@@ -290,7 +311,8 @@ const SiteIndexableEntities = ( {
 		if ( allTerminal ) {
 			stopPolling();
 			setReindexing( false );
-			fetchHistory();
+			setSiteStates( [] );
+			fetchHistory( 1 );
 		}
 	}, [
 		isCurrentSite,
@@ -332,6 +354,7 @@ const SiteIndexableEntities = ( {
 					const interval = setInterval( () => pollAllSites(), 2000 );
 					intervalRef.current = interval;
 					pollAllSites();
+					fetchHistory( 1 );
 				}
 			} catch {
 				// Silently ignore — the status endpoint is best-effort.
@@ -523,8 +546,7 @@ const SiteIndexableEntities = ( {
 			setReindexing( true );
 			setSiteStates( [] );
 			stopPolling();
-			setShowHistory( false );
-			fetchHistory();
+			fetchHistory( 1 );
 
 			const response = await fetch( `${ API_NAMESPACE }/re-index`, {
 				method: 'POST',
@@ -607,7 +629,7 @@ const SiteIndexableEntities = ( {
 		setReindexing( false );
 		setSiteStates( [] );
 		setCancelling( false );
-		setShowReindexingModal( false );
+		fetchHistory( 1 );
 	};
 
 	const isDirty =
@@ -815,7 +837,9 @@ const SiteIndexableEntities = ( {
 				<tbody>
 					{ history.map( ( job ) => {
 						const totalBatches =
-							job.children_total || job.progress_total;
+							( job.data?.[ 'total_batches' ] as number ) ||
+							job.children_total ||
+							job.progress_total;
 						const duration =
 							job.finished_at && job.created_at
 								? job.finished_at - job.created_at
@@ -866,6 +890,98 @@ const SiteIndexableEntities = ( {
 		);
 	};
 
+	const renderHistoryPagination = () => {
+		if ( historyTotalPages <= 1 ) {
+			return null;
+		}
+
+		const pages: ( number | string )[] = [];
+		const delta = 2;
+		const last = historyTotalPages;
+
+		// Always include page 1.
+		pages.push( 1 );
+
+		// Calculate range around current page.
+		const rangeStart = Math.max( 2, historyPage - delta );
+		const rangeEnd = Math.min( last - 1, historyPage + delta );
+
+		// Add ellipsis + range pages.
+		if ( rangeStart > 2 ) {
+			pages.push( '…' );
+		}
+		for ( let i = rangeStart; i <= rangeEnd; i++ ) {
+			pages.push( i );
+		}
+		if ( rangeEnd < last - 1 ) {
+			pages.push( '…' );
+		}
+
+		// Always include last page (unless last === 1).
+		if ( last > 1 ) {
+			pages.push( last );
+		}
+
+		const handlePageClick = ( page: number ) => {
+			if ( page === historyPage || page < 1 || page > last ) {
+				return;
+			}
+			fetchHistory( page );
+		};
+
+		return (
+			<div className="onesearch-history-pagination">
+				<Button
+					variant="tertiary"
+					size="small"
+					disabled={ historyPage <= 1 }
+					onClick={ () => handlePageClick( historyPage - 1 ) }
+					aria-label={ __( 'Previous page', 'onesearch' ) }
+				>
+					‹
+				</Button>
+				{ pages.map( ( p, idx ) => {
+					if ( typeof p === 'string' ) {
+						return (
+							<span
+								key={ `ellipsis-${ idx }` }
+								className="onesearch-history-pagination-ellipsis"
+							>
+								…
+							</span>
+						);
+					}
+					return (
+						<Button
+							key={ p }
+							variant={
+								p === historyPage ? 'primary' : 'tertiary'
+							}
+							size="small"
+							onClick={ () => handlePageClick( p ) }
+							className={
+								p === historyPage
+									? 'onesearch-history-pagination-current'
+									: ''
+							}
+						>
+							{ p }
+						</Button>
+					);
+				} ) }
+				<Button
+					variant="tertiary"
+					size="small"
+					disabled={ historyPage >= last }
+					onClick={ () => handlePageClick( historyPage + 1 ) }
+					aria-label={ __( 'Next page', 'onesearch' ) }
+				>
+					›
+				</Button>
+			</div>
+		);
+	};
+
 	return (
 		<>
 			<Card className="onesearch-entities-card">
@@ -880,7 +996,7 @@ const SiteIndexableEntities = ( {
 								onClick={ () => {
 									setShowReindexingModal( ( prev ) => {
 										if ( ! prev ) {
-											fetchHistory();
+											fetchHistory( 1 );
 										}
 										return ! prev;
 									} );
@@ -1034,6 +1150,18 @@ const SiteIndexableEntities = ( {
 						</>
 					) }
 
+					{ reindexing && siteStates.length === 0 && (
+						<div className="onesearch-reindex-loading">
+							<span className="onesearch-reindex-spinner" />
+							<p className="onesearch-reindex-loading-text">
+								{ __(
+									'Preparing entities for re-indexing. This may take a moment.',
+									'onesearch'
+								) }
+							</p>
+						</div>
+					) }
+
 					{ siteStates.length > 0 && (
 						<div className="onesearch-job-panel">
 							<div className="onesearch-job-panel-header">
@@ -1052,6 +1180,38 @@ const SiteIndexableEntities = ( {
 										…
 									</code>
 								</h3>
+								<span className="onesearch-job-panel-total">
+									{ ( () => {
+										const totalBatches = siteStates.reduce(
+											( sum, s ) =>
+												sum + s.children.length,
+											0
+										);
+										const totalDone = siteStates.reduce(
+											( sum, s ) =>
+												sum +
+												s.children.filter( ( c ) =>
+													[
+														'completed',
+														'failed',
+													].includes( c.status )
+												).length,
+											0
+										);
+										if ( totalBatches > 0 ) {
+											return sprintf(
+												/* translators: 1: done batches, 2: total batches */
+												__(
+													'%1$d / %2$d batches',
+													'onesearch'
+												),
+												totalDone,
+												totalBatches
+											);
+										}
+										return '';
+									} )() }
+								</span>
 								<Button
 									variant="secondary"
 									size="small"
@@ -1075,26 +1235,15 @@ const SiteIndexableEntities = ( {
 					) }
 
 					{ /* History section */ }
-					<details
-						className="onesearch-job-history"
-						open={ showHistory }
-						onToggle={ ( e ) =>
-							setShowHistory(
-								( e.target as HTMLDetailsElement ).open
-							)
-						}
-					>
-						<summary className="onesearch-job-history-header">
-							{ sprintf(
-								/* translators: %d: count */
-								__( 'Job History (%d)', 'onesearch' ),
-								history.length
-							) }
-						</summary>
+					<div className="onesearch-job-history">
+						<h3 className="onesearch-job-history-header">
+							{ __( 'Sync Job History', 'onesearch' ) }
+						</h3>
 						<div className="onesearch-job-panel-body">
 							{ renderHistoryTable() }
+							{ renderHistoryPagination() }
 						</div>
-					</details>
+					</div>
 				</Modal>
 			) }
 		</>
