@@ -51,7 +51,7 @@ final class Watcher implements Registrable {
 				'post_ids' => [ (int) $post->ID ],
 			]
 		);
-		$job->set_group( 'onesearch_watcher' );
+		$job->set_group( 'watcher' );
 		$job->set_max_retries( 2 );
 		$job->set_retry_delay_seconds( 30 );
 
