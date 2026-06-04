@@ -533,7 +533,9 @@ final class JobScheduler {
 			return;
 		}
 
-		$counter_key = self::OPTION_PREFIX . $parent_id . '_children_done';
+		$counter_key        = self::OPTION_PREFIX . $parent_id . '_children_done';
+		$counter_failed_key = self::OPTION_PREFIX . $parent_id . '_children_failed';
+		$is_failed          = $job->get_status() === AbstractJob::STATUS_FAILED;
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
 		$wpdb->query(
@@ -543,8 +545,19 @@ final class JobScheduler {
 			)
 		);
 
+		if ( $is_failed ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+			$wpdb->query(
+				$wpdb->prepare(
+					"INSERT INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, '1', 'no') ON DUPLICATE KEY UPDATE option_value = CAST(option_value AS UNSIGNED) + 1",
+					$counter_failed_key
+				)
+			);
+		}
+
 		wp_cache_delete( $counter_key, 'options' );
 		$done        = (int) get_option( $counter_key, 0 );
+		$failed      = (int) get_option( $counter_failed_key, 0 );
 		$child_total = count( $parent_data['child_ids'] ?? [] );
 
 		$parent_key = self::OPTION_PREFIX . $parent_id;
@@ -582,14 +595,21 @@ final class JobScheduler {
 			}
 
 			$parent_data['children_completed'] = $done;
+			$parent_data['children_failed']    = $failed;
 			$parent_data['progress']           = min( $done, $parent_data['progress_total'] ?? $done );
 			$parent_data['updated_at']         = time();
 
 			if ( $child_total > 0 && $done >= $child_total ) {
-				$parent_data['status']      = AbstractJob::STATUS_COMPLETED;
+				if ( $failed > 0 ) {
+					$parent_data['status'] = AbstractJob::STATUS_FAILED;
+					$parent_data['error']  = sprintf( '%d/%d child batches failed', $failed, $child_total );
+				} else {
+					$parent_data['status'] = AbstractJob::STATUS_COMPLETED;
+				}
 				$parent_data['progress']    = $parent_data['progress_total'];
 				$parent_data['finished_at'] = time();
 				delete_option( $counter_key );
+				delete_option( $counter_failed_key );
 				Search_Controller::clear_reindex_state();
 			}
 
@@ -693,5 +713,62 @@ final class JobScheduler {
 	public function get_active_job_ids(): array {
 		$active = get_option( self::ACTIVE_JOBS_OPTION, [] );
 		return is_array( $active ) ? $active : [];
+	}
+
+	/**
+	 * Get terminal (completed/failed/cancelled) job IDs from wp_options.
+	 *
+	 * Excludes auxiliary keys (_action_id, _children_done, etc.) and
+	 * IDs still present in the active index.
+	 *
+	 * @param int $limit Maximum number of IDs to return.
+	 * @return string[] Array of terminal job IDs.
+	 */
+	public function get_terminal_job_ids( int $limit = 100 ): array {
+		global $wpdb;
+
+		$prefix     = self::OPTION_PREFIX;
+		$prefix_len = strlen( $prefix );
+		$active     = get_option( self::ACTIVE_JOBS_OPTION, [] );
+		$active     = is_array( $active ) ? array_flip( $active ) : [];
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+		$results = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s ORDER BY option_id DESC LIMIT %d",
+				$wpdb->esc_like( $prefix ) . '%',
+				$limit * 3
+			)
+		);
+
+		if ( ! is_array( $results ) ) {
+			return [];
+		}
+
+		$job_ids = [];
+		foreach ( $results as $option_name ) {
+			$suffix = substr( $option_name, $prefix_len );
+
+			if (
+				str_ends_with( $suffix, '_action_id' )
+				|| str_ends_with( $suffix, '_action_args' )
+				|| str_ends_with( $suffix, '_children_done' )
+				|| str_ends_with( $suffix, '_children_failed' )
+				|| str_ends_with( $suffix, '_lock' )
+			) {
+				continue;
+			}
+
+			if ( isset( $active[ $suffix ] ) ) {
+				continue;
+			}
+
+			$job_ids[] = $suffix;
+			if ( count( $job_ids ) >= $limit ) {
+				break;
+			}
+		}
+
+		return $job_ids;
 	}
 }
