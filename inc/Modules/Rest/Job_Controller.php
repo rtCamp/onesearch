@@ -98,6 +98,32 @@ class Job_Controller extends Abstract_REST_Controller {
 
 		register_rest_route(
 			self::NAMESPACE,
+			'/jobs/remote-retry',
+			[
+				[
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => [ $this, 'retry_remote_job' ],
+					'permission_callback' => static function () {
+						return current_user_can( 'manage_options' );
+					},
+					'args'                => [
+						'site_url' => [
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'esc_url_raw',
+						],
+						'job_id'   => [
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						],
+					],
+				],
+			]
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
 			'/jobs/reindex',
 			[
 				[
@@ -150,9 +176,7 @@ class Job_Controller extends Abstract_REST_Controller {
 				[
 					'methods'             => WP_REST_Server::CREATABLE,
 					'callback'            => [ $this, 'retry_job' ],
-					'permission_callback' => static function () {
-						return current_user_can( 'manage_options' );
-					},
+					'permission_callback' => [ $this, 'check_job_read_permissions' ],
 					'args'                => [
 						'id' => [
 							'required'          => true,
@@ -217,9 +241,12 @@ class Job_Controller extends Abstract_REST_Controller {
 		if ( $group ) {
 			$jobs = $scheduler->get_jobs_by_group( sanitize_text_field( $group ) );
 		} else {
-			$active_ids = $scheduler->get_active_job_ids();
-			$jobs       = [];
-			foreach ( $active_ids as $job_id ) {
+			// Merge active (transient) and terminal (wp_options) jobs.
+			$active_ids   = $scheduler->get_active_job_ids();
+			$terminal_ids = $scheduler->get_terminal_job_ids();
+			$all_ids      = array_values( array_unique( array_merge( $active_ids, $terminal_ids ) ) );
+			$jobs         = [];
+			foreach ( $all_ids as $job_id ) {
 				$status = $scheduler->get_status( $job_id );
 				if ( $status ) {
 					$jobs[] = $status;
@@ -419,6 +446,10 @@ class Job_Controller extends Abstract_REST_Controller {
 			);
 		}
 
+		if ( ! empty( $status['child_ids'] ?? [] ) ) {
+			return $this->retry_failed_child_jobs( $scheduler, $status );
+		}
+
 		// Unschedule any remaining retry actions for this job.
 		$group     = 'onesearch_' . ( $status['group'] ?? 'default' );
 		$action_id = get_option( JobScheduler::OPTION_PREFIX . $job_id . '_action_id', 0 );
@@ -459,6 +490,137 @@ class Job_Controller extends Abstract_REST_Controller {
 	}
 
 	/**
+	 * Retry only failed child batches for a parent reindex job.
+	 *
+	 * @param \OneSearch\Modules\Scheduler\JobScheduler $scheduler   The job scheduler instance.
+	 * @param array<string, mixed>                      $parent_data Stored parent job data.
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	private function retry_failed_child_jobs( JobScheduler $scheduler, array $parent_data ) {
+		$parent_id = (string) ( $parent_data['id'] ?? '' );
+		$child_ids = $parent_data['child_ids'] ?? [];
+
+		if ( '' === $parent_id || ! is_array( $child_ids ) ) {
+			return new \WP_Error(
+				'onesearch_retry_invalid_parent',
+				__( 'Invalid parent job.', 'onesearch' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		$failed_children     = [];
+		$completed_children  = 0;
+		$terminal_failed_ids = [];
+
+		foreach ( $child_ids as $child_id ) {
+			if ( ! is_string( $child_id ) || '' === $child_id ) {
+				continue;
+			}
+
+			$child_status = $scheduler->get_status( $child_id );
+			if ( ! $child_status ) {
+				continue;
+			}
+
+			if ( AbstractJob::STATUS_FAILED === ( $child_status['status'] ?? '' ) ) {
+				$failed_children[]     = $child_status;
+				$terminal_failed_ids[] = $child_id;
+				continue;
+			}
+
+			if ( in_array( $child_status['status'] ?? '', JobScheduler::TERMINAL_STATUSES, true ) ) {
+				++$completed_children;
+			}
+		}
+
+		if ( empty( $failed_children ) ) {
+			return new \WP_Error(
+				'onesearch_retry_no_failed_children',
+				__( 'No failed batches are available to retry.', 'onesearch' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		$this->prepare_parent_for_child_retries( $scheduler, $parent_data, $completed_children );
+
+		$retried = 0;
+		foreach ( $failed_children as $child_status ) {
+			$child_id = (string) ( $child_status['id'] ?? '' );
+			if ( '' === $child_id ) {
+				continue;
+			}
+
+			$group     = 'onesearch_' . ( $child_status['group'] ?? 'default' );
+			$action_id = get_option( JobScheduler::OPTION_PREFIX . $child_id . '_action_id', 0 );
+			if ( $action_id ) {
+				$args = get_option( JobScheduler::OPTION_PREFIX . $child_id . '_action_args', [] );
+				as_unschedule_action( JobScheduler::HOOK, $args, $group );
+			}
+
+			$child = SyncJob::from_array( $child_status );
+			$child->set_status( AbstractJob::STATUS_PENDING );
+			$child->set_retry_count( 0 );
+			$child->clear_error();
+
+			try {
+				$scheduler->schedule( $child );
+				++$retried;
+			} catch ( \Throwable $e ) {
+				return new \WP_Error(
+					'onesearch_retry_failed',
+					$e->getMessage(),
+					[ 'status' => 500 ]
+				);
+			}
+		}
+
+		return new WP_REST_Response(
+			[
+				'success'   => true,
+				'message'   => __( 'Failed batches retry scheduled.', 'onesearch' ),
+				'job_id'    => $parent_id,
+				'retried'   => $retried,
+				'child_ids' => $terminal_failed_ids,
+			]
+		);
+	}
+
+	/**
+	 * Reset parent counters before retrying failed child jobs.
+	 *
+	 * @param \OneSearch\Modules\Scheduler\JobScheduler $scheduler          The job scheduler instance.
+	 * @param array<string, mixed>                      $parent_data        Stored parent job data.
+	 * @param int                                       $completed_children Completed child count to preserve.
+	 */
+	private function prepare_parent_for_child_retries( JobScheduler $scheduler, array $parent_data, int $completed_children ): void {
+		$parent_id = (string) ( $parent_data['id'] ?? '' );
+		if ( '' === $parent_id ) {
+			return;
+		}
+
+		$counter_key        = JobScheduler::OPTION_PREFIX . $parent_id . '_children_done';
+		$counter_failed_key = JobScheduler::OPTION_PREFIX . $parent_id . '_children_failed';
+
+		update_option( $counter_key, (string) $completed_children, false );
+		update_option( $counter_failed_key, '0', false );
+		wp_cache_delete( $counter_key, 'options' );
+		wp_cache_delete( $counter_failed_key, 'options' );
+
+		$parent_data['status']             = AbstractJob::STATUS_RUNNING;
+		$parent_data['children_completed'] = $completed_children;
+		$parent_data['children_failed']    = 0;
+		$parent_data['progress']           = min( $completed_children, (int) ( $parent_data['progress_total'] ?? $completed_children ) );
+		$parent_data['error']              = null;
+		$parent_data['finished_at']        = null;
+		$parent_data['updated_at']         = time();
+
+		$parent_key = JobScheduler::OPTION_PREFIX . $parent_id;
+		set_transient( $parent_key, $parent_data, JobScheduler::TRANSIENT_EXPIRATION );
+		delete_option( $parent_key );
+		$scheduler->add_to_active_index( $parent_id );
+	}
+
+	/**
 	 * Decrement the parent's children_done counter and set back to RUNNING if terminal.
 	 *
 	 * @param \OneSearch\Modules\Scheduler\JobScheduler $scheduler The job scheduler instance.
@@ -485,6 +647,18 @@ class Job_Controller extends Abstract_REST_Controller {
 		);
 		wp_cache_delete( $counter_key, 'options' );
 		$parent_data['children_completed'] = (int) get_option( $counter_key, 0 );
+
+		// Decrement children_failed counter as well.
+		$counter_failed_key = JobScheduler::OPTION_PREFIX . $parent_id . '_children_failed';
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+		$wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$wpdb->options} SET option_value = GREATEST(CAST(option_value AS UNSIGNED) - 1, 0) WHERE option_name = %s",
+				$counter_failed_key
+			)
+		);
+		wp_cache_delete( $counter_failed_key, 'options' );
+		$parent_data['children_failed'] = (int) get_option( $counter_failed_key, 0 );
 
 		// If parent was terminal, reset to RUNNING.
 		if ( in_array( $parent_data['status'] ?? '', JobScheduler::TERMINAL_STATUSES, true ) ) {
@@ -523,7 +697,7 @@ class Job_Controller extends Abstract_REST_Controller {
 		// The following LIKE patterns are static string literals, not user input.
 		// We intentionally embed them in the query to filter on serialized option_value.
 		$where_terminal = sprintf(
-			'( option_value LIKE \'%%"status";s:9:"completed"%%\' OR option_value LIKE \'%%"status";s:5:"failed"%%\' OR option_value LIKE \'%%"status";s:9:"cancelled"%%\' )'
+			'( option_value LIKE \'%%"status";s:9:"completed"%%\' OR option_value LIKE \'%%"status";s:6:"failed"%%\' OR option_value LIKE \'%%"status";s:9:"cancelled"%%\' )'
 		);
 		$where_parent   = 'AND option_value LIKE \'%%"parent_id";N;%%\'';
 		$where_exclude  = 'AND option_name NOT LIKE %s';
@@ -551,12 +725,13 @@ class Job_Controller extends Abstract_REST_Controller {
 		);
 		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber,WordPress.DB.DirectDatabaseQuery
 
-		$jobs = [];
+		$scheduler = new JobScheduler();
+		$jobs      = [];
 		if ( $results ) {
 			foreach ( $results as $row ) {
 				$data = maybe_unserialize( $row->option_value );
 				if ( is_array( $data ) ) {
-					$jobs[] = $data;
+					$jobs[] = $this->hydrate_history_job( $data, $scheduler );
 				}
 			}
 		}
@@ -571,6 +746,63 @@ class Job_Controller extends Abstract_REST_Controller {
 				'total_pages' => (int) ceil( $total / $per_page ),
 			]
 		);
+	}
+
+	/**
+	 * Hydrate a history row from its children so parent rows reflect child failures.
+	 *
+	 * @param array<string, mixed>                      $job       Stored parent job data.
+	 * @param \OneSearch\Modules\Scheduler\JobScheduler $scheduler Job scheduler instance.
+	 * @return array<string, mixed>
+	 */
+	private function hydrate_history_job( array $job, JobScheduler $scheduler ): array {
+		$child_ids = $job['child_ids'] ?? [];
+
+		if ( ! is_array( $child_ids ) || empty( $child_ids ) ) {
+			return $job;
+		}
+
+		$children_completed = 0;
+		$children_failed    = 0;
+
+		foreach ( $child_ids as $child_id ) {
+			if ( ! is_string( $child_id ) || '' === $child_id ) {
+				continue;
+			}
+
+			$child_status = $scheduler->get_status( $child_id );
+			if ( ! $child_status ) {
+				continue;
+			}
+
+			if ( in_array( $child_status['status'] ?? '', JobScheduler::TERMINAL_STATUSES, true ) ) {
+				++$children_completed;
+			}
+
+			if ( AbstractJob::STATUS_FAILED === ( $child_status['status'] ?? '' ) ) {
+				++$children_failed;
+			}
+		}
+
+		$children_total = count( $child_ids );
+
+		$job['children_total']     = $children_total;
+		$job['children_completed'] = max( (int) ( $job['children_completed'] ?? 0 ), $children_completed );
+		$job['children_failed']    = max( (int) ( $job['children_failed'] ?? 0 ), $children_failed );
+
+		if ( $job['children_failed'] > 0 ) {
+			$job['status'] = AbstractJob::STATUS_FAILED;
+			if ( empty( $job['error'] ) ) {
+				$job['error'] = sprintf(
+					/* translators: 1: failed child batches, 2: total child batches */
+					__( '%1$d/%2$d child batches failed', 'onesearch' ),
+					$job['children_failed'],
+					$children_total
+				);
+			}
+		}
+
+		return $job;
 	}
 
 	/**
@@ -636,36 +868,16 @@ class Job_Controller extends Abstract_REST_Controller {
 	public function get_remote_job_status( $request ) {
 		$site_url = $request->get_param( 'site_url' );
 		$job_id   = $request->get_param( 'job_id' );
+		$context  = $this->get_remote_job_request_context( (string) $site_url );
 
-		// Look up the API key for this child site.
-		$shared_sites = Settings::get_shared_sites();
-		$site_key     = '';
-		$matched_url  = '';
-
-		foreach ( $shared_sites as $url => $site_data ) {
-			if ( Utils::normalize_url( $url ) === Utils::normalize_url( $site_url ) ) {
-				$site_key    = $site_data['api_key'] ?? '';
-				$matched_url = $url;
-				break;
-			}
+		if ( is_wp_error( $context ) ) {
+			return $context;
 		}
 
-		if ( empty( $site_key ) ) {
-			return new \WP_Error(
-				'onesearch_unknown_site',
-				__( 'Site not found in shared sites.', 'onesearch' ),
-				[ 'status' => 404 ]
-			);
-		}
-
-		$base_url       = untrailingslashit( $matched_url );
+		$base_url       = $context['base_url'];
+		$headers        = $context['headers'];
 		$namespace      = self::NAMESPACE;
-		$encoded_job_id = rawurlencode( $job_id );
-
-		$headers = [
-			'Content-Type'      => 'application/json',
-			'X-OneSearch-Token' => $site_key,
-		];
+		$encoded_job_id = rawurlencode( (string) $job_id );
 
 		// Fetch job status.
 		$job_response = wp_safe_remote_get(
@@ -723,5 +935,88 @@ class Job_Controller extends Abstract_REST_Controller {
 				'children' => $children_data,
 			]
 		);
+	}
+
+	/**
+	 * Retry a failed batch on a remote child site through the governing site.
+	 *
+	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public function retry_remote_job( $request ) {
+		$site_url = $request->get_param( 'site_url' );
+		$job_id   = $request->get_param( 'job_id' );
+		$context  = $this->get_remote_job_request_context( (string) $site_url );
+
+		if ( is_wp_error( $context ) ) {
+			return $context;
+		}
+
+		$response = wp_safe_remote_post(
+			sprintf(
+				'%s/wp-json/%s/jobs/%s/retry',
+				$context['base_url'],
+				self::NAMESPACE,
+				rawurlencode( (string) $job_id )
+			),
+			[
+				'headers' => $context['headers'],
+				'timeout' => 10, // phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout
+			]
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$code = wp_remote_retrieve_response_code( $response );
+		$body = wp_remote_retrieve_body( $response );
+		$data = json_decode( $body, true );
+
+		if ( $code < 200 || $code >= 300 ) {
+			return new \WP_Error(
+				'onesearch_remote_retry_failed',
+				$data['message'] ?? __( 'Remote retry failed.', 'onesearch' ),
+				[ 'status' => $code ]
+			);
+		}
+
+		return new WP_REST_Response( is_array( $data ) ? $data : [ 'success' => true ] );
+	}
+
+	/**
+	 * Resolve request data needed to talk to a child site's jobs endpoints.
+	 *
+	 * @param string $site_url Site URL.
+	 * @return array{base_url:string,headers:array<string,string>}|\WP_Error
+	 */
+	private function get_remote_job_request_context( string $site_url ) {
+		$shared_sites = Settings::get_shared_sites();
+		$site_key     = '';
+		$matched_url  = '';
+
+		foreach ( $shared_sites as $url => $site_data ) {
+			if ( Utils::normalize_url( $url ) === Utils::normalize_url( $site_url ) ) {
+				$site_key    = $site_data['api_key'] ?? '';
+				$matched_url = $url;
+				break;
+			}
+		}
+
+		if ( empty( $site_key ) ) {
+			return new \WP_Error(
+				'onesearch_unknown_site',
+				__( 'Site not found in shared sites.', 'onesearch' ),
+				[ 'status' => 404 ]
+			);
+		}
+
+		return [
+			'base_url' => untrailingslashit( $matched_url ),
+			'headers'  => [
+				'Content-Type'      => 'application/json',
+				'X-OneSearch-Token' => $site_key,
+			],
+		];
 	}
 }

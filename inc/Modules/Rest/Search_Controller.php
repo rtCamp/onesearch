@@ -92,7 +92,10 @@ class Search_Controller extends Abstract_REST_Controller {
 								'required'          => true,
 								'type'              => 'array',
 								'sanitize_callback' => static function ( $value ) {
-									return is_array( $value );
+									if ( ! is_array( $value ) ) {
+										return [];
+									}
+									return $value;
 								},
 							],
 						],
@@ -219,15 +222,40 @@ class Search_Controller extends Abstract_REST_Controller {
 			return new \WP_Error( 'invalid_data', __( 'Failed saving settings. Please try again', 'onesearch' ), [ 'status' => 400 ] );
 		}
 
-		update_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES, $indexable_entities );
+		$sanitized = $this->sanitize_indexable_entities( $indexable_entities );
+
+		update_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES, $sanitized );
 
 		return rest_ensure_response(
 			[
 				'success'           => true,
 				'message'           => __( 'Data saved successfully.', 'onesearch' ),
-				'indexableEntities' => $indexable_entities,
+				'indexableEntities' => $sanitized,
 			]
 		);
+	}
+
+	/**
+	 * Recursively sanitize indexable entities data.
+	 *
+	 * @param mixed $data The data to sanitize.
+	 * @return mixed The sanitized data.
+	 */
+	private function sanitize_indexable_entities( $data ) {
+		if ( is_array( $data ) ) {
+			$sanitized = [];
+			foreach ( $data as $key => $value ) {
+				$sanitized_key               = is_string( $key ) ? sanitize_text_field( $key ) : $key;
+				$sanitized[ $sanitized_key ] = $this->sanitize_indexable_entities( $value );
+			}
+			return $sanitized;
+		}
+
+		if ( is_string( $data ) ) {
+			return sanitize_text_field( $data );
+		}
+
+		return $data;
 	}
 
 	/**
@@ -239,8 +267,26 @@ class Search_Controller extends Abstract_REST_Controller {
 	 */
 	public function reindex(): \WP_REST_Response|\WP_Error {
 		// Guard: prevent starting a new reindex while one is already running.
+		// Use an option-based mutex (add_option is atomic in MySQL) to prevent
+		// race conditions between concurrent requests.
+		$lock_key = self::REINDEX_STATE_TRANSIENT . '_lock';
+		if ( ! add_option( $lock_key, '1', '', 'no' ) ) {
+			return new \WP_Error(
+				'onesearch_reindex_active',
+				__( 'A re-index is already in progress. Cancel it or wait for it to complete before starting a new one.', 'onesearch' ),
+				[ 'status' => 409 ]
+			);
+		}
+
+		// Auto-expire the lock after 5 minutes in case the process crashes
+		// before cleanup. wp_schedule_single_action is preferred but not
+		// guaranteed to be available during plugin init, so we use a transient
+		// as a safety net.
+		set_transient( $lock_key . '_expiry', '1', 5 * MINUTE_IN_SECONDS );
+
 		$active_state = $this->get_active_reindex_state();
 		if ( null !== $active_state ) {
+			$this->release_reindex_lock( $lock_key );
 			return new \WP_Error(
 				'onesearch_reindex_active',
 				__( 'A re-index is already in progress. Cancel it or wait for it to complete before starting a new one.', 'onesearch' ),
@@ -267,6 +313,7 @@ class Search_Controller extends Abstract_REST_Controller {
 		$post_types = $this->get_post_types_to_index();
 
 		if ( is_wp_error( $post_types ) ) {
+			$this->release_reindex_lock( $lock_key );
 			return $post_types;
 		}
 
@@ -333,13 +380,22 @@ class Search_Controller extends Abstract_REST_Controller {
 				$total_batches += $count;
 			}
 			$job->set_data(
-				array_merge( $job->get_data() ?: [], [ 'total_batches' => $total_batches ] )
+				array_merge(
+					$job->get_data() ?: [],
+					[
+						'total_batches' => $total_batches,
+						'sites'         => $jobs,
+					]
+				)
 			);
 			$scheduler->persist_job( $job );
 		}
 
 		// Persist the reindex state so the UI can survive page refreshes.
 		set_transient( self::REINDEX_STATE_TRANSIENT, $jobs, self::REINDEX_STATE_TTL );
+
+		// Release the reindex lock now that the state has been persisted.
+		$this->release_reindex_lock( $lock_key );
 
 		return rest_ensure_response(
 			[
@@ -396,6 +452,9 @@ class Search_Controller extends Abstract_REST_Controller {
 			$job_status = $scheduler->get_status( $job_id );
 
 			if ( ! $job_status ) {
+				// Job data not found in storage — conservatively treat as
+				// still active since we can't confirm it has finished.
+				$all_terminal = false;
 				continue;
 			}
 
@@ -419,6 +478,18 @@ class Search_Controller extends Abstract_REST_Controller {
 	 */
 	public static function clear_reindex_state(): void {
 		delete_transient( self::REINDEX_STATE_TRANSIENT );
+		delete_option( self::REINDEX_STATE_TRANSIENT . '_lock' );
+		delete_transient( self::REINDEX_STATE_TRANSIENT . '_lock_expiry' );
+	}
+
+	/**
+	 * Release the reindex lock acquired at the start of reindex().
+	 *
+	 * @param string $lock_key The option name used as the mutex lock.
+	 */
+	private function release_reindex_lock( string $lock_key ): void {
+		delete_option( $lock_key );
+		delete_transient( $lock_key . '_expiry' );
 	}
 
 	/**

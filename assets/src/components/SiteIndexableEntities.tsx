@@ -155,6 +155,7 @@ const SiteIndexableEntities = ( {
 		typeof setInterval
 	> | null >( null );
 	const siteStatesRef = useRef< SiteJobState[] >( [] );
+	const selectedHistoryJobRef = useRef< JobStatus | null >( null );
 
 	const entitySelectorsDisabled = saving || reindexing;
 
@@ -345,6 +346,10 @@ const SiteIndexableEntities = ( {
 	useEffect( () => {
 		siteStatesRef.current = siteStates;
 	}, [ siteStates ] );
+
+	useEffect( () => {
+		selectedHistoryJobRef.current = selectedHistoryJob;
+	}, [ selectedHistoryJob ] );
 
 	useEffect( () => {
 		return () => {
@@ -587,7 +592,9 @@ const SiteIndexableEntities = ( {
 
 		stopHistoryRetryPolling();
 		historyRetryIntervalRef.current = setInterval( () => {
-			void refreshHistoryRetryDetails( selectedHistoryJob );
+			void refreshHistoryRetryDetails(
+				selectedHistoryJobRef.current ?? selectedHistoryJob
+			);
 		}, 2000 );
 		void refreshHistoryRetryDetails( selectedHistoryJob );
 	};
