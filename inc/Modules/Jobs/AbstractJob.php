@@ -163,6 +163,14 @@ abstract class AbstractJob {
 	protected int $children_completed = 0;
 
 	/**
+	 * Number of child jobs that have failed.
+	 * When all children complete, if this is > 0 the parent is marked FAILED.
+	 *
+	 * @var int
+	 */
+	protected int $children_failed = 0;
+
+	/**
 	 * Unix timestamp when the job reached a terminal state, null while active.
 	 *
 	 * @var int|null
@@ -337,6 +345,15 @@ abstract class AbstractJob {
 	 */
 	public function get_children_completed(): int {
 		return $this->children_completed;
+	}
+
+	/**
+	 * Get the number of child jobs that have failed.
+	 *
+	 * @return int Number of failed children.
+	 */
+	public function get_children_failed(): int {
+		return $this->children_failed;
 	}
 
 	/**
@@ -533,6 +550,17 @@ abstract class AbstractJob {
 	}
 
 	/**
+	 * Increment the count of failed child jobs.
+	 *
+	 * @return $this
+	 */
+	public function increment_children_failed(): self {
+		++$this->children_failed;
+		$this->updated_at = time();
+		return $this;
+	}
+
+	/**
 	 * Update progress to a specific value, clamped to [0, progress_total].
 	 *
 	 * @param int $progress Number of completed work units.
@@ -640,6 +668,7 @@ abstract class AbstractJob {
 			'parent_id'           => $this->parent_id,
 			'child_ids'           => $this->child_ids,
 			'children_completed'  => $this->children_completed,
+			'children_failed'     => $this->children_failed,
 			'children_total'      => count( $this->child_ids ),
 			'cancelled_at'        => $this->cancelled_at,
 			'finished_at'         => $this->finished_at,
@@ -673,6 +702,7 @@ abstract class AbstractJob {
 		$job->parent_id           = $data['parent_id'] ?? $job->parent_id;
 		$job->child_ids           = $data['child_ids'] ?? $job->child_ids;
 		$job->children_completed  = (int) ( $data['children_completed'] ?? $job->children_completed );
+		$job->children_failed     = (int) ( $data['children_failed'] ?? $job->children_failed );
 		$job->cancelled_at        = isset( $data['cancelled_at'] ) ? (int) $data['cancelled_at'] : null;
 		$job->finished_at         = isset( $data['finished_at'] ) ? (int) $data['finished_at'] : null;
 		$job->created_at          = (int) ( $data['created_at'] ?? time() );
