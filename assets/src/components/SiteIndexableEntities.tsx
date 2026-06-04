@@ -89,8 +89,13 @@ interface JobStatus {
 	error?: string;
 	child_ids?: string[];
 	children_completed?: number;
+	children_failed?: number;
 	children_total?: number;
-	data?: Record< string, unknown >;
+	data?: {
+		total_batches?: number;
+		sites?: SiteJob[];
+		[ key: string ]: unknown;
+	};
 	group?: string;
 	created_at?: number;
 	updated_at?: number;
@@ -134,13 +139,21 @@ const SiteIndexableEntities = ( {
 	const [ history, setHistory ] = useState< JobStatus[] >( [] );
 	const [ historyPage, setHistoryPage ] = useState( 1 );
 	const [ historyTotalPages, setHistoryTotalPages ] = useState( 0 );
-	const [ retrying, setRetrying ] = useState< Record< string, boolean > >(
-		{}
+	const [ selectedHistoryJob, setSelectedHistoryJob ] =
+		useState< JobStatus | null >( null );
+	const [ historyDetails, setHistoryDetails ] = useState< SiteJobState[] >(
+		[]
 	);
+	const [ historyDetailsLoading, setHistoryDetailsLoading ] =
+		useState( false );
+	const [ retryingHistoryJob, setRetryingHistoryJob ] = useState( false );
 	const [ cancelling, setCancelling ] = useState( false );
 	const intervalRef = useRef< ReturnType< typeof setInterval > | null >(
 		null
 	);
+	const historyRetryIntervalRef = useRef< ReturnType<
+		typeof setInterval
+	> | null >( null );
 	const siteStatesRef = useRef< SiteJobState[] >( [] );
 
 	const entitySelectorsDisabled = saving || reindexing;
@@ -149,6 +162,13 @@ const SiteIndexableEntities = ( {
 		if ( intervalRef.current ) {
 			clearInterval( intervalRef.current );
 			intervalRef.current = null;
+		}
+	}, [] );
+
+	const stopHistoryRetryPolling = useCallback( () => {
+		if ( historyRetryIntervalRef.current ) {
+			clearInterval( historyRetryIntervalRef.current );
+			historyRetryIntervalRef.current = null;
 		}
 	}, [] );
 
@@ -327,7 +347,10 @@ const SiteIndexableEntities = ( {
 	}, [ siteStates ] );
 
 	useEffect( () => {
-		return () => stopPolling();
+		return () => {
+			stopPolling();
+			stopHistoryRetryPolling();
+		};
 	}, [] ); // eslint-disable-line react-hooks/exhaustive-deps
 
 	// On mount, check if a reindex was in progress before a page refresh.
@@ -363,58 +386,210 @@ const SiteIndexableEntities = ( {
 		restoreReindexState();
 	}, [] ); // eslint-disable-line react-hooks/exhaustive-deps
 
-	const handleRetry = async ( childJobId: string ) => {
-		setRetrying( ( prev ) => ( { ...prev, [ childJobId ]: true } ) );
+	const retryJob = async ( jobId: string, siteUrl = currentSiteUrl ) => {
 		try {
-			const res = await fetch(
-				`${ API_NAMESPACE }/jobs/${ encodeURIComponent(
-					childJobId
-				) }/retry`,
-				{
-					method: 'POST',
-					headers: { 'X-WP-Nonce': NONCE },
-				}
-			);
-			const data = await res.json();
-			if ( data.success ) {
-				setNotice( {
-					type: 'success',
-					message: __( 'Batch retry scheduled.', 'onesearch' ),
-				} );
-				// Refresh the governing site state.
-				setSiteStates( ( prev ) =>
-					prev.map( ( s ) => {
-						if ( isCurrentSite( s.site.site_url ) ) {
-							return {
-								...s,
-								children: s.children.map( ( c ) =>
-									c.id === childJobId
-										? {
-												...c,
-												status: 'pending',
-												error: '',
-										  }
-										: c
-								),
-							};
+			const isLocalRetry = isCurrentSite( siteUrl );
+			const res = isLocalRetry
+				? await fetch(
+						`${ API_NAMESPACE }/jobs/${ encodeURIComponent(
+							jobId
+						) }/retry`,
+						{
+							method: 'POST',
+							headers: { 'X-WP-Nonce': NONCE },
 						}
-						return s;
-					} )
-				);
-			} else {
-				setNotice( {
-					type: 'error',
-					message: data.message || __( 'Retry failed.', 'onesearch' ),
-				} );
-			}
+				  )
+				: await fetch( `${ API_NAMESPACE }/jobs/remote-retry`, {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							'X-WP-Nonce': NONCE,
+						},
+						body: JSON.stringify( {
+							site_url: siteUrl,
+							job_id: jobId,
+						} ),
+				  } );
+			const data = await res.json();
+			return data;
 		} catch {
+			return {
+				success: false,
+				message: __( 'Retry request failed.', 'onesearch' ),
+			};
+		}
+	};
+
+	const getHistorySites = ( job: JobStatus ): SiteJob[] => {
+		const sitesFromJob = job.data?.sites;
+		if ( Array.isArray( sitesFromJob ) && sitesFromJob.length > 0 ) {
+			return sitesFromJob;
+		}
+
+		return [
+			{
+				site_name: __( 'Governing Site', 'onesearch' ),
+				site_url: currentSiteUrl,
+				job_id: job.id,
+				batch_count:
+					job.children_total ||
+					job.data?.total_batches ||
+					job.progress_total ||
+					0,
+			},
+		];
+	};
+
+	const fetchHistoryDetailsForJob = async (
+		job: JobStatus
+	): Promise< SiteJobState[] > =>
+		Promise.all(
+			getHistorySites( job ).map( async ( site ) => {
+				if ( ! site.job_id ) {
+					return {
+						site,
+						reindexJob: null,
+						children: [],
+						expanded: true,
+					};
+				}
+
+				const result = isCurrentSite( site.site_url )
+					? await fetchJobWithChildren( site.job_id )
+					: await fetchRemoteJobStatus( site.site_url, site.job_id );
+
+				return {
+					site,
+					reindexJob:
+						result?.reindexJob ||
+						( site.job_id === job.id ? job : null ),
+					children: result?.children || [],
+					expanded: true,
+				};
+			} )
+		);
+
+	const openHistoryDetails = async ( job: JobStatus ) => {
+		setSelectedHistoryJob( job );
+		setHistoryDetailsLoading( true );
+
+		const siteDetails = await fetchHistoryDetailsForJob( job );
+
+		setHistoryDetails( siteDetails );
+		setHistoryDetailsLoading( false );
+	};
+
+	const hasFailedHistoryDetails = historyDetails.some(
+		( state ) =>
+			state.reindexJob?.status === 'failed' ||
+			state.children.some( ( child ) => child.status === 'failed' )
+	);
+
+	const refreshHistoryRetryDetails = async ( job: JobStatus ) => {
+		const siteDetails = await fetchHistoryDetailsForJob( job );
+		setHistoryDetails( siteDetails );
+
+		const updatedSelectedJob =
+			siteDetails.find( ( state ) => state.site.job_id === job.id )
+				?.reindexJob || job;
+		setSelectedHistoryJob( updatedSelectedJob );
+
+		const allTerminal = siteDetails.every( ( state ) => {
+			if ( state.children.length > 0 ) {
+				return state.children.every( ( child ) =>
+					TERMINAL_JOB_STATUSES.includes( child.status )
+				);
+			}
+
+			return state.reindexJob
+				? TERMINAL_JOB_STATUSES.includes( state.reindexJob.status )
+				: true;
+		} );
+
+		if ( allTerminal ) {
+			stopHistoryRetryPolling();
+			setRetryingHistoryJob( false );
+			fetchHistory( historyPage );
+		}
+	};
+
+	const handleRetryHistoryJob = async () => {
+		if ( ! selectedHistoryJob || retryingHistoryJob ) {
+			return;
+		}
+
+		const jobsToRetry = historyDetails.filter(
+			( state ) =>
+				state.site.job_id &&
+				( state.reindexJob?.status === 'failed' ||
+					state.children.some(
+						( child ) => child.status === 'failed'
+					) )
+		);
+
+		if ( jobsToRetry.length === 0 ) {
+			return;
+		}
+
+		setRetryingHistoryJob( true );
+		const results = await Promise.all(
+			jobsToRetry.map( ( state ) =>
+				retryJob( state.site.job_id, state.site.site_url )
+			)
+		);
+
+		const failedResult = results.find( ( result ) => ! result.success );
+		if ( failedResult ) {
+			setRetryingHistoryJob( false );
 			setNotice( {
 				type: 'error',
-				message: __( 'Retry request failed.', 'onesearch' ),
+				message:
+					failedResult.message || __( 'Retry failed.', 'onesearch' ),
 			} );
-		} finally {
-			setRetrying( ( prev ) => ( { ...prev, [ childJobId ]: false } ) );
+			return;
 		}
+
+		setNotice( {
+			type: 'success',
+			message: __( 'Failed batches retry scheduled.', 'onesearch' ),
+		} );
+
+		setHistoryDetails( ( prev ) =>
+			prev.map( ( state ) => {
+				if (
+					! jobsToRetry.some(
+						( job ) => job.site.job_id === state.site.job_id
+					)
+				) {
+					return state;
+				}
+
+				return {
+					...state,
+					reindexJob: state.reindexJob
+						? { ...state.reindexJob, status: 'running', error: '' }
+						: state.reindexJob,
+					children: state.children.map( ( child ) =>
+						child.status === 'failed'
+							? { ...child, status: 'pending', error: '' }
+							: child
+					),
+				};
+			} )
+		);
+
+		setSelectedHistoryJob( {
+			...selectedHistoryJob,
+			status: 'running',
+			error: '',
+			children_failed: 0,
+		} );
+
+		stopHistoryRetryPolling();
+		historyRetryIntervalRef.current = setInterval( () => {
+			void refreshHistoryRetryDetails( selectedHistoryJob );
+		}, 2000 );
+		void refreshHistoryRetryDetails( selectedHistoryJob );
 	};
 
 	const toggleExpand = ( siteUrl: string ) => {
@@ -597,7 +772,15 @@ const SiteIndexableEntities = ( {
 	};
 
 	const handleModalClose = () => {
+		setSelectedHistoryJob( null );
+		setHistoryDetails( [] );
 		setShowReindexingModal( false );
+	};
+
+	const handleHistoryDetailsBack = () => {
+		setSelectedHistoryJob( null );
+		setHistoryDetails( [] );
+		setHistoryDetailsLoading( false );
 	};
 
 	const handleCancelJob = async () => {
@@ -611,18 +794,22 @@ const SiteIndexableEntities = ( {
 				s.site.job_id
 		);
 
+		// Only cancel jobs on the current site; remote job IDs won't
+		// exist on the local REST API.
 		await Promise.all(
-			activeJobs.map( ( s ) =>
-				fetch(
-					`${ API_NAMESPACE }/jobs/${ encodeURIComponent(
-						s.site.job_id
-					) }`,
-					{
-						method: 'DELETE',
-						headers: { 'X-WP-Nonce': NONCE },
-					}
-				).catch( () => {} )
-			)
+			activeJobs
+				.filter( ( s ) => isCurrentSite( s.site.site_url ) )
+				.map( ( s ) =>
+					fetch(
+						`${ API_NAMESPACE }/jobs/${ encodeURIComponent(
+							s.site.job_id
+						) }`,
+						{
+							method: 'DELETE',
+							headers: { 'X-WP-Nonce': NONCE },
+						}
+					).catch( () => {} )
+				)
 		);
 
 		stopPolling();
@@ -706,19 +893,6 @@ const SiteIndexableEntities = ( {
 					{ child.error.substring( 0, 80 ) }
 				</span>
 			) }
-			{ child.status === 'failed' && (
-				<Button
-					variant="secondary"
-					size="small"
-					isBusy={ !! retrying[ child.id ] }
-					disabled={ !! retrying[ child.id ] }
-					onClick={ () => void handleRetry( child.id ) }
-				>
-					{ retrying[ child.id ]
-						? __( 'Retrying…', 'onesearch' )
-						: __( 'Retry', 'onesearch' ) }
-				</Button>
-			) }
 		</div>
 	);
 
@@ -729,6 +903,12 @@ const SiteIndexableEntities = ( {
 			( !! state.reindexJob &&
 				state.reindexJob.status !== 'completed' &&
 				state.reindexJob.status !== 'cancelled' );
+		const handleKeyDown = ( e: React.KeyboardEvent ) => {
+			if ( ( e.key === 'Enter' || e.key === ' ' ) && canExpand ) {
+				e.preventDefault();
+				toggleExpand( state.site.site_url );
+			}
+		};
 
 		return (
 			<div key={ state.site.site_url } className="onesearch-job-site-row">
@@ -737,12 +917,9 @@ const SiteIndexableEntities = ( {
 					onClick={ () =>
 						canExpand ? toggleExpand( state.site.site_url ) : null
 					}
-					onKeyDown={ ( e ) => {
-						if ( e.key === 'Enter' && canExpand ) {
-							toggleExpand( state.site.site_url );
-						}
-					} }
+					onKeyDown={ handleKeyDown }
 					role={ canExpand ? 'button' : undefined }
+					aria-expanded={ canExpand ? state.expanded : undefined }
 					tabIndex={ canExpand ? 0 : undefined }
 					style={ { cursor: canExpand ? 'pointer' : 'default' } }
 				>
@@ -813,6 +990,150 @@ const SiteIndexableEntities = ( {
 	const formatTimestamp = ( ts?: number ): string =>
 		ts ? new Date( ts * 1000 ).toLocaleString() : '—';
 
+	const renderHistoryDetailsView = () => {
+		if ( ! selectedHistoryJob ) {
+			return null;
+		}
+
+		const historySites = getHistorySites( selectedHistoryJob );
+		const totalBatches = historySites.reduce(
+			( sum, site ) => sum + ( site.batch_count || 0 ),
+			0
+		);
+
+		return (
+			<div className="onesearch-history-details-view">
+				<div className="onesearch-history-details-toolbar">
+					<Button
+						variant="tertiary"
+						size="small"
+						onClick={ handleHistoryDetailsBack }
+						className="onesearch-history-details-back"
+					>
+						‹ { __( 'Back', 'onesearch' ) }
+					</Button>
+					{ ( hasFailedHistoryDetails || retryingHistoryJob ) && (
+						<Button
+							variant="primary"
+							size="small"
+							onClick={ () => void handleRetryHistoryJob() }
+							isBusy={ retryingHistoryJob }
+							disabled={ retryingHistoryJob }
+						>
+							{ retryingHistoryJob
+								? __( 'Retrying…', 'onesearch' )
+								: __( 'Retry Failed Batches', 'onesearch' ) }
+						</Button>
+					) }
+				</div>
+
+				<div className="onesearch-history-details-summary">
+					<div>
+						<span>{ __( 'Sites', 'onesearch' ) }</span>
+						<strong>{ historySites.length }</strong>
+					</div>
+					<div>
+						<span>{ __( 'Batches', 'onesearch' ) }</span>
+						<strong>
+							{ totalBatches ||
+								selectedHistoryJob.children_total ||
+								selectedHistoryJob.progress_total }
+						</strong>
+					</div>
+					<div>
+						<span>{ __( 'Status', 'onesearch' ) }</span>
+						{ renderJobStatusBadge(
+							selectedHistoryJob.status,
+							'small'
+						) }
+					</div>
+				</div>
+
+				{ selectedHistoryJob.error && (
+					<div className="onesearch-job-error">
+						{ selectedHistoryJob.error }
+					</div>
+				) }
+
+				<div
+					className={ `onesearch-history-details-content${
+						historyDetailsLoading
+							? ' onesearch-history-details-content--loading'
+							: ''
+					}` }
+				>
+					{ historyDetailsLoading && (
+						<div className="onesearch-history-details-loading">
+							<span className="onesearch-reindex-spinner" />
+							<Text variant="muted">
+								{ __( 'Loading job details…', 'onesearch' ) }
+							</Text>
+						</div>
+					) }
+
+					{ ! historyDetailsLoading && (
+						<div className="onesearch-history-details-sites">
+							{ historyDetails.map( ( state ) => (
+								<div
+									key={ state.site.site_url }
+									className="onesearch-history-details-site"
+								>
+									<div className="onesearch-history-details-site-header">
+										<div>
+											<strong>
+												{ state.site.site_name }
+											</strong>
+											<Text variant="muted">
+												{ state.site.site_url }
+											</Text>
+										</div>
+										<div className="onesearch-history-details-site-meta">
+											<Text variant="muted">
+												{ sprintf(
+													/* translators: %d: batch count */
+													__(
+														'%d batches',
+														'onesearch'
+													),
+													state.site.batch_count ||
+														state.children.length
+												) }
+											</Text>
+											{ state.reindexJob &&
+												renderJobStatusBadge(
+													state.reindexJob.status,
+													'small'
+												) }
+										</div>
+									</div>
+
+									{ state.children.length > 0 ? (
+										<div className="onesearch-batch-list">
+											{ state.children.map(
+												( child, idx ) =>
+													renderBatchRow( child, idx )
+											) }
+										</div>
+									) : (
+										<Text
+											variant="muted"
+											className="onesearch-history-details-empty"
+										>
+											{ __(
+												'No batch details available.',
+												'onesearch'
+											) }
+										</Text>
+									) }
+								</div>
+							) ) }
+						</div>
+					) }
+				</div>
+			</div>
+		);
+	};
+
 	const renderHistoryTable = () => {
 		if ( history.length === 0 ) {
 			return (
@@ -840,13 +1161,35 @@ const SiteIndexableEntities = ( {
 							( job.data?.[ 'total_batches' ] as number ) ||
 							job.children_total ||
 							job.progress_total;
+						const completedBatches =
+							job.children_completed ?? job.progress;
+						const hasBatches = totalBatches > 0;
+						const batchDisplay = hasBatches
+							? `${ completedBatches }/${ totalBatches }`
+							: '—';
 						const duration =
 							job.finished_at && job.created_at
 								? job.finished_at - job.created_at
 								: null;
 
+						const handleHistoryRowKeyDown = (
+							e: React.KeyboardEvent
+						) => {
+							if ( e.key === 'Enter' || e.key === ' ' ) {
+								e.preventDefault();
+								void openHistoryDetails( job );
+							}
+						};
+
 						return (
-							<tr key={ job.id }>
+							<tr
+								key={ job.id }
+								className="onesearch-history-table-row"
+								onClick={ () => void openHistoryDetails( job ) }
+								onKeyDown={ handleHistoryRowKeyDown }
+								role="button"
+								tabIndex={ 0 }
+							>
 								<td>
 									<code title={ job.id }>
 										{ job.id.substring( 0, 16 ) }…
@@ -877,9 +1220,7 @@ const SiteIndexableEntities = ( {
 								</td>
 								<td>
 									<Text variant="muted">
-										{ totalBatches > 0
-											? totalBatches
-											: '—' }
+										{ batchDisplay }
 									</Text>
 								</td>
 							</tr>
@@ -981,6 +1322,131 @@ const SiteIndexableEntities = ( {
 			</div>
 		);
 	};
+
+	const getReindexModalTitle = () => {
+		if ( selectedHistoryJob ) {
+			return __( 'Sync Job Details', 'onesearch' );
+		}
+
+		if ( reindexing ) {
+			return __( 'Indexing Progress', 'onesearch' );
+		}
+
+		return __( 'Re-index saved entities', 'onesearch' );
+	};
+
+	const renderReindexModalContent = () => (
+		<>
+			{ ! reindexing && siteStates.length === 0 && (
+				<>
+					<p>
+						{ __(
+							'Re-indexing will only index the entities you have previously saved. To re-index modified entities, please make sure you have saved them.',
+							'onesearch'
+						) }
+					</p>
+					<div className="onesearch-modal-actions">
+						<Button
+							variant="primary"
+							onClick={ () => handleReIndex() }
+						>
+							{ __( 'Re-index', 'onesearch' ) }
+						</Button>
+					</div>
+				</>
+			) }
+
+			{ reindexing && siteStates.length === 0 && (
+				<div className="onesearch-reindex-loading">
+					<span className="onesearch-reindex-spinner" />
+					<p className="onesearch-reindex-loading-text">
+						{ __(
+							'Preparing entities for re-indexing. This may take a moment.',
+							'onesearch'
+						) }
+					</p>
+				</div>
+			) }
+
+			{ siteStates.length > 0 && (
+				<div className="onesearch-job-panel">
+					<div className="onesearch-job-panel-header">
+						<h3>
+							{ __( 'Index Job', 'onesearch' ) }{ ' ' }
+							<code>
+								{ siteStates[ 0 ]?.reindexJob?.id?.substring(
+									0,
+									20
+								) ||
+									siteStates[ 0 ]?.site?.job_id?.substring(
+										0,
+										20
+									) ||
+									'…' }
+								…
+							</code>
+						</h3>
+						<span className="onesearch-job-panel-total">
+							{ ( () => {
+								const totalBatches = siteStates.reduce(
+									( sum, s ) => sum + s.children.length,
+									0
+								);
+								const totalDone = siteStates.reduce(
+									( sum, s ) =>
+										sum +
+										s.children.filter( ( c ) =>
+											[ 'completed', 'failed' ].includes(
+												c.status
+											)
+										).length,
+									0
+								);
+								if ( totalBatches > 0 ) {
+									return sprintf(
+										/* translators: 1: done batches, 2: total batches */
+										__(
+											'%1$d / %2$d batches',
+											'onesearch'
+										),
+										totalDone,
+										totalBatches
+									);
+								}
+								return '';
+							} )() }
+						</span>
+						<Button
+							variant="secondary"
+							size="small"
+							onClick={ handleCancelJob }
+							isBusy={ cancelling }
+							disabled={ cancelling }
+							className="onesearch-btn-cancel"
+						>
+							{ cancelling
+								? __( 'Cancelling…', 'onesearch' )
+								: __( 'Cancel Job', 'onesearch' ) }
+						</Button>
+					</div>
+
+					<div className="onesearch-job-panel-body">
+						{ siteStates.map( ( s ) => renderSiteRow( s ) ) }
+					</div>
+				</div>
+			) }
+
+			<div className="onesearch-job-history">
+				<h3 className="onesearch-job-history-header">
+					{ __( 'Sync Job History', 'onesearch' ) }
+				</h3>
+				<div className="onesearch-job-panel-body">
+					{ renderHistoryTable() }
+					{ renderHistoryPagination() }
+				</div>
+			</div>
+		</>
+	);
 
 	return (
 		<>
@@ -1122,128 +1588,14 @@ const SiteIndexableEntities = ( {
 			</Card>
 			{ showReindexingModal && (
 				<Modal
-					title={
-						reindexing
-							? __( 'Indexing Progress', 'onesearch' )
-							: __( 'Re-index saved entities', 'onesearch' )
-					}
+					title={ getReindexModalTitle() }
 					onRequestClose={ handleModalClose }
 					shouldCloseOnClickOutside={ false }
 					size="large"
 				>
-					{ ! reindexing && siteStates.length === 0 && (
-						<>
-							<p>
-								{ __(
-									'Re-indexing will only index the entities you have previously saved. To re-index modified entities, please make sure you have saved them.',
-									'onesearch'
-								) }
-							</p>
-							<div className="onesearch-modal-actions">
-								<Button
-									variant="primary"
-									onClick={ () => handleReIndex() }
-								>
-									{ __( 'Re-index', 'onesearch' ) }
-								</Button>
-							</div>
-						</>
-					) }
-
-					{ reindexing && siteStates.length === 0 && (
-						<div className="onesearch-reindex-loading">
-							<span className="onesearch-reindex-spinner" />
-							<p className="onesearch-reindex-loading-text">
-								{ __(
-									'Preparing entities for re-indexing. This may take a moment.',
-									'onesearch'
-								) }
-							</p>
-						</div>
-					) }
-
-					{ siteStates.length > 0 && (
-						<div className="onesearch-job-panel">
-							<div className="onesearch-job-panel-header">
-								<h3>
-									{ __( 'Index Job', 'onesearch' ) }{ ' ' }
-									<code>
-										{ siteStates[ 0 ]?.reindexJob?.id?.substring(
-											0,
-											20
-										) ||
-											siteStates[ 0 ]?.site?.job_id?.substring(
-												0,
-												20
-											) ||
-											'…' }
-										…
-									</code>
-								</h3>
-								<span className="onesearch-job-panel-total">
-									{ ( () => {
-										const totalBatches = siteStates.reduce(
-											( sum, s ) =>
-												sum + s.children.length,
-											0
-										);
-										const totalDone = siteStates.reduce(
-											( sum, s ) =>
-												sum +
-												s.children.filter( ( c ) =>
-													[
-														'completed',
-														'failed',
-													].includes( c.status )
-												).length,
-											0
-										);
-										if ( totalBatches > 0 ) {
-											return sprintf(
-												/* translators: 1: done batches, 2: total batches */
-												__(
-													'%1$d / %2$d batches',
-													'onesearch'
-												),
-												totalDone,
-												totalBatches
-											);
-										}
-										return '';
-									} )() }
-								</span>
-								<Button
-									variant="secondary"
-									size="small"
-									onClick={ handleCancelJob }
-									isBusy={ cancelling }
-									disabled={ cancelling }
-									className="onesearch-btn-cancel"
-								>
-									{ cancelling
-										? __( 'Cancelling…', 'onesearch' )
-										: __( 'Cancel Job', 'onesearch' ) }
-								</Button>
-							</div>
-
-							<div className="onesearch-job-panel-body">
-								{ siteStates.map( ( s ) =>
-									renderSiteRow( s )
-								) }
-							</div>
-						</div>
-					) }
-
-					{ /* History section */ }
-					<div className="onesearch-job-history">
-						<h3 className="onesearch-job-history-header">
-							{ __( 'Sync Job History', 'onesearch' ) }
-						</h3>
-						<div className="onesearch-job-panel-body">
-							{ renderHistoryTable() }
-							{ renderHistoryPagination() }
-						</div>
-					</div>
+					{ selectedHistoryJob
+						? renderHistoryDetailsView()
+						: renderReindexModalContent() }
 				</Modal>
 			) }
 		</>
