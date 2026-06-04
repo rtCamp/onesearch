@@ -21,7 +21,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  */
 import type { NoticeType } from '@/admin/settings/page';
 import { API_NAMESPACE, NONCE, withTrailingSlash } from '@/js/utils';
-import type { OneSearchSharedSite } from '@/types/global';
+import type { OneSearchSharedSite, StatusUIType } from '@/types/global';
 import MultiSelectChips from './MultiSelectChips';
 import type { PostTypeOption } from './SiteSearchSettings';
 
@@ -840,15 +840,24 @@ const SiteIndexableEntities = ( {
 		} ) );
 	};
 
-	const renderJobStatusBadge = ( status: string, size = 'normal' ) => (
-		<span
-			className={ `onesearch-job-status onesearch-job-status--${ status }${
-				size === 'small' ? ' onesearch-job-status--small' : ''
-			}` }
-		>
-			{ STATUS_LABELS[ status ] || status }
-		</span>
-	);
+	const renderJobStatusBadge = (
+		status: string,
+		size = 'normal',
+		type: StatusUIType = 'badge'
+	) => {
+		if ( type === 'text' ) {
+			return <strong>{ STATUS_LABELS[ status ] || status }</strong>;
+		}
+		return (
+			<span
+				className={ `onesearch-job-status onesearch-job-status--${ status }${
+					size === 'small' ? ' onesearch-job-status--small' : ''
+				}` }
+			>
+				{ STATUS_LABELS[ status ] || status }
+			</span>
+		);
+	};
 
 	const renderProgressBar = ( percent: number ) => (
 		<div className="onesearch-job-progress-bar onesearch-job-progress-bar--small">
@@ -1013,7 +1022,7 @@ const SiteIndexableEntities = ( {
 				<div className="onesearch-history-details-toolbar">
 					<Button
 						variant="tertiary"
-						size="small"
+						size="default"
 						onClick={ handleHistoryDetailsBack }
 						className="onesearch-history-details-back"
 					>
@@ -1051,7 +1060,8 @@ const SiteIndexableEntities = ( {
 						<span>{ __( 'Status', 'onesearch' ) }</span>
 						{ renderJobStatusBadge(
 							selectedHistoryJob.status,
-							'small'
+							'small',
+							'text'
 						) }
 					</div>
 				</div>
