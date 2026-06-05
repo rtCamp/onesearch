@@ -229,7 +229,7 @@ final class AlgoliaTest extends TestCase {
 	private function invoke_private_method( object $instance, string $method, array $args = [] ): mixed {
 		$ref = new \ReflectionClass( $instance );
 		$m   = $ref->getMethod( $method );
-		$m->setAccessible( true );
+
 		return $m->invokeArgs( $instance, $args );
 	}
 }

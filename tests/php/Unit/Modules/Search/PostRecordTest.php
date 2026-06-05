@@ -175,7 +175,6 @@ final class PostRecordTest extends TestCase {
 	public function test_split_content_into_chunks_splits_oversized_content_into_multiple_chunks(): void {
 		$record = new Post_Record();
 		$method = new \ReflectionMethod( Post_Record::class, 'split_content_into_chunks' );
-		$method->setAccessible( true );
 
 		$chunks = $method->invoke( $record, str_repeat( 'Chunked content for Algolia records. ', 80 ), 120 );
 
@@ -183,6 +182,59 @@ final class PostRecordTest extends TestCase {
 		$this->assertGreaterThan( 1, count( $chunks ) );
 		$this->assertFalse( str_starts_with( $chunks[0], '… ' ) );
 		$this->assertStringStartsWith( '… ', $chunks[1] );
+	}
+
+	/**
+	 * Returns empty array when max_size is zero.
+	 */
+	public function test_split_content_into_chunks_returns_empty_when_max_size_zero(): void {
+		$record = new Post_Record();
+		$method = new \ReflectionMethod( Post_Record::class, 'split_content_into_chunks' );
+
+		$chunks = $method->invoke( $record, 'Some content', 0 );
+
+		$this->assertIsArray( $chunks );
+		$this->assertEmpty( $chunks );
+	}
+
+	/**
+	 * Returns empty array when max_size is negative.
+	 */
+	public function test_split_content_into_chunks_returns_empty_when_max_size_negative(): void {
+		$record = new Post_Record();
+		$method = new \ReflectionMethod( Post_Record::class, 'split_content_into_chunks' );
+
+		$chunks = $method->invoke( $record, 'Some content', -10 );
+
+		$this->assertIsArray( $chunks );
+		$this->assertEmpty( $chunks );
+	}
+
+	/**
+	 * Returns a single chunk when the entire content fits within max_size.
+	 */
+	public function test_split_content_into_chunks_returns_single_chunk_when_content_fits(): void {
+		$record = new Post_Record();
+		$method = new \ReflectionMethod( Post_Record::class, 'split_content_into_chunks' );
+
+		$content = str_repeat( 'a', 10 );
+		$chunks  = $method->invoke( $record, $content, 20 );
+
+		$this->assertCount( 1, $chunks );
+		$this->assertSame( $content, $chunks[0] );
+	}
+
+	/**
+	 * Trims leading/trailing whitespace before chunking.
+	 */
+	public function test_split_content_into_chunks_trims_content(): void {
+		$record = new Post_Record();
+		$method = new \ReflectionMethod( Post_Record::class, 'split_content_into_chunks' );
+
+		$chunks = $method->invoke( $record, "  \t\n  hello  \n\t  ", 100 );
+
+		$this->assertCount( 1, $chunks );
+		$this->assertSame( 'hello', $chunks[0] );
 	}
 
 	/**
