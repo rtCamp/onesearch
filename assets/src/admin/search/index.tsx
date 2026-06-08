@@ -1,7 +1,7 @@
 /**
  * WordPress dependencies
  */
-import { Button, Card, CardBody, Snackbar } from '@wordpress/components';
+import { Button, Modal, Snackbar } from '@wordpress/components';
 import { createRoot, useEffect, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 
@@ -50,8 +50,9 @@ interface FetchAllPostTypesResponse {
 
 const OneSearchSettingsPage = () => {
 	const gSharedSites = window.OneSearchSettings.sharedSites || [];
-	const hasBrandSites = gSharedSites.length > 0;
-	const hasPrerequisites = hasBrandSites;
+	const hasAlgoliaCreds =
+		window.OneSearchSettings.hasAlgoliaCredentials ?? false;
+	const hasPrerequisites = gSharedSites.length > 0 && hasAlgoliaCreds;
 
 	const [ siteType, setSiteType ] = useState< SiteType >( '' );
 	const [ showModal, setShowModal ] = useState( false );
@@ -346,39 +347,28 @@ const OneSearchSettingsPage = () => {
 					) }
 
 					{ ! hasPrerequisites && (
-						<>
-							<div className="onesearch-setup-overlay-backdrop" />
-							<div className="onesearch-setup-overlay-dialog">
-								<Card>
-									<CardBody>
-										<h2>
-											{ __(
-												'Setup Required',
-												'onesearch'
-											) }
-										</h2>
-										<p>
-											{ __(
-												'You need to add at least one Brand Site and configure your Algolia credentials before you can set up indices and search.',
-												'onesearch'
-											) }
-										</p>
-										<Button
-											variant="primary"
-											href={
-												window.OneSearchSettings
-													.setupUrl
-											}
-										>
-											{ __(
-												'Go to Settings',
-												'onesearch'
-											) }
-										</Button>
-									</CardBody>
-								</Card>
-							</div>
-						</>
+						<Modal
+							className="onesearch-setup-modal"
+							onRequestClose={ () => {} }
+							shouldCloseOnEsc={ false }
+							shouldCloseOnClickOutside={ false }
+							size="medium"
+							__experimentalHideHeader
+						>
+							<h2>{ __( 'Setup Required', 'onesearch' ) }</h2>
+							<p>
+								{ __(
+									'You need to add at least one Brand Site and configure your Algolia credentials before you can set up indices and search.',
+									'onesearch'
+								) }
+							</p>
+							<Button
+								variant="primary"
+								href={ window.OneSearchSettings.setupUrl }
+							>
+								{ __( 'Go to Settings', 'onesearch' ) }
+							</Button>
+						</Modal>
 					) }
 				</>
 			) }
