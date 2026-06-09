@@ -76,7 +76,7 @@
 		"test-multisite": "WP_MULTISITE=1 phpunit --exclude-group=ms-excluded",
 		"prefix-namespaces": [
 			"sh -c 'test -f ./tests/_output/strauss.phar || curl -o ./tests/_output/strauss.phar -L -C - https://github.com/BrianHenryIE/strauss/releases/download/0.27.0/strauss.phar'",
-			"@php ./tests/_output/strauss.phar",
+			"COMPOSER_HOME=/tmp/strauss-composer-home php ./tests/_output/strauss.phar",
 			"@composer dump-autoload"
 		],
 		"post-install-cmd": [
