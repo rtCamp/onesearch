@@ -794,20 +794,17 @@ const SiteIndexableEntities = ( {
 		setCancelling( true );
 		const activeJobs = siteStates.filter(
 			( s ) =>
-				s.reindexJob &&
-				! [ 'completed', 'failed', 'cancelled' ].includes(
-					s.reindexJob.status
-				) &&
-				s.site.job_id
+				s.site.job_id &&
+				( ! s.reindexJob ||
+					! [ 'completed', 'failed', 'cancelled' ].includes(
+						s.reindexJob.status
+					) )
 		);
 
-		// Only cancel jobs on the current site; remote job IDs won't
-		// exist on the local REST API.
 		await Promise.all(
-			activeJobs
-				.filter( ( s ) => isCurrentSite( s.site.site_url ) )
-				.map( ( s ) =>
-					fetch(
+			activeJobs.map( ( s ) => {
+				if ( isCurrentSite( s.site.site_url ) ) {
+					return fetch(
 						`${ API_NAMESPACE }/jobs/${ encodeURIComponent(
 							s.site.job_id
 						) }`,
@@ -815,8 +812,20 @@ const SiteIndexableEntities = ( {
 							method: 'DELETE',
 							headers: { 'X-WP-Nonce': NONCE },
 						}
-					).catch( () => {} )
-				)
+					).catch( () => {} );
+				}
+				return fetch( `${ API_NAMESPACE }/jobs/remote-cancel`, {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						'X-WP-Nonce': NONCE,
+					},
+					body: JSON.stringify( {
+						site_url: s.site.site_url,
+						job_id: s.site.job_id,
+					} ),
+				} ).catch( () => {} );
+			} )
 		);
 
 		stopPolling();

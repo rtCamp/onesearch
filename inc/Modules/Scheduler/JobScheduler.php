@@ -11,6 +11,8 @@ namespace OneSearch\Modules\Scheduler;
 
 use OneSearch\Modules\Jobs\AbstractJob;
 use OneSearch\Modules\Rest\Search_Controller;
+use OneSearch\Modules\Settings\Settings;
+use OneSearch\Utils;
 
 /**
  * Class - JobScheduler
@@ -229,6 +231,8 @@ final class JobScheduler {
 	 * @param string $job_id The ID of the job to cancel.
 	 */
 	public function cancel( string $job_id ): void {
+		global $wpdb;
+
 		$status = $this->get_status( $job_id );
 
 		if ( $status ) {
@@ -241,23 +245,88 @@ final class JobScheduler {
 			}
 		}
 
-		if ( $status && ! in_array( $status['status'], self::TERMINAL_STATUSES, true ) ) {
-			$status['status']      = AbstractJob::STATUS_CANCELLED;
-			$status['finished_at'] = time();
-			$status['updated_at']  = time();
-			$key                   = self::OPTION_PREFIX . $job_id;
+		// Acquire per-job lock to prevent notify_parent() from overwriting
+		// our cancellation with a completed/failed status.
+		$key      = self::OPTION_PREFIX . $job_id;
+		$lock_key = $key . '_lock';
 
-			update_option( $key, $status, false );
-			delete_transient( $key );
-			$this->remove_from_active_index( $job_id );
-
-			// If this is a parent ReindexJob being cancelled, clear the
-			// reindex state so the frontend knows it can start a new one.
-			if ( ! empty( $status['child_ids'] ?? [] ) ) {
-				Search_Controller::clear_reindex_state();
+		$max_tries = 10;
+		for ( $attempt = 0; $attempt < $max_tries; ++$attempt ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+			$acquired = $wpdb->query(
+				$wpdb->prepare(
+					"INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, '1', 'no')",
+					$lock_key
+				)
+			);
+			if ( $acquired ) {
+				wp_cache_delete( $lock_key, 'options' );
+				break;
 			}
+			usleep( 100000 + $attempt * 50000 );
 		}
 
+		try {
+			// Re-read status under lock.
+			$fresh = $this->get_status( $job_id );
+			if ( $fresh ) {
+				$status = $fresh;
+			}
+
+			if ( $status ) {
+				$previous_status = $status['status'] ?? '';
+				$child_ids       = $status['child_ids'] ?? [];
+
+				// Allow cancelling a completed parent if it has unsuccessful
+				// children — the user explicitly cancelled.
+				$has_unsuccessful = false;
+				if ( AbstractJob::STATUS_COMPLETED === $previous_status && ! empty( $child_ids ) ) {
+					foreach ( $child_ids as $child_id ) {
+						$cs = $this->get_status( $child_id );
+						if ( $cs && ! in_array( $cs['status'] ?? '', [ AbstractJob::STATUS_COMPLETED ], true ) ) {
+							$has_unsuccessful = true;
+							break;
+						}
+					}
+				}
+
+				// Also treat completed parent with remote sites as potentially
+				// needing cancellation — remote status is uncertain.
+				if ( ! $has_unsuccessful && AbstractJob::STATUS_COMPLETED === $previous_status ) {
+					$remote_sites = $status['data']['sites'] ?? [];
+					$current_site = Utils::normalize_url( get_site_url() );
+					foreach ( $remote_sites as $site_info ) {
+						if ( Utils::normalize_url( $site_info['site_url'] ?? '' ) !== $current_site ) {
+							$has_unsuccessful = true;
+							break;
+						}
+					}
+				}
+
+				$can_cancel = ! in_array( $previous_status, self::TERMINAL_STATUSES, true )
+					|| ( AbstractJob::STATUS_COMPLETED === $previous_status && $has_unsuccessful );
+
+				if ( $can_cancel ) {
+					$status['status']      = AbstractJob::STATUS_CANCELLED;
+					$status['finished_at'] = time();
+					$status['updated_at']  = time();
+
+					update_option( $key, $status, false );
+					delete_transient( $key );
+					$this->remove_from_active_index( $job_id );
+
+					if ( ! empty( $child_ids ) ) {
+						Search_Controller::clear_reindex_state();
+					}
+				}
+			}
+		} finally {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+			$wpdb->delete( $wpdb->options, [ 'option_name' => $lock_key ] );
+			wp_cache_delete( $lock_key, 'options' );
+		}
+
+		// Always recursively cancel children.
 		if ( $status ) {
 			$child_ids = $status['child_ids'] ?? [];
 			foreach ( $child_ids as $child_id ) {
@@ -533,9 +602,12 @@ final class JobScheduler {
 			return;
 		}
 
-		$counter_key        = self::OPTION_PREFIX . $parent_id . '_children_done';
-		$counter_failed_key = self::OPTION_PREFIX . $parent_id . '_children_failed';
-		$is_failed          = $job->get_status() === AbstractJob::STATUS_FAILED;
+		$counter_key           = self::OPTION_PREFIX . $parent_id . '_children_done';
+		$counter_failed_key    = self::OPTION_PREFIX . $parent_id . '_children_failed';
+		$counter_cancelled_key = self::OPTION_PREFIX . $parent_id . '_children_cancelled';
+		$job_status            = $job->get_status();
+		$is_failed             = AbstractJob::STATUS_FAILED === $job_status;
+		$is_cancelled          = AbstractJob::STATUS_CANCELLED === $job_status;
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
 		$wpdb->query(
@@ -545,7 +617,7 @@ final class JobScheduler {
 			)
 		);
 
-		if ( $is_failed ) {
+		if ( $is_failed || $is_cancelled ) {
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
 			$wpdb->query(
 				$wpdb->prepare(
@@ -555,10 +627,21 @@ final class JobScheduler {
 			);
 		}
 
+		if ( $is_cancelled ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+			$wpdb->query(
+				$wpdb->prepare(
+					"INSERT INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, '1', 'no') ON DUPLICATE KEY UPDATE option_value = CAST(option_value AS UNSIGNED) + 1",
+					$counter_cancelled_key
+				)
+			);
+		}
+
 		wp_cache_delete( $counter_key, 'options' );
-		$done        = (int) get_option( $counter_key, 0 );
-		$failed      = (int) get_option( $counter_failed_key, 0 );
-		$child_total = count( $parent_data['child_ids'] ?? [] );
+		$done            = (int) get_option( $counter_key, 0 );
+		$total_failed    = (int) get_option( $counter_failed_key, 0 );
+		$total_cancelled = (int) get_option( $counter_cancelled_key, 0 );
+		$child_total     = count( $parent_data['child_ids'] ?? [] );
 
 		$parent_key = self::OPTION_PREFIX . $parent_id;
 		$lock_key   = $parent_key . '_lock';
@@ -595,14 +678,44 @@ final class JobScheduler {
 			}
 
 			$parent_data['children_completed'] = $done;
-			$parent_data['children_failed']    = $failed;
+			$parent_data['children_failed']    = $total_failed + $total_cancelled;
 			$parent_data['progress']           = min( $done, $parent_data['progress_total'] ?? $done );
 			$parent_data['updated_at']         = time();
 
 			if ( $child_total > 0 && $done >= $child_total ) {
-				if ( $failed > 0 ) {
+				// All local children finished. If governing site with remote
+				// child sites, check their statuses before finalizing.
+				$remote_sites = $parent_data['data']['sites'] ?? [];
+				$has_remote   = is_array( $remote_sites ) && count( $remote_sites ) > 1;
+
+				if ( $has_remote && Settings::is_governing_site() ) {
+					$remote_status                  = $this->check_remote_job_statuses( $remote_sites );
+					$total_failed                  += $remote_status['failed'];
+					$total_cancelled               += $remote_status['cancelled'];
+					$parent_data['children_failed'] = $total_failed + $total_cancelled;
+
+					// If any remote site is still running, defer finalization.
+					// The parent stays RUNNING so the frontend keeps polling.
+					// hydrate_history_job() will re-check and finalize later.
+					if ( $remote_status['running'] > 0 ) {
+						$parent_data['data']['_needs_remote_finalize'] = true;
+						$parent_data['status']                         = AbstractJob::STATUS_RUNNING;
+
+						if ( in_array( $parent_data['status'], self::TERMINAL_STATUSES, true ) ) {
+							update_option( $parent_key, $parent_data, false );
+						} else {
+							set_transient( $parent_key, $parent_data, self::TRANSIENT_EXPIRATION );
+						}
+						return;
+					}
+				}
+
+				// Cancelled beats failed beats completed.
+				if ( $total_cancelled > 0 ) {
+					$parent_data['status'] = AbstractJob::STATUS_CANCELLED;
+				} elseif ( $total_failed > 0 ) {
 					$parent_data['status'] = AbstractJob::STATUS_FAILED;
-					$parent_data['error']  = sprintf( '%d/%d child batches failed', $failed, $child_total );
+					$parent_data['error']  = sprintf( '%d/%d child batches failed', $total_failed, $child_total );
 				} else {
 					$parent_data['status'] = AbstractJob::STATUS_COMPLETED;
 				}
@@ -610,6 +723,7 @@ final class JobScheduler {
 				$parent_data['finished_at'] = time();
 				delete_option( $counter_key );
 				delete_option( $counter_failed_key );
+				delete_option( $counter_cancelled_key );
 				Search_Controller::clear_reindex_state();
 			}
 
@@ -625,6 +739,86 @@ final class JobScheduler {
 			$wpdb->delete( $wpdb->options, [ 'option_name' => $lock_key ] );
 			wp_cache_delete( $lock_key, 'options' );
 		}
+	}
+
+	/**
+	 * Check the status of remote child site jobs and count failures/cancellations.
+	 *
+	 * Called by notify_parent() when all local children complete to verify
+	 * that child site jobs also succeeded before marking the parent complete.
+	 *
+	 * @param array<int,array{site_url:string,job_id:string}> $remote_sites Array of remote site jobs.
+	 * @return array{failed:int,cancelled:int}
+	 */
+	public function check_remote_job_statuses( array $remote_sites ): array {
+		$failed       = 0;
+		$cancelled    = 0;
+		$running      = 0;
+		$current_site = Utils::normalize_url( get_site_url() );
+
+		foreach ( $remote_sites as $site_info ) {
+			$site_url = Utils::normalize_url( $site_info['site_url'] ?? '' );
+			$job_id   = $site_info['job_id'] ?? '';
+
+			if ( $site_url === $current_site || empty( $job_id ) ) {
+				continue;
+			}
+
+			$shared_sites = Settings::get_shared_sites();
+			$api_key      = '';
+
+			foreach ( $shared_sites as $url => $data ) {
+				if ( Utils::normalize_url( $url ) === $site_url ) {
+					$api_key = $data['api_key'] ?? '';
+					break;
+				}
+			}
+
+			if ( empty( $api_key ) ) {
+				++$failed;
+				continue;
+			}
+
+			$response = wp_safe_remote_get(
+				sprintf(
+					'%s/wp-json/%s/jobs/%s',
+					untrailingslashit( $site_url ),
+					'onesearch/v1',
+					rawurlencode( $job_id )
+				),
+				[
+					'headers' => [
+						'Content-Type'      => 'application/json',
+						'Origin'            => get_site_url(),
+						'X-OneSearch-Token' => $api_key,
+					],
+					'timeout' => 5, // phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout
+				]
+			);
+
+			if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
+				++$failed;
+				continue;
+			}
+
+			$body          = wp_remote_retrieve_body( $response );
+			$data          = json_decode( $body, true );
+			$remote_status = $data['job']['status'] ?? '';
+
+			if ( 'failed' === $remote_status ) {
+				++$failed;
+			} elseif ( 'cancelled' === $remote_status ) {
+				++$cancelled;
+			} elseif ( in_array( $remote_status, [ 'pending', 'running' ], true ) ) {
+				++$running;
+			}
+		}
+
+		return [
+			'failed'    => $failed,
+			'cancelled' => $cancelled,
+			'running'   => $running,
+		];
 	}
 
 	/**

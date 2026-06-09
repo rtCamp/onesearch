@@ -124,6 +124,32 @@ class Job_Controller extends Abstract_REST_Controller {
 
 		register_rest_route(
 			self::NAMESPACE,
+			'/jobs/remote-cancel',
+			[
+				[
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => [ $this, 'cancel_remote_job' ],
+					'permission_callback' => static function () {
+						return current_user_can( 'manage_options' );
+					},
+					'args'                => [
+						'site_url' => [
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'esc_url_raw',
+						],
+						'job_id'   => [
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						],
+					],
+				],
+			]
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
 			'/jobs/reindex',
 			[
 				[
@@ -214,9 +240,7 @@ class Job_Controller extends Abstract_REST_Controller {
 				[
 					'methods'             => WP_REST_Server::DELETABLE,
 					'callback'            => [ $this, 'cancel_job' ],
-					'permission_callback' => static function () {
-						return current_user_can( 'manage_options' );
-					},
+					'permission_callback' => [ $this, 'check_api_permissions' ],
 					'args'                => [
 						'id' => [
 							'required'          => true,
@@ -362,7 +386,8 @@ class Job_Controller extends Abstract_REST_Controller {
 			);
 		}
 
-		if ( in_array( $status['status'] ?? '', [ 'completed', 'failed', 'cancelled' ], true ) ) {
+		$is_parent_job = ! empty( $status['child_ids'] ?? [] );
+		if ( ! $is_parent_job && in_array( $status['status'] ?? '', [ 'completed', 'failed', 'cancelled' ], true ) ) {
 			return new \WP_Error(
 				'onesearch_job_terminal',
 				__( 'Job is already in a terminal state.', 'onesearch' ),
@@ -371,6 +396,12 @@ class Job_Controller extends Abstract_REST_Controller {
 		}
 
 		$scheduler->cancel( $job_id );
+
+		// If this is a parent ReindexJob being cancelled, clear the
+		// reindex state so the frontend knows it can start a new one.
+		if ( ! empty( $status['child_ids'] ?? [] ) ) {
+			Search_Controller::clear_reindex_state();
+		}
 
 		return new WP_REST_Response(
 			[
@@ -762,25 +793,34 @@ class Job_Controller extends Abstract_REST_Controller {
 			return $job;
 		}
 
+		// If the parent was directly cancelled, preserve that status.
+		if ( AbstractJob::STATUS_CANCELLED === ( $job['status'] ?? '' ) ) {
+			return $job;
+		}
+
 		$children_completed = 0;
-		$children_failed    = 0;
+		$local_failed       = 0;
+		$local_cancelled    = 0;
 
 		foreach ( $child_ids as $child_id ) {
 			if ( ! is_string( $child_id ) || '' === $child_id ) {
 				continue;
 			}
 
-			$child_status = $scheduler->get_status( $child_id );
-			if ( ! $child_status ) {
+			$child = $scheduler->get_status( $child_id );
+			if ( ! $child ) {
 				continue;
 			}
 
-			if ( in_array( $child_status['status'] ?? '', JobScheduler::TERMINAL_STATUSES, true ) ) {
+			if ( in_array( $child['status'] ?? '', JobScheduler::TERMINAL_STATUSES, true ) ) {
 				++$children_completed;
 			}
 
-			if ( AbstractJob::STATUS_FAILED === ( $child_status['status'] ?? '' ) ) {
-				++$children_failed;
+			$status = $child['status'] ?? '';
+			if ( AbstractJob::STATUS_FAILED === $status ) {
+				++$local_failed;
+			} elseif ( AbstractJob::STATUS_CANCELLED === $status ) {
+				++$local_cancelled;
 			}
 		}
 
@@ -788,17 +828,60 @@ class Job_Controller extends Abstract_REST_Controller {
 
 		$job['children_total']     = $children_total;
 		$job['children_completed'] = max( (int) ( $job['children_completed'] ?? 0 ), $children_completed );
-		$job['children_failed']    = max( (int) ( $job['children_failed'] ?? 0 ), $children_failed );
+		$job['children_failed']    = max(
+			(int) ( $job['children_failed'] ?? 0 ),
+			$local_failed + $local_cancelled
+		);
 
-		if ( $job['children_failed'] > 0 ) {
-			$job['status'] = AbstractJob::STATUS_FAILED;
-			if ( empty( $job['error'] ) ) {
+		if ( $local_failed > 0 || $local_cancelled > 0 ) {
+			if ( $local_cancelled > 0 ) {
+				$job['status'] = AbstractJob::STATUS_CANCELLED;
+			} else {
+				$job['status'] = AbstractJob::STATUS_FAILED;
+			}
+
+			if ( empty( $job['error'] ) && $local_failed > 0 ) {
 				$job['error'] = sprintf(
 					/* translators: 1: failed child batches, 2: total child batches */
 					__( '%1$d/%2$d child batches failed', 'onesearch' ),
-					$job['children_failed'],
+					$local_failed,
 					$children_total
 				);
+			}
+		}
+
+		// If the parent is still RUNNING with all local children done and
+		// remote child sites pending, re-check remote statuses and finalize.
+		$needs_finalize = $job['data']['_needs_remote_finalize'] ?? false;
+		if ( $needs_finalize
+			&& AbstractJob::STATUS_RUNNING === ( $job['status'] ?? '' )
+			&& 0 === $local_failed && 0 === $local_cancelled
+			&& Settings::is_governing_site()
+		) {
+			$remote_sites = $job['data']['sites'] ?? [];
+			if ( is_array( $remote_sites ) && count( $remote_sites ) > 1 ) {
+				$r = $scheduler->check_remote_job_statuses( $remote_sites );
+
+				if ( 0 === $r['running'] ) {
+					if ( $r['cancelled'] > 0 ) {
+						$job['status'] = AbstractJob::STATUS_CANCELLED;
+					} elseif ( $r['failed'] > 0 ) {
+						$job['status'] = AbstractJob::STATUS_FAILED;
+						$job['error']  = sprintf(
+							/* translators: 1: failed remote sites */
+							__( '%1$d remote site(s) failed', 'onesearch' ),
+							$r['failed']
+						);
+					} else {
+						$job['status'] = AbstractJob::STATUS_COMPLETED;
+					}
+
+					$job['children_failed'] = max(
+						(int) ( $job['children_failed'] ?? 0 ),
+						$r['failed'] + $r['cancelled']
+					);
+				}
+				// If still running: keep current status, try again next time.
 			}
 		}
 
@@ -875,7 +958,10 @@ class Job_Controller extends Abstract_REST_Controller {
 		}
 
 		$base_url       = $context['base_url'];
-		$headers        = $context['headers'];
+		$headers        = array_merge(
+			$context['headers'],
+			[ 'Origin' => get_site_url() ]
+		);
 		$namespace      = self::NAMESPACE;
 		$encoded_job_id = rawurlencode( (string) $job_id );
 
@@ -960,7 +1046,10 @@ class Job_Controller extends Abstract_REST_Controller {
 				rawurlencode( (string) $job_id )
 			),
 			[
-				'headers' => $context['headers'],
+				'headers' => array_merge(
+					$context['headers'],
+					[ 'Origin' => get_site_url() ]
+				),
 				'timeout' => 10, // phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout
 			]
 		);
@@ -982,6 +1071,74 @@ class Job_Controller extends Abstract_REST_Controller {
 		}
 
 		return new WP_REST_Response( is_array( $data ) ? $data : [ 'success' => true ] );
+	}
+
+	/**
+	 * Send a cancel request to a job on a remote child site.
+	 *
+	 * Used internally to propagate reindex cancellations from the governing
+	 * site down to child sites, as well as by the cancel_remote_job endpoint.
+	 *
+	 * @param string $site_url The child site URL.
+	 * @param string $job_id   The job ID to cancel on the child site.
+	 * @return bool True if the cancel was accepted by the child site.
+	 */
+	private function send_remote_cancel( string $site_url, string $job_id ): bool {
+		$context = $this->get_remote_job_request_context( $site_url );
+
+		if ( is_wp_error( $context ) ) {
+			return false;
+		}
+
+		$headers = array_merge(
+			$context['headers'],
+			[ 'Origin' => get_site_url() ]
+		);
+
+		$response = wp_safe_remote_request(
+			sprintf(
+				'%s/wp-json/%s/jobs/%s',
+				$context['base_url'],
+				self::NAMESPACE,
+				rawurlencode( $job_id )
+			),
+			[
+				'method'  => 'DELETE',
+				'headers' => $headers,
+				'timeout' => 10, // phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout
+			]
+		);
+
+		// If the remote site is unreachable the child's jobs will time out.
+		return ! is_wp_error( $response );
+	}
+
+	/**
+	 * Cancel a job on a remote child site through the governing site.
+	 *
+	 * Proxies a DELETE request to the child site's /jobs/{id} endpoint.
+	 * If the remote site is unreachable, still returns success so the
+	 * local UI can clean up its state without waiting.
+	 *
+	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public function cancel_remote_job( $request ) {
+		$site_url = $request->get_param( 'site_url' );
+		$job_id   = $request->get_param( 'job_id' );
+
+		$sent = $this->send_remote_cancel( (string) $site_url, (string) $job_id );
+
+		if ( ! $sent ) {
+			return new WP_REST_Response(
+				[
+					'success' => true,
+					'warning' => __( 'Remote site unreachable; local state cleaned.', 'onesearch' ),
+				]
+			);
+		}
+
+		return new WP_REST_Response( [ 'success' => true ] );
 	}
 
 	/**
