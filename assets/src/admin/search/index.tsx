@@ -295,13 +295,7 @@ const OneSearchSettingsPage = () => {
 
 			{ siteType === 'governing-site' && (
 				<>
-					<div
-						className={
-							! hasPrerequisites
-								? 'onesearch-setup-overlay-blur'
-								: ''
-						}
-					>
+					<div className="onesearch-search-content">
 						<SiteIndexableEntities
 							sites={ sites }
 							allPostTypes={ allPostTypes }
@@ -349,6 +343,7 @@ const OneSearchSettingsPage = () => {
 					{ ! hasPrerequisites && (
 						<Modal
 							className="onesearch-setup-modal"
+							overlayClassName="onesearch-setup-overlay"
 							onRequestClose={ () => {} }
 							shouldCloseOnEsc={ false }
 							shouldCloseOnClickOutside={ false }
