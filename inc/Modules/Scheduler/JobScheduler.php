@@ -748,7 +748,7 @@ final class JobScheduler {
 	 * that child site jobs also succeeded before marking the parent complete.
 	 *
 	 * @param array<int,array{site_url:string,job_id:string}> $remote_sites Array of remote site jobs.
-	 * @return array{failed:int,cancelled:int}
+	 * @return array{failed:int,cancelled:int,running:int}
 	 */
 	public function check_remote_job_statuses( array $remote_sites ): array {
 		$failed       = 0;

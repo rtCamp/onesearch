@@ -7,6 +7,11 @@ namespace {
 	class ActionScheduler_Store {
 		public const STATUS_PENDING = 'pending';
 		public const STATUS_RUNNING = 'running';
+
+		/**
+		 * @return static
+		 */
+		public static function instance(): static {}
 	}
 
 	class ActionScheduler_Action {

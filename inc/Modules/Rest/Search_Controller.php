@@ -270,7 +270,7 @@ class Search_Controller extends Abstract_REST_Controller {
 		// Use an option-based mutex (add_option is atomic in MySQL) to prevent
 		// race conditions between concurrent requests.
 		$lock_key = self::REINDEX_STATE_TRANSIENT . '_lock';
-		if ( ! add_option( $lock_key, '1', '', 'no' ) ) {
+		if ( ! add_option( $lock_key, '1', '', false ) ) {
 			return new \WP_Error(
 				'onesearch_reindex_active',
 				__( 'A re-index is already in progress. Cancel it or wait for it to complete before starting a new one.', 'onesearch' ),
@@ -554,7 +554,7 @@ class Search_Controller extends Abstract_REST_Controller {
 	/**
 	 * Trigger batch reindexing of all child sites (for governing sites).
 	 *
-	 * @return array{ jobs: array<int,array{site_name:string,site_url:string,job_id:string}>, errors: array<int,array{site_url:string,message:string}> }
+	 * @return array{ jobs: array<int,array{site_name:string,site_url:string,job_id:string}>, errors: array<int,array{site_url:string,message:string}>, batch_counts: array<int,int> }
 	 */
 	private function reindex_child_sites(): array {
 		$shared_sites = Settings::get_shared_sites();
