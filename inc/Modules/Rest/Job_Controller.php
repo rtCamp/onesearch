@@ -682,12 +682,13 @@ class Job_Controller extends Abstract_REST_Controller {
 		// Decrement children_failed counter as well.
 		$counter_failed_key = JobScheduler::OPTION_PREFIX . $parent_id . '_children_failed';
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-		$wpdb->query(
-			$wpdb->prepare(
-				"UPDATE {$wpdb->options} SET option_value = GREATEST(CAST(option_value AS UNSIGNED) - 1, 0) WHERE option_name = %s",
-				$counter_failed_key
-			)
+		$sql = $wpdb->prepare(
+			"UPDATE {$wpdb->options} SET option_value = GREATEST(CAST(option_value AS UNSIGNED) - 1, 0) WHERE option_name = %s",
+			$counter_failed_key
 		);
+		if ( is_string( $sql ) ) {
+			$wpdb->query( $sql );
+		}
 		wp_cache_delete( $counter_failed_key, 'options' );
 		$parent_data['children_failed'] = (int) get_option( $counter_failed_key, 0 );
 
