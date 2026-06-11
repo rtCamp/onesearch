@@ -56,7 +56,6 @@
 	},
 	"require-dev": {
 		"dealerdirect/phpcodesniffer-composer-installer": "^1.2",
-		"php-stubs/wp-cli-stubs": "^2.12",
 		"phpstan/extension-installer": "^1.3",
 		"phpstan/phpstan": "^2.1.55",
 		"phpstan/phpstan-deprecation-rules": "^2.0.3",
@@ -74,7 +73,7 @@
 		"test": "vendor/bin/phpunit -c phpunit.xml.dist",
 		"test-multisite": "WP_MULTISITE=1 phpunit --exclude-group=ms-excluded",
 		"prefix-namespaces": [
-			"sh -c 'test -f ./tests/_output/strauss.phar || curl -o ./tests/_output/strauss.phar -L -C - https://github.com/BrianHenryIE/strauss/releases/download/0.27.0/strauss.phar'",
+			"sh -c 'test -f ./tests/_output/strauss.phar || curl -o ./tests/_output/strauss.phar -L -C - https://github.com/BrianHenryIE/strauss/releases/download/0.27.3/strauss.phar'",
 			"@php ./tests/_output/strauss.phar",
 			"@composer dump-autoload"
 		],
