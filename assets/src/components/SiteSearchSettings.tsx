@@ -7,22 +7,22 @@ import {
 	Card,
 	CardBody,
 	CardHeader,
-	ToggleControl,
-	Spinner,
 	Notice,
+	Spinner,
+	ToggleControl,
 } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
 
 /**
  * External dependencies
  */
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
  * Internal dependencies
  */
-import { NONCE, withTrailingSlash } from '../js/utils';
 import type { NoticeType } from '@/admin/settings/page';
+import { NONCE, withTrailingSlash } from '../js/utils';
 
 /**
  * Create NONCE middleware for apiFetch
@@ -468,8 +468,9 @@ const SiteSearchSettings = ( {
 					</Button>
 				</div>
 			</CardHeader>
+
+			{ /* Notice for warnings */ }
 			<CardBody className="onesearch-body">
-				{ /* Notice for warnings */ }
 				{ localNotice && (
 					<Notice
 						status={ localNotice.type }

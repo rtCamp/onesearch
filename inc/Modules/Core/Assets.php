@@ -64,17 +64,20 @@ final class Assets implements Registrable {
 	 * @return array<string,mixed>
 	 */
 	public static function get_localized_data(): array {
+		$algolia_creds = Search_Settings::get_algolia_credentials();
+
 		if ( empty( self::$localized_data ) ) {
 			self::$localized_data = [
-				'currentSiteUrl'    => esc_url( home_url( '/' ) ),
-				'indexableEntities' => Search_Settings::get_indexable_entities(),
-				'nonce'             => wp_create_nonce( 'wp_rest' ),
-				'api_key'           => Settings::get_api_key(),
-				'restNamespace'     => Abstract_REST_Controller::NAMESPACE,
-				'restUrl'           => esc_url( home_url( '/wp-json/' ) ),
-				'setupUrl'          => admin_url( 'admin.php?page=onesearch-settings' ),
-				'sharedSites'       => array_values( Settings::get_shared_sites() ),
-				'siteType'          => Settings::get_site_type(),
+				'currentSiteUrl'        => esc_url( home_url( '/' ) ),
+				'hasAlgoliaCredentials' => ! empty( $algolia_creds['app_id'] ) && ! empty( $algolia_creds['write_key'] ),
+				'indexableEntities'     => Search_Settings::get_indexable_entities(),
+				'nonce'                 => wp_create_nonce( 'wp_rest' ),
+				'api_key'               => Settings::get_api_key(),
+				'restNamespace'         => Abstract_REST_Controller::NAMESPACE,
+				'restUrl'               => esc_url( home_url( '/wp-json/' ) ),
+				'setupUrl'              => admin_url( 'admin.php?page=onesearch-settings' ),
+				'sharedSites'           => array_values( Settings::get_shared_sites() ),
+				'siteType'              => Settings::get_site_type(),
 			];
 		}
 

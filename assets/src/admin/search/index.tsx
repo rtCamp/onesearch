@@ -1,13 +1,18 @@
 /**
  * WordPress dependencies
  */
-import { useState, useEffect, createRoot } from '@wordpress/element';
+import { Button, Modal, Snackbar } from '@wordpress/components';
+import { createRoot, useEffect, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
-import { Snackbar } from '@wordpress/components';
 
 /**
  * External dependencies
  */
+import type {
+	BrandSite,
+	defaultBrandSite,
+	NoticeType,
+} from '@/admin/settings/page';
 import SiteIndexableEntities from '@/components/SiteIndexableEntities';
 import SiteModal from '@/components/SiteModal';
 import SiteSearchSettings, {
@@ -15,15 +20,10 @@ import SiteSearchSettings, {
 } from '@/components/SiteSearchSettings';
 import {
 	API_NAMESPACE,
-	NONCE,
 	CURRENT_SITE_URL,
+	NONCE,
 	withTrailingSlash,
 } from '@/js/utils';
-import type {
-	BrandSite,
-	defaultBrandSite,
-	NoticeType,
-} from '@/admin/settings/page';
 import type { SiteType } from '@/types/global';
 
 type BrandSiteFormData = typeof defaultBrandSite;
@@ -49,6 +49,11 @@ interface FetchAllPostTypesResponse {
 }
 
 const OneSearchSettingsPage = () => {
+	const sharedSites = window.OneSearchSettings.sharedSites || [];
+	const hasAlgoliaCreds =
+		window.OneSearchSettings.hasAlgoliaCredentials ?? false;
+	const hasPrerequisites = sharedSites.length > 0 && hasAlgoliaCreds;
+
 	const [ siteType, setSiteType ] = useState< SiteType >( '' );
 	const [ showModal, setShowModal ] = useState( false );
 	const [ editingIndex, setEditingIndex ] = useState< number | null >( null );
@@ -289,44 +294,78 @@ const OneSearchSettingsPage = () => {
 			</>
 
 			{ siteType === 'governing-site' && (
-				<SiteIndexableEntities
-					sites={ sites }
-					allPostTypes={ allPostTypes }
-					currentSiteUrl={ withTrailingSlash( CURRENT_SITE_URL ) }
-					setNotice={ setNotice }
-					onEntitiesSaved={ handleEntitiesSaved }
-					saving={ saving }
-					setSaving={ setSaving }
-				/>
-			) }
+				<>
+					<div className="onesearch-search-content">
+						<SiteIndexableEntities
+							sites={ sites }
+							allPostTypes={ allPostTypes }
+							currentSiteUrl={ withTrailingSlash(
+								CURRENT_SITE_URL
+							) }
+							setNotice={ setNotice }
+							onEntitiesSaved={ handleEntitiesSaved }
+							saving={ saving }
+							setSaving={ setSaving }
+						/>
 
-			{ siteType === 'governing-site' && (
-				<SiteSearchSettings
-					setNotice={ setNotice }
-					indexableEntities={ indexableEntities }
-					allPostTypes={ allPostTypes }
-					isIndexableEntitiesSaving={ saving }
-				/>
-			) }
+						<SiteSearchSettings
+							setNotice={ setNotice }
+							indexableEntities={ indexableEntities }
+							allPostTypes={ allPostTypes }
+							isIndexableEntitiesSaving={ saving }
+						/>
+					</div>
 
-			{ showModal && (
-				<SiteModal
-					formData={ formData }
-					setFormData={ setFormData }
-					onSubmit={ handleFormSubmit }
-					onClose={ () => {
-						setShowModal( false );
-						setEditingIndex( null );
-						setFormData( { name: '', url: '', api_key: '' } );
-					} }
-					editing={ editingIndex !== null }
-					sites={ sites }
-					originalData={
-						editingIndex !== null
-							? sites[ editingIndex ]
-							: undefined
-					}
-				/>
+					{ showModal && (
+						<SiteModal
+							formData={ formData }
+							setFormData={ setFormData }
+							onSubmit={ handleFormSubmit }
+							onClose={ () => {
+								setShowModal( false );
+								setEditingIndex( null );
+								setFormData( {
+									name: '',
+									url: '',
+									api_key: '',
+								} );
+							} }
+							editing={ editingIndex !== null }
+							sites={ sites }
+							originalData={
+								editingIndex !== null
+									? sites[ editingIndex ]
+									: undefined
+							}
+						/>
+					) }
+
+					{ ! hasPrerequisites && (
+						<Modal
+							className="onesearch-setup-modal"
+							overlayClassName="onesearch-setup-overlay"
+							onRequestClose={ () => {} }
+							shouldCloseOnEsc={ false }
+							shouldCloseOnClickOutside={ false }
+							size="medium"
+							__experimentalHideHeader
+						>
+							<h2>{ __( 'Setup Required', 'onesearch' ) }</h2>
+							<p>
+								{ __(
+									'You need to add at least one Brand Site and configure your Algolia credentials before you can set up indices and search.',
+									'onesearch'
+								) }
+							</p>
+							<Button
+								variant="primary"
+								href={ window.OneSearchSettings.setupUrl }
+							>
+								{ __( 'Go to Settings', 'onesearch' ) }
+							</Button>
+						</Modal>
+					) }
+				</>
 			) }
 		</>
 	);

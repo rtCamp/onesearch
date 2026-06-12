@@ -51,7 +51,6 @@
 		background-color: #e11d1d;
 		color: #fff;
 	}
-
 }
 
 body {
@@ -363,7 +362,13 @@ body {
 	margin: 0 0 2px 0;
 	font-size: 13px;
 	color: #666;
-	font-family: "SF Mono", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+	font-family:
+		"SF Mono",
+		Consolas,
+		"Liberation Mono",
+		Menlo,
+		Courier,
+		monospace;
 }
 
 .onesearch-entity-site-domain {
@@ -402,6 +407,12 @@ body {
 
 .onesearch-site-warning::before {
 	margin-right: 4px;
+}
+
+body:has(.onesearch-setup-overlay) .onesearch-search-content {
+	filter: blur(6px);
+	pointer-events: none;
+	user-select: none;
 }
 
 .onesearch-governing-site-card {
