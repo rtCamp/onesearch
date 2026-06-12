@@ -66,6 +66,11 @@ final class Search implements Registrable {
 		add_filter( 'get_the_terms', [ $this, 'get_post_terms' ], 10, 3 );
 		add_filter( 'wp_get_post_terms', [ $this, 'get_post_terms' ], 10, 3 );
 
+		// Image handling for remote posts.
+		add_filter( 'wp_get_attachment_image_src', [ $this, 'get_remote_attachment_image_src' ], 10, 4 );
+		add_filter( 'post_thumbnail_html', [ $this, 'get_remote_post_thumbnail_html' ], 10, 5 );
+		add_filter( 'the_content', [ $this, 'replace_missing_attachment_in_content' ], 11 );
+
 		// Block-theme compatibility: fix remote permalinks/excerpts in rendered blocks.
 		add_filter( 'render_block', [ $this, 'filter_render_block' ], 10, 2 );
 	}
@@ -349,7 +354,233 @@ final class Search implements Registrable {
 			}
 		}
 
+		// Replace featured image block for remote posts with thumbnail from Algolia.
+		if ( 'core/post-featured-image' === $block_name && property_exists( $post, 'onesearch_thumbnail' ) && ! empty( $post->onesearch_thumbnail ) ) {
+			$thumbnail = $post->onesearch_thumbnail;
+
+			if ( ! empty( $thumbnail['url'] ) ) {
+				$block_content = (string) preg_replace(
+					'#(<img[^>]*\bsrc)="[^"]*"([^>]*>)#si',
+					'$1="' . esc_url( $thumbnail['url'] ) . '"$2',
+					$block_content,
+					1
+				);
+				$block_content = (string) preg_replace(
+					'#\s*(?:srcset|sizes)="[^"]*"#',
+					'',
+					$block_content
+				);
+			}
+		}
+
 		return $block_content;
+	}
+
+	/**
+	 * Provide remote attachment image src for posts from other sites.
+	 *
+	 * When an attachment post type is from a remote site, the image data
+	 * doesn't exist in the local media library. This filter serves the
+	 * thumbnail URL stored in the Algolia record instead.
+	 *
+	 * @param array{0: string, 1: int, 2: int, 3: bool}|false $image           Array of image data or false.
+	 * @param int                                             $attachment_id  Attachment post ID.
+	 * @param string|int[]                                    $size           Image size.
+	 * @param bool                                            $icon           Whether to use icon fallback.
+	 *
+	 * @return array{0: string, 1: int, 2: int, 3: bool}|false Array of image data or false.
+	 */
+	public function get_remote_attachment_image_src( $image, $attachment_id, $size, $icon ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+		global $wp_query;
+
+		if ( ! $this->is_search_enabled() || ! $wp_query instanceof \WP_Query || ! $this->should_filter_query( $wp_query ) ) {
+			return $image;
+		}
+
+		if ( $attachment_id >= 0 ) {
+			return $image;
+		}
+
+		$remote_post = $this->find_remote_post_by_id( (int) $attachment_id );
+
+		if ( ! $remote_post || ! property_exists( $remote_post, 'onesearch_thumbnail' ) || empty( $remote_post->onesearch_thumbnail ) ) {
+			return $image;
+		}
+
+		$thumbnail = $remote_post->onesearch_thumbnail;
+
+		if ( empty( $thumbnail['url'] ) ) {
+			return $image;
+		}
+
+		return [
+			$thumbnail['url'],
+			$thumbnail['width'] ?? 0,
+			$thumbnail['height'] ?? 0,
+			false,
+		];
+	}
+
+	/**
+	 * Provide remote post thumbnail HTML for posts from other sites.
+	 *
+	 * When a post's featured image is from a remote site, the thumbnail
+	 * data doesn't exist locally. This filter builds the <img> tag from
+	 * the Algolia record's thumbnail data.
+	 *
+	 * @param string                       $html              The post thumbnail HTML.
+	 * @param int                          $post_id           The post ID.
+	 * @param int|string                   $post_thumbnail_id The thumbnail ID or empty string.
+	 * @param string|int[]                 $size              Image size.
+	 * @param string|array<string, string> $attr              Query string or array of attributes.
+	 *
+	 * @return string The post thumbnail HTML.
+	 */
+	public function get_remote_post_thumbnail_html( $html, $post_id, $post_thumbnail_id, $size, $attr ): string { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+		global $wp_query;
+
+		if ( ! $this->is_search_enabled() || ! $wp_query instanceof \WP_Query || ! $this->should_filter_query( $wp_query ) ) {
+			return $html;
+		}
+
+		if ( $post_id >= 0 ) {
+			return $html;
+		}
+
+		$remote_post = $this->find_remote_post_by_id( (int) $post_id );
+
+		if ( ! $remote_post || ! property_exists( $remote_post, 'onesearch_thumbnail' ) || empty( $remote_post->onesearch_thumbnail ) ) {
+			return $html;
+		}
+
+		$thumbnail = $remote_post->onesearch_thumbnail;
+
+		if ( empty( $thumbnail['url'] ) ) {
+			return $html;
+		}
+
+		$width  = $thumbnail['width'] ?? 0;
+		$height = $thumbnail['height'] ?? 0;
+
+		$hwstring    = $width && $height ? sprintf( ' width="%d" height="%d"', $width, $height ) : '';
+		$attr_string = '';
+
+		if ( is_string( $attr ) && ! empty( $attr ) ) {
+			$attr_string = ' ' . ltrim( $attr );
+		}
+
+		if ( is_array( $attr ) ) {
+			foreach ( $attr as $name => $value ) {
+				if ( 'class' === $name ) {
+					$attr_string .= sprintf( ' class="%s"', esc_attr( $value ) );
+				} else {
+					$attr_string .= sprintf( ' %s="%s"', esc_attr( $name ), esc_attr( $value ) );
+				}
+			}
+		}
+
+		return sprintf(
+			'<img src="%s" alt="%s"%s%s />',
+			esc_url( $thumbnail['url'] ),
+			esc_attr( $remote_post->post_title ),
+			$hwstring,
+			$attr_string
+		);
+	}
+
+	/**
+	 * Find a remote post in the current query results by its (negative) ID.
+	 *
+	 * @param int $post_id The post ID (negative for remote posts).
+	 *
+	 * @return \WP_Post|null The remote post or null if not found.
+	 */
+	private function find_remote_post_by_id( int $post_id ): ?\WP_Post {
+		global $wp_query, $post;
+
+		// Check if the global post matches (common in template rendering).
+		if ( $post instanceof \WP_Post && (int) $post->ID === $post_id ) {
+			return $post;
+		}
+
+		if ( ! $wp_query instanceof \WP_Query || empty( $wp_query->posts ) ) {
+			return null;
+		}
+
+		foreach ( $wp_query->posts as $p ) {
+			if ( $p instanceof \WP_Post && (int) $p->ID === $post_id ) {
+				return $p;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Replace "Missing Attachment" text in the_content for remote attachment posts.
+	 *
+	 * WordPress core's prepend_attachment() filter on the_content calls
+	 * wp_get_attachment_link() which returns "Missing Attachment" when
+	 * get_post() fails for a negative (remote) post ID. This filter
+	 * runs after prepend_attachment (priority 10) and replaces that
+	 * output with the actual thumbnail from the Algolia record.
+	 *
+	 * @param string $content The post content.
+	 *
+	 * @return string The filtered content.
+	 */
+	public function replace_missing_attachment_in_content( string $content ): string {
+		global $post, $wp_query;
+
+		if ( ! $this->is_search_enabled() || ! $post instanceof \WP_Post || ! $wp_query instanceof \WP_Query || ! $this->should_filter_query( $wp_query ) ) {
+			return $content;
+		}
+
+		if ( (int) $post->ID >= 0 ) {
+			return $content;
+		}
+
+		if ( 'attachment' !== $post->post_type ) {
+			return $content;
+		}
+
+		if ( ! property_exists( $post, 'onesearch_thumbnail' ) || empty( $post->onesearch_thumbnail ) ) {
+			return $content;
+		}
+
+		$thumbnail = $post->onesearch_thumbnail;
+
+		if ( empty( $thumbnail['url'] ) ) {
+			return $content;
+		}
+
+		$width    = $thumbnail['width'] ?? 0;
+		$height   = $thumbnail['height'] ?? 0;
+		$hwstring = $width && $height ? sprintf( ' width="%d" height="%d"', $width, $height ) : '';
+		$img_html = sprintf(
+			'<img src="%s" alt="%s"%s />',
+			esc_url( $thumbnail['url'] ),
+			esc_attr( $post->post_title ),
+			$hwstring
+		);
+
+		$link_html = sprintf(
+			'<a href="%s">%s</a>',
+			esc_url( $post->guid ),
+			$img_html
+		);
+
+		$attachment_html = '<p class="attachment">' . $link_html . '</p>';
+
+		// Replace the "Missing Attachment" paragraph added by prepend_attachment.
+		$content = (string) preg_replace(
+			'#<p\s+class=["\']attachment["\']\s*>.*?</p>#s',
+			$attachment_html,
+			$content,
+			1
+		);
+
+		return $content;
 	}
 
 	/**
@@ -746,6 +977,7 @@ final class Search implements Registrable {
 		$post->onesearch_remote_taxonomies = $record['taxonomies'] ?? [];
 		$post->onesearch_site_url          = $record['site_url'] ?? '';
 		$post->onesearch_site_name         = $record['site_name'] ?? '';
+		$post->onesearch_thumbnail         = $record['thumbnail'] ?? [];
 
 		return $post;
 	}

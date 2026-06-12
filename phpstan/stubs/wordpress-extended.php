@@ -23,6 +23,7 @@ namespace {
 	 * @property string                 $onesearch_remote_post_author_gravatar Remote author avatar URL.
 	 * @property int                    $onesearch_original_id Original post ID on remote site.
 	 * @property array<string, mixed>   $onesearch_remote_taxonomies Taxonomies from remote site.
+	 * @property array{url: string, width: int, height: int}|array{}  $onesearch_thumbnail Thumbnail data from Algolia record.
 	 */
 	class WP_Post {
 	}
