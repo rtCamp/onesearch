@@ -22,6 +22,7 @@ export interface OneSearchSettings {
 	restNamespace: string;
 	currentSiteUrl: string;
 	indexableEntities?: Record< string, string[] >;
+	hasAlgoliaCredentials?: boolean;
 }
 
 export interface OneSearchOnboarding {
