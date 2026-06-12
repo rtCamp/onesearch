@@ -49,10 +49,10 @@ interface FetchAllPostTypesResponse {
 }
 
 const OneSearchSettingsPage = () => {
-	const gSharedSites = window.OneSearchSettings.sharedSites || [];
+	const sharedSites = window.OneSearchSettings.sharedSites || [];
 	const hasAlgoliaCreds =
 		window.OneSearchSettings.hasAlgoliaCredentials ?? false;
-	const hasPrerequisites = gSharedSites.length > 0 && hasAlgoliaCreds;
+	const hasPrerequisites = sharedSites.length > 0 && hasAlgoliaCreds;
 
 	const [ siteType, setSiteType ] = useState< SiteType >( '' );
 	const [ showModal, setShowModal ] = useState( false );
