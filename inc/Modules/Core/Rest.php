@@ -31,7 +31,7 @@ final class Rest implements Registrable {
 	 */
 	public function allowed_cors_headers( $headers ): array {
 		// Skip if the headers are already present.
-		if ( in_array( 'X-OneSearch-Token', $headers, true ) ) {
+		if ( in_array( 'X-OneSearch-Token', $headers, true ) && in_array( 'X-OneSearch-Site-URL', $headers, true ) ) {
 			return $headers;
 		}
 
@@ -39,6 +39,7 @@ final class Rest implements Registrable {
 			$headers,
 			[
 				'X-OneSearch-Token',
+				'X-OneSearch-Site-URL',
 			]
 		);
 	}

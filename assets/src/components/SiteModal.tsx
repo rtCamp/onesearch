@@ -117,6 +117,11 @@ const SiteModal = ( {
 					headers: {
 						'Content-Type': 'application/json',
 						'X-OneSearch-Token': formData.api_key,
+						// Explicit site URL so the brand site can identify the governing site
+						// when both share the same domain (sub-directory multisite), where the
+						// browser omits Origin for same-origin requests.
+						'X-OneSearch-Site-URL':
+							window.OneSearchSettings.currentSiteUrl,
 					},
 				}
 			);
