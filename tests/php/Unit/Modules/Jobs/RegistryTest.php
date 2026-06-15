@@ -210,6 +210,13 @@ if ( ! class_exists( TestConcreteJob::class ) ) {
 		public function handle(): void {
 			$this->mark_completed();
 		}
+
+		/**
+		 * Return the job type identifier.
+		 */
+		public static function get_type(): string {
+			return 'test';
+		}
 	}
 }
 
@@ -223,6 +230,13 @@ if ( ! class_exists( AnotherTestConcreteJob::class ) ) {
 		 */
 		public function handle(): void {
 			$this->mark_completed();
+		}
+
+		/**
+		 * Return the job type identifier.
+		 */
+		public static function get_type(): string {
+			return 'another_test';
 		}
 	}
 }

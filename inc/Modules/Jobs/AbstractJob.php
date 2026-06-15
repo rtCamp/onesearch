@@ -206,7 +206,7 @@ abstract class AbstractJob {
 	 * via ReflectionClass::newInstanceWithoutConstructor().
 	 */
 	public function __construct() {
-		$this->id         = uniqid( 'job_', true );
+		$this->id         = wp_generate_uuid4();
 		$this->created_at = time();
 		$this->updated_at = time();
 	}
@@ -223,6 +223,11 @@ abstract class AbstractJob {
 	 * @throws \Throwable On any failure; caught by JobScheduler for retry logic.
 	 */
 	abstract public function handle(): void;
+
+	/**
+	 * Return the job type identifier (e.g. "sync", "reindex").
+	 */
+	abstract public static function get_type(): string;
 
 	/**
 	 * Get the unique job identifier.
@@ -655,6 +660,7 @@ abstract class AbstractJob {
 	public function to_array(): array {
 		return [
 			'id'                  => $this->id,
+			'type'                => static::get_type(),
 			'status'              => $this->status,
 			'progress'            => $this->progress,
 			'progress_total'      => $this->progress_total,
