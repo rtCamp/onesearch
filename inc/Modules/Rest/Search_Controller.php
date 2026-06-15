@@ -36,6 +36,11 @@ class Search_Controller extends Abstract_REST_Controller {
 	private const REINDEX_STATE_TTL = 3600;
 
 	/**
+	 * Seconds of inactivity after which a non-terminal job is considered abandoned.
+	 */
+	private const STALE_JOB_THRESHOLD = 900; // 15 minutes
+
+	/**
 	 * {@inheritDoc}
 	 */
 	public function register_routes(): void {
@@ -338,13 +343,16 @@ class Search_Controller extends Abstract_REST_Controller {
 			$scheduler->persist_job( $job );
 			$job->handle();
 
-			if ( $job->has_pending_children() ) {
-				$job->mark_running();
-			} elseif ( ! $job->is_finished() ) {
-				$job->mark_completed();
+			// Only re-persist when no children were scheduled.
+			// When children exist, notify_parent() owns the parent lifecycle;
+			// re-persisting RUNNING here would clobber a terminal status that a
+			// fast child already wrote during async processing.
+			if ( ! $job->has_pending_children() ) {
+				if ( ! $job->is_finished() ) {
+					$job->mark_completed();
+				}
+				$scheduler->persist_job( $job );
 			}
-
-			$scheduler->persist_job( $job );
 		} catch ( \Throwable $e ) {
 			$job->fail( $e->getMessage() );
 			$scheduler->persist_job( $job );
@@ -379,16 +387,20 @@ class Search_Controller extends Abstract_REST_Controller {
 			foreach ( $child_batch_counts as $count ) {
 				$total_batches += $count;
 			}
-			$job->set_data(
+			// Re-read the freshest stored state so we never downgrade a terminal
+			// status (e.g. COMPLETED) that notify_parent() may have already written.
+			$latest    = $scheduler->get_status( $job_id );
+			$merge_job = $latest ? ReindexJob::from_array( $latest ) : $job;
+			$merge_job->set_data(
 				array_merge(
-					$job->get_data() ?: [],
+					$merge_job->get_data() ?: [],
 					[
 						'total_batches' => $total_batches,
 						'sites'         => $jobs,
 					]
 				)
 			);
-			$scheduler->persist_job( $job );
+			$scheduler->persist_job( $merge_job );
 		}
 
 		// Persist the reindex state so the UI can survive page refreshes.
@@ -444,27 +456,37 @@ class Search_Controller extends Abstract_REST_Controller {
 			return null;
 		}
 
-		$scheduler    = new JobScheduler();
-		$all_terminal = true;
+		$scheduler = new JobScheduler();
+		$blocking  = false;
+		$now       = time();
 
 		foreach ( $state as $entry ) {
 			$job_id     = $entry['job_id'] ?? '';
 			$job_status = $scheduler->get_status( $job_id );
 
+			// Missing row = not blocking; live jobs are always persisted before
+			// the reindex lock is released, so absence means the job is gone.
 			if ( ! $job_status ) {
-				// Job data not found in storage — conservatively treat as
-				// still active since we can't confirm it has finished.
-				$all_terminal = false;
 				continue;
 			}
 
-			if ( ! in_array( $job_status['status'] ?? '', JobScheduler::TERMINAL_STATUSES, true ) ) {
-				$all_terminal = false;
+			// Terminal status = not blocking.
+			if ( in_array( $job_status['status'] ?? '', JobScheduler::TERMINAL_STATUSES, true ) ) {
+				continue;
 			}
+
+			// Pending/running but no progress for > 15 min = abandoned.
+			// updated_at is bumped by every notify_parent() call, so stale
+			// updated_at reliably means the job is wedged or the process died.
+			$updated_at = (int) ( $job_status['updated_at'] ?? 0 );
+			if ( $updated_at > 0 && ( $now - $updated_at ) > self::STALE_JOB_THRESHOLD ) {
+				continue;
+			}
+
+			$blocking = true;
 		}
 
-		// If all jobs have finished, clean up the stale state.
-		if ( $all_terminal ) {
+		if ( ! $blocking ) {
 			delete_transient( self::REINDEX_STATE_TRANSIENT );
 			return null;
 		}
