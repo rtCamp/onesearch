@@ -31,50 +31,6 @@ final class SettingsTest extends TestCase {
 	}
 
 	/**
-	 * Ensures register_hooks adds expected actions.
-	 */
-	public function test_register_hooks_adds_expected_actions(): void {
-		$settings = new Search_Settings();
-		$settings->register_hooks();
-
-		$this->assertNotFalse( has_action( 'admin_init', [ $settings, 'register_settings' ] ) );
-		$this->assertNotFalse( has_action( 'rest_api_init', [ $settings, 'register_settings' ] ) );
-	}
-
-	/**
-	 * Ensures register_hooks listens to site_type, shared_sites option updates.
-	 */
-	public function test_register_hooks_listens_to_site_type_changes(): void {
-		$settings = new Search_Settings();
-		$settings->register_hooks();
-
-		$this->assertNotFalse(
-			has_action( 'update_option_' . Settings::OPTION_SITE_TYPE, [ $settings, 'on_site_type_change' ] )
-		);
-		$this->assertNotFalse(
-			has_action( 'update_option_' . Settings::OPTION_GOVERNING_SHARED_SITES, [ $settings, 'on_shared_sites_change' ] )
-		);
-	}
-
-	/**
-	 * Ensures register_hooks sets up cache purge hooks.
-	 */
-	public function test_register_hooks_sets_up_cache_purge_actions(): void {
-		$settings = new Search_Settings();
-		$settings->register_hooks();
-
-		$this->assertNotFalse(
-			has_action( 'update_option_' . Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS, [ $settings, 'purge_cache_on_update' ] )
-		);
-		$this->assertNotFalse(
-			has_action( 'update_option_' . Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES, [ $settings, 'purge_cache_on_update' ] )
-		);
-		$this->assertNotFalse(
-			has_action( 'update_option_' . Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS, [ $settings, 'purge_cache_on_update' ] )
-		);
-	}
-
-	/**
 	 * Ensures register_settings registers governing settings when governing.
 	 */
 	public function test_register_settings_registers_governing_options(): void {

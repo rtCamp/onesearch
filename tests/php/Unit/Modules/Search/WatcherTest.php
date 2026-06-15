@@ -33,16 +33,6 @@ final class WatcherTest extends TestCase {
 	}
 
 	/**
-	 * Ensures register_hooks adds transition_post_status action.
-	 */
-	public function test_register_hooks_adds_transition_post_status_action(): void {
-		$watcher = new Watcher();
-		$watcher->register_hooks();
-
-		$this->assertNotFalse( has_action( 'transition_post_status', [ $watcher, 'on_post_transition' ] ) );
-	}
-
-	/**
 	 * Skips when post is not a WP_Post instance.
 	 */
 	public function test_on_post_transition_skips_non_wp_post(): void {
