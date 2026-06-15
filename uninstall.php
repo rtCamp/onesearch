@@ -76,8 +76,6 @@ function delete_proxy_attachment(): void {
  * Deletes options.
  */
 function delete_options(): void {
-	global $wpdb;
-
 	$options = [
 		// Add more options as needed.
 		PLUGIN_PREFIX . 'version', // Set by Main::activate().
@@ -96,25 +94,36 @@ function delete_options(): void {
 		// Shared proxy attachment used for remote post thumbnails.
 		PLUGIN_PREFIX . 'proxy_attachment_id',
 
-		// Job scheduler options.
-		PLUGIN_PREFIX . 'active_jobs',
+		// Job schema version / migration flags.
+		PLUGIN_PREFIX . 'jobs_schema_version',
+		PLUGIN_PREFIX . 'jobs_migrated',
 	];
 
 	foreach ( $options as $option ) {
 		delete_option( $option );
 	}
 
-	// Delete all job status options (onesearch_job_status_*).
-	$job_status_options = $wpdb->get_col( // phpcs:ignore WordPressVIPMinimum.DirectDBQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+	// Delete spinlocks (ephemeral, but clean up on uninstall).
+	global $wpdb;
+	// phpcs:disable WordPressVIPMinimum.DirectDBQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+	$wpdb->query(
 		$wpdb->prepare(
-			"SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s",
-			PLUGIN_PREFIX . 'job_status_%'
+			"DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
+			PLUGIN_PREFIX . 'job_status_%_lock'
 		)
 	);
+	$wpdb->query(
+		$wpdb->prepare(
+			"DELETE FROM {$wpdb->options} WHERE option_name = %s",
+			PLUGIN_PREFIX . 'reindex_state_lock'
+		)
+	);
+	// phpcs:enable
 
-	foreach ( $job_status_options as $option_name ) {
-		delete_option( $option_name );
-	}
+	// Drop the custom jobs table.
+	$table = $wpdb->prefix . 'onesearch_index_jobs';
+	// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+	$wpdb->query( "DROP TABLE IF EXISTS {$table}" );
 }
 
 /**
@@ -132,22 +141,17 @@ function delete_transients(): void {
 		delete_transient( $transient );
 	}
 
-	// Delete all job status transients (onesearch_job_status_*).
-	$job_transients = $wpdb->get_col( // phpcs:ignore WordPressVIPMinimum.DirectDBQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+	// Delete all job status transients and reindex state transients.
+	// phpcs:ignore WordPressVIPMinimum.DirectDBQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+	$wpdb->query(
 		$wpdb->prepare(
-			"SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s",
+			"DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s OR option_name LIKE %s OR option_name LIKE %s",
 			'_transient_' . PLUGIN_PREFIX . 'job_status_%',
-			'_transient_timeout_' . PLUGIN_PREFIX . 'job_status_%'
+			'_transient_timeout_' . PLUGIN_PREFIX . 'job_status_%',
+			'_transient_' . PLUGIN_PREFIX . 'reindex_state%',
+			'_transient_timeout_' . PLUGIN_PREFIX . 'reindex_state%'
 		)
 	);
-
-	foreach ( $job_transients as $transient_name ) {
-		if ( 0 === strpos( $transient_name, '_transient_timeout_' ) ) {
-			delete_transient( substr( $transient_name, 18 ) );
-		} elseif ( 0 === strpos( $transient_name, '_transient_' ) ) {
-			delete_transient( substr( $transient_name, 11 ) );
-		}
-	}
 }
 
 /**

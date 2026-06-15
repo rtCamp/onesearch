@@ -10,6 +10,7 @@ declare( strict_types = 1 );
 namespace OneSearch;
 
 use OneSearch\Contracts\Traits\Singleton;
+use OneSearch\Modules\Schema\JobSchema;
 
 /**
  * Class - Main
@@ -105,6 +106,9 @@ final class Main {
 	 * Load the plugin classes.
 	 */
 	private function load(): void {
+		// Fires once after install or schema version bump; no-ops on every other request.
+		JobSchema::maybe_upgrade();
+
 		// Loop through all the classes, instantiate them, and register any hooks.
 		$instances = [];
 		foreach ( self::REGISTRABLE_CLASSES as $class_name ) {

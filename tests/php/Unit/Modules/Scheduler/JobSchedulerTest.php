@@ -12,6 +12,7 @@ namespace OneSearch\Tests\Unit\Modules\Scheduler;
 use OneSearch\Modules\Jobs\AbstractJob;
 use OneSearch\Modules\Jobs\SyncJob;
 use OneSearch\Modules\Scheduler\JobScheduler;
+use OneSearch\Modules\Schema\JobRepository;
 use OneSearch\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -28,12 +29,20 @@ class JobSchedulerTest extends TestCase {
 	private JobScheduler $scheduler;
 
 	/**
+	 * Repository for direct table assertions.
+	 *
+	 * @var \OneSearch\Modules\Schema\JobRepository
+	 */
+	private JobRepository $repository;
+
+	/**
 	 * Sets up the test environment.
 	 */
 	public function set_up(): void {
 		parent::set_up();
 
-		$this->scheduler = new JobScheduler();
+		$this->scheduler  = new JobScheduler();
+		$this->repository = new JobRepository();
 	}
 
 	/**
@@ -49,15 +58,20 @@ class JobSchedulerTest extends TestCase {
 	}
 
 	/**
-	 * Verifies a completed job is stored in wp_options, not transients.
+	 * Verifies a completed job is stored in the custom table (not wp_options) and
+	 * that its transient is removed.
 	 */
-	public function test_persist_terminal_job_uses_option(): void {
+	public function test_persist_terminal_job_uses_table(): void {
 		$j = $this->make_job();
 		$j->mark_completed();
 		$this->scheduler->persist_job( $j );
+
 		$key = JobScheduler::OPTION_PREFIX . $j->get_id();
 		$this->assertFalse( get_transient( $key ) );
-		$this->assertIsArray( get_option( $key ) );
+
+		$row = $this->repository->get_by_id( $j->get_id() );
+		$this->assertIsArray( $row );
+		$this->assertSame( AbstractJob::STATUS_COMPLETED, $row['status'] );
 	}
 
 	/**
@@ -81,44 +95,17 @@ class JobSchedulerTest extends TestCase {
 	}
 
 	/**
-	 * Verifies a job can be added to and retrieved from the active index.
+	 * Verifies active jobs appear in get_active_job_ids() after persist.
 	 */
-	public function test_add_and_get_active_index(): void {
-		$this->scheduler->add_to_active_index( 'job_a' );
-		$this->assertContains( 'job_a', $this->scheduler->get_active_job_ids() );
+	public function test_active_job_appears_in_active_ids(): void {
+		$j = $this->make_job();
+		$j->mark_running();
+		$this->scheduler->persist_job( $j );
+		$this->assertContains( $j->get_id(), $this->scheduler->get_active_job_ids() );
 	}
 
 	/**
-	 * Verifies duplicate entries are prevented in the active index.
-	 */
-	public function test_add_prevents_duplicates(): void {
-		$this->scheduler->add_to_active_index( 'job_x' );
-		$this->scheduler->add_to_active_index( 'job_x' );
-		$ids = $this->scheduler->get_active_job_ids();
-		$this->assertSame( 1, count( array_filter( $ids, static fn ( $id ) => 'job_x' === $id ) ) );
-	}
-
-	/**
-	 * Verifies multiple jobs can be added to the active index at once.
-	 */
-	public function test_add_many(): void {
-		$this->scheduler->add_many_to_active_index( [ 'a', 'b', 'c' ] );
-		$ids = $this->scheduler->get_active_job_ids();
-		$this->assertContains( 'a', $ids );
-		$this->assertContains( 'b', $ids );
-		$this->assertContains( 'c', $ids );
-	}
-
-	/**
-	 * Verifies adding an empty array to the active index is a no-op.
-	 */
-	public function test_add_many_empty_noop(): void {
-		$this->scheduler->add_many_to_active_index( [] );
-		$this->assertSame( [], $this->scheduler->get_active_job_ids() );
-	}
-
-	/**
-	 * Verifies a job is removed from the active index when it becomes terminal.
+	 * Verifies a terminal job is removed from get_active_job_ids() after persist.
 	 */
 	public function test_terminal_persist_removes_from_active(): void {
 		$j = $this->make_job();
@@ -131,23 +118,25 @@ class JobSchedulerTest extends TestCase {
 	}
 
 	/**
-	 * Verifies completed jobs appear in the terminal job list.
+	 * Verifies completed jobs appear in the repository's terminal list.
 	 */
 	public function test_terminal_jobs_include_completed(): void {
 		$j = $this->make_job();
 		$j->mark_completed();
 		$this->scheduler->persist_job( $j );
-		$this->assertContains( $j->get_id(), $this->scheduler->get_terminal_job_ids( 50 ) );
+		$rows = $this->repository->get_terminal_jobs( 1, 50 );
+		$this->assertContains( $j->get_id(), array_column( $rows, 'id' ) );
 	}
 
 	/**
-	 * Verifies active (running) jobs are excluded from the terminal job list.
+	 * Verifies active (running) jobs are excluded from the terminal list.
 	 */
 	public function test_terminal_jobs_exclude_active(): void {
 		$j = $this->make_job();
 		$j->mark_running();
 		$this->scheduler->persist_job( $j );
-		$this->assertNotContains( $j->get_id(), $this->scheduler->get_terminal_job_ids( 50 ) );
+		$rows = $this->repository->get_terminal_jobs( 1, 50 );
+		$this->assertNotContains( $j->get_id(), array_column( $rows, 'id' ) );
 	}
 
 	/**
@@ -168,13 +157,14 @@ class JobSchedulerTest extends TestCase {
 	}
 
 	/**
-	 * Verifies schedule() stores the Action Scheduler action ID in wp_options.
+	 * Verifies schedule() stores the Action Scheduler action ID in the custom table.
 	 */
-	public function test_schedule_stores_action_id_option(): void {
+	public function test_schedule_stores_action_id_in_table(): void {
 		$j = $this->make_job();
 		$this->scheduler->schedule( $j );
-		$stored = get_option( JobScheduler::OPTION_PREFIX . $j->get_id() . '_action_id', 0 );
-		$this->assertGreaterThan( 0, (int) $stored );
+		$action = $this->repository->get_action( $j->get_id() );
+		$this->assertNotNull( $action );
+		$this->assertGreaterThan( 0, $action['action_id'] );
 	}
 
 	/**
@@ -188,7 +178,7 @@ class JobSchedulerTest extends TestCase {
 	}
 
 	/**
-	 * Verifies cancel() removes the job from the active index.
+	 * Verifies cancel() removes the job from the active list.
 	 */
 	public function test_cancel_removes_from_active(): void {
 		$j = $this->make_job();
@@ -217,13 +207,15 @@ class JobSchedulerTest extends TestCase {
 	}
 
 	/**
-	 * Verifies persist_job() with skip_active_index does not add to active index.
+	 * Verifies persist_job() with skip_active_index still writes to the table.
 	 */
-	public function test_schedule_skip_active_index_does_not_add(): void {
+	public function test_skip_active_index_still_persists_to_table(): void {
 		$j = $this->make_job();
 		$j->mark_running();
 		$this->scheduler->persist_job( $j, true );
-		$this->assertNotContains( $j->get_id(), $this->scheduler->get_active_job_ids() );
+		$row = $this->repository->get_by_id( $j->get_id() );
+		$this->assertNotNull( $row );
+		$this->assertSame( AbstractJob::STATUS_RUNNING, $row['status'] );
 	}
 
 	/**
