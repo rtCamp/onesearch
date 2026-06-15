@@ -11,6 +11,8 @@ namespace OneSearch\Modules\Scheduler;
 
 use OneSearch\Modules\Jobs\AbstractJob;
 use OneSearch\Modules\Rest\Search_Controller;
+use OneSearch\Modules\Schema\JobRepository;
+use OneSearch\Modules\Schema\JobSchema;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Utils;
 
@@ -26,8 +28,8 @@ use OneSearch\Utils;
  *     Each persist_job() call resets the expiration.
  *   - Terminal jobs (completed/failed/cancelled): moved to wp_options for
  *     permanent storage. The transient is deleted and the active index updated.
- *   - An active jobs index (onesearch_active_jobs) tracks which job IDs are
- *     in transient storage for enumeration without DB pattern matching.
+ *   - All jobs are also written to wp_onesearch_index_jobs for enumeration.
+ *     Active jobs are queryable via status; terminal rows are permanent.
  *   - Auxiliary keys (_action_id, _action_args, _children_done) remain in
  *     wp_options regardless of job status.
  *
@@ -65,13 +67,6 @@ final class JobScheduler {
 	public const TRANSIENT_EXPIRATION = 43200;
 
 	/**
-	 * Option key for the active job ID index.
-	 *
-	 * Stores an array of job IDs currently in pending or running state.
-	 */
-	public const ACTIVE_JOBS_OPTION = 'onesearch_active_jobs';
-
-	/**
 	 * Job statuses that represent terminal (finished) states.
 	 *
 	 * When a job transitions to any of these, its data is moved
@@ -100,12 +95,22 @@ final class JobScheduler {
 	private $progress_callback = null;
 
 	/**
+	 * Data access layer for the custom jobs table.
+	 *
+	 * @var \OneSearch\Modules\Schema\JobRepository
+	 */
+	private JobRepository $repository;
+
+	/**
 	 * Create the scheduler.
 	 *
 	 * Registers WordPress action hooks on first instantiation. The static
 	 * $hooks_registered guard ensures hooks are only added once.
 	 */
 	public function __construct() {
+		// Fallback for contexts where Main::load() hasn't run (e.g. CLI, tests); no-ops otherwise.
+		JobSchema::maybe_upgrade();
+		$this->repository = new JobRepository();
 		$this->register_hooks();
 	}
 
@@ -175,8 +180,7 @@ final class JobScheduler {
 			);
 		}
 
-		update_option( self::OPTION_PREFIX . $job->get_id() . '_action_id', $action_id, false );
-		update_option( self::OPTION_PREFIX . $job->get_id() . '_action_args', $args, false );
+		$this->repository->set_action( $job->get_id(), $action_id, $args );
 
 		return $action_id;
 	}
@@ -219,8 +223,7 @@ final class JobScheduler {
 			);
 		}
 
-		update_option( self::OPTION_PREFIX . $job->get_id() . '_action_id', $action_id, false );
-		update_option( self::OPTION_PREFIX . $job->get_id() . '_action_args', $args, false );
+		$this->repository->set_action( $job->get_id(), $action_id, $args );
 
 		return $action_id;
 	}
@@ -233,20 +236,19 @@ final class JobScheduler {
 	public function cancel( string $job_id ): void {
 		global $wpdb;
 
-		$status = $this->get_status( $job_id );
+		$status    = $this->get_status( $job_id );
+		$cancelled = false;
+		$child_ids = [];
 
 		if ( $status ) {
-			$group     = 'onesearch_' . ( $status['group'] ?? 'default' );
-			$action_id = get_option( self::OPTION_PREFIX . $job_id . '_action_id', 0 );
+			$group      = 'onesearch_' . ( $status['group'] ?? 'default' );
+			$action_rec = $this->repository->get_action( $job_id );
 
-			if ( $action_id && function_exists( 'as_unschedule_action' ) ) {
-				$args = get_option( self::OPTION_PREFIX . $job_id . '_action_args', [] );
-				as_unschedule_action( self::HOOK, $args, $group );
+			if ( $action_rec && function_exists( 'as_unschedule_action' ) ) {
+				as_unschedule_action( self::HOOK, $action_rec['args'], $group );
 			}
 		}
 
-		// Acquire per-job lock to prevent notify_parent() from overwriting
-		// our cancellation with a completed/failed status.
 		$key      = self::OPTION_PREFIX . $job_id;
 		$lock_key = $key . '_lock';
 
@@ -267,7 +269,6 @@ final class JobScheduler {
 		}
 
 		try {
-			// Re-read status under lock.
 			$fresh = $this->get_status( $job_id );
 			if ( $fresh ) {
 				$status = $fresh;
@@ -277,8 +278,6 @@ final class JobScheduler {
 				$previous_status = $status['status'] ?? '';
 				$child_ids       = $status['child_ids'] ?? [];
 
-				// Allow cancelling a completed parent if it has unsuccessful
-				// children — the user explicitly cancelled.
 				$has_unsuccessful = false;
 				if ( AbstractJob::STATUS_COMPLETED === $previous_status && ! empty( $child_ids ) ) {
 					foreach ( $child_ids as $child_id ) {
@@ -290,8 +289,6 @@ final class JobScheduler {
 					}
 				}
 
-				// Also treat completed parent with remote sites as potentially
-				// needing cancellation — remote status is uncertain.
 				if ( ! $has_unsuccessful && AbstractJob::STATUS_COMPLETED === $previous_status ) {
 					$remote_sites = $status['data']['sites'] ?? [];
 					$current_site = Utils::normalize_url( get_site_url() );
@@ -311,13 +308,24 @@ final class JobScheduler {
 					$status['finished_at'] = time();
 					$status['updated_at']  = time();
 
-					update_option( $key, $status, false );
+					// If $status came from the transient, children_cancelled is absent
+					// (to_array() doesn't include it). Merge the live DB counters so the
+					// upsert doesn't zero out what notify_parent() already incremented.
+					if ( ! isset( $status['children_cancelled'] ) ) {
+						$counters                     = $this->repository->get_counters( $job_id );
+						$status['children_cancelled'] = $counters['cancelled'];
+						$status['children_failed']    = max( (int) ( $status['children_failed'] ?? 0 ), $counters['failed'] );
+						$status['children_completed'] = $counters['done'];
+					}
+
+					$this->repository->upsert( $status );
 					delete_transient( $key );
-					$this->remove_from_active_index( $job_id );
 
 					if ( ! empty( $child_ids ) ) {
 						Search_Controller::clear_reindex_state();
 					}
+
+					$cancelled = true;
 				}
 			}
 		} finally {
@@ -326,9 +334,7 @@ final class JobScheduler {
 			wp_cache_delete( $lock_key, 'options' );
 		}
 
-		// Always recursively cancel children.
-		if ( $status ) {
-			$child_ids = $status['child_ids'] ?? [];
+		if ( $cancelled && ! empty( $child_ids ) ) {
 			foreach ( $child_ids as $child_id ) {
 				$this->cancel( $child_id );
 			}
@@ -352,12 +358,7 @@ final class JobScheduler {
 			return $data;
 		}
 
-		$data = get_option( $key, null );
-		if ( null !== $data ) {
-			return $data;
-		}
-
-		return null;
+		return $this->repository->get_by_id( $job_id );
 	}
 
 	/**
@@ -424,8 +425,7 @@ final class JobScheduler {
 			);
 		}
 
-		update_option( self::OPTION_PREFIX . $job->get_id() . '_action_id', $action_id, false );
-		update_option( self::OPTION_PREFIX . $job->get_id() . '_action_args', $args, false );
+		$this->repository->set_action( $job->get_id(), $action_id, $args );
 
 		return $action_id;
 	}
@@ -469,6 +469,16 @@ final class JobScheduler {
 		try {
 			$job->handle();
 
+			// Re-check DB status: cancel() may have set this job to cancelled
+			// while handle() was running. If so, respect the cancellation and
+			// don't overwrite it with completed/running status.
+			$current = $this->repository->get_by_id( $job_id );
+			if ( $current && AbstractJob::STATUS_CANCELLED === ( $current['status'] ?? '' ) ) {
+				$job->set_status( AbstractJob::STATUS_CANCELLED );
+				$this->persist_job( $job );
+				return;
+			}
+
 			if ( $job->has_pending_children() ) {
 				$job->set_status( AbstractJob::STATUS_RUNNING );
 			} else {
@@ -479,6 +489,15 @@ final class JobScheduler {
 			$this->notify_parent( $job );
 		} catch ( \Throwable $e ) {
 			$job->set_retry_count( $retry + 1 );
+
+			// Re-check DB status: cancel() may have set this job to cancelled
+			// while handle() was running. If so, respect the cancellation.
+			$current = $this->repository->get_by_id( $job_id );
+			if ( $current && AbstractJob::STATUS_CANCELLED === ( $current['status'] ?? '' ) ) {
+				$job->set_status( AbstractJob::STATUS_CANCELLED );
+				$this->persist_job( $job );
+				return;
+			}
 
 			if ( $job->should_retry() ) {
 				$job->fail( $e->getMessage() );
@@ -558,24 +577,25 @@ final class JobScheduler {
 	}
 
 	/**
-	 * Persist the full job state using the dual storage strategy.
+	 * Persist the full job state.
+	 *
+	 * Every call writes to the custom table (so active jobs are enumerable).
+	 * Active jobs additionally get a transient for fast reads; terminal jobs
+	 * have their transient deleted since the table row is now the source of truth.
 	 *
 	 * @param \OneSearch\Modules\Jobs\AbstractJob $job               The job whose state to persist.
-	 * @param bool                                $skip_active_index Skip updating the active jobs index.
+	 * @param bool                                $skip_active_index Unused — kept for call-site compatibility.
 	 */
-	public function persist_job( AbstractJob $job, bool $skip_active_index = false ): void {
+	public function persist_job( AbstractJob $job, bool $skip_active_index = false ): void { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter,Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed
 		$key  = self::OPTION_PREFIX . $job->get_id();
 		$data = $job->to_array();
 
+		$this->repository->upsert( $data );
+
 		if ( in_array( $job->get_status(), self::TERMINAL_STATUSES, true ) ) {
-			update_option( $key, $data, false );
 			delete_transient( $key );
-			$this->remove_from_active_index( $job->get_id() );
 		} else {
 			set_transient( $key, $data, self::TRANSIENT_EXPIRATION );
-			if ( ! $skip_active_index ) {
-				$this->add_to_active_index( $job->get_id() );
-			}
 		}
 	}
 
@@ -586,6 +606,9 @@ final class JobScheduler {
 	 * when multiple children complete simultaneously. A spinlock with retries
 	 * guards the parent data write to prevent concurrent overwrites while
 	 * ensuring no notifications are silently dropped.
+	 *
+	 * Remote site status checks are performed OUTSIDE the lock to prevent
+	 * blocking cancel() operations during slow API calls.
 	 *
 	 * @param \OneSearch\Modules\Jobs\AbstractJob $job The child job that just completed or failed.
 	 */
@@ -602,56 +625,51 @@ final class JobScheduler {
 			return;
 		}
 
-		$counter_key           = self::OPTION_PREFIX . $parent_id . '_children_done';
-		$counter_failed_key    = self::OPTION_PREFIX . $parent_id . '_children_failed';
-		$counter_cancelled_key = self::OPTION_PREFIX . $parent_id . '_children_cancelled';
-		$job_status            = $job->get_status();
-		$is_failed             = AbstractJob::STATUS_FAILED === $job_status;
-		$is_cancelled          = AbstractJob::STATUS_CANCELLED === $job_status;
+		$job_status   = $job->get_status();
+		$is_failed    = AbstractJob::STATUS_FAILED === $job_status;
+		$is_cancelled = AbstractJob::STATUS_CANCELLED === $job_status;
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-		$wpdb->query(
-			$wpdb->prepare(
-				"INSERT INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, '1', 'no') ON DUPLICATE KEY UPDATE option_value = CAST(option_value AS UNSIGNED) + 1",
-				$counter_key
-			)
-		);
+		$this->repository->increment_counter( $parent_id, 'children_done' );
 
-		if ( $is_failed || $is_cancelled ) {
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-			$wpdb->query(
-				$wpdb->prepare(
-					"INSERT INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, '1', 'no') ON DUPLICATE KEY UPDATE option_value = CAST(option_value AS UNSIGNED) + 1",
-					$counter_failed_key
-				)
-			);
+		if ( $is_failed ) {
+			$this->repository->increment_counter( $parent_id, 'children_failed' );
 		}
 
 		if ( $is_cancelled ) {
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-			$wpdb->query(
-				$wpdb->prepare(
-					"INSERT INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, '1', 'no') ON DUPLICATE KEY UPDATE option_value = CAST(option_value AS UNSIGNED) + 1",
-					$counter_cancelled_key
-				)
-			);
+			$this->repository->increment_counter( $parent_id, 'children_cancelled' );
+			$this->repository->increment_counter( $parent_id, 'children_failed' );
 		}
 
-		wp_cache_delete( $counter_key, 'options' );
-		$done            = (int) get_option( $counter_key, 0 );
-		$total_failed    = (int) get_option( $counter_failed_key, 0 );
-		$total_cancelled = (int) get_option( $counter_cancelled_key, 0 );
+		$counters        = $this->repository->get_counters( $parent_id );
+		$done            = $counters['done'];
+		$total_failed    = $counters['failed'];
+		$total_cancelled = $counters['cancelled'];
 		$child_total     = count( $parent_data['child_ids'] ?? [] );
 
 		$parent_key = self::OPTION_PREFIX . $parent_id;
 		$lock_key   = $parent_key . '_lock';
 
-		// Spinlock: use atomic INSERT IGNORE to avoid race conditions
-		// that set_transient() cannot prevent.
+		// Check if all local children are done (fast check, no lock needed yet).
+		$all_local_done = $child_total > 0 && $done >= $child_total;
+
+		// If all local children are done and this is a governing site with remote
+		// sites, check remote statuses BEFORE acquiring the lock. This prevents
+		// blocking cancel() during slow remote API calls.
+		$remote_status = null;
+		if ( $all_local_done && Settings::is_governing_site() ) {
+			$remote_sites = $parent_data['data']['sites'] ?? [];
+			if ( is_array( $remote_sites ) && count( $remote_sites ) > 1 ) {
+				$remote_status = $this->check_remote_job_statuses( $remote_sites );
+			}
+		}
+
+		// Now acquire the lock for the parent status update.
+		// Spinlock: use atomic INSERT IGNORE to avoid race conditions.
 		$max_tries = 10;
+		$acquired  = false;
 		for ( $attempt = 0; $attempt < $max_tries; ++$attempt ) {
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-			$acquired = $wpdb->query(
+			$acquired = (bool) $wpdb->query(
 				$wpdb->prepare(
 					"INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, '1', 'no')",
 					$lock_key
@@ -664,8 +682,18 @@ final class JobScheduler {
 			usleep( 100000 + $attempt * 50000 ); // 100ms base, +50ms per attempt.
 		}
 
-		// If lock was not acquired after all retries, proceed anyway —
-		// a race here is preferable to permanently losing the notification.
+		// If lock was not acquired after all retries, skip this notification.
+		// The parent will be finalized by the next child completion or by
+		// hydrate_history_job() when viewing history.
+		if ( ! $acquired ) {
+			error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+				sprintf(
+					'[OneSearch] notify_parent: Could not acquire lock for parent %s. Skipping notification.',
+					esc_html( $parent_id )
+				)
+			);
+			return;
+		}
 
 		try {
 			$fresh = $this->get_status( $parent_id );
@@ -682,30 +710,19 @@ final class JobScheduler {
 			$parent_data['progress']           = min( $done, $parent_data['progress_total'] ?? $done );
 			$parent_data['updated_at']         = time();
 
-			if ( $child_total > 0 && $done >= $child_total ) {
-				// All local children finished. If governing site with remote
-				// child sites, check their statuses before finalizing.
-				$remote_sites = $parent_data['data']['sites'] ?? [];
-				$has_remote   = is_array( $remote_sites ) && count( $remote_sites ) > 1;
-
-				if ( $has_remote && Settings::is_governing_site() ) {
-					$remote_status                  = $this->check_remote_job_statuses( $remote_sites );
+			if ( $all_local_done ) {
+				// Incorporate remote status if we checked it earlier.
+				if ( null !== $remote_status ) {
 					$total_failed                  += $remote_status['failed'];
 					$total_cancelled               += $remote_status['cancelled'];
 					$parent_data['children_failed'] = $total_failed + $total_cancelled;
 
 					// If any remote site is still running, defer finalization.
-					// The parent stays RUNNING so the frontend keeps polling.
-					// hydrate_history_job() will re-check and finalize later.
 					if ( $remote_status['running'] > 0 ) {
 						$parent_data['data']['_needs_remote_finalize'] = true;
 						$parent_data['status']                         = AbstractJob::STATUS_RUNNING;
-
-						if ( in_array( $parent_data['status'], self::TERMINAL_STATUSES, true ) ) {
-							update_option( $parent_key, $parent_data, false );
-						} else {
-							set_transient( $parent_key, $parent_data, self::TRANSIENT_EXPIRATION );
-						}
+						$this->repository->upsert( $parent_data );
+						set_transient( $parent_key, $parent_data, self::TRANSIENT_EXPIRATION );
 						return;
 					}
 				}
@@ -721,16 +738,13 @@ final class JobScheduler {
 				}
 				$parent_data['progress']    = $parent_data['progress_total'];
 				$parent_data['finished_at'] = time();
-				delete_option( $counter_key );
-				delete_option( $counter_failed_key );
-				delete_option( $counter_cancelled_key );
 				Search_Controller::clear_reindex_state();
 			}
 
+			$this->repository->upsert( $parent_data );
+
 			if ( in_array( $parent_data['status'], self::TERMINAL_STATUSES, true ) ) {
-				update_option( $parent_key, $parent_data, false );
 				delete_transient( $parent_key );
-				$this->remove_from_active_index( $parent_id );
 			} else {
 				set_transient( $parent_key, $parent_data, self::TRANSIENT_EXPIRATION );
 			}
@@ -822,6 +836,87 @@ final class JobScheduler {
 	}
 
 	/**
+	 * Fetch completed batch counts from remote child site jobs.
+	 *
+	 * Called by hydrate_history_job() to aggregate progress across all sites.
+	 *
+	 * @param array<int,array{site_url:string,job_id:string,batch_count?:int}> $remote_sites Array of remote site jobs.
+	 * @return array{completed:int,terminal:int,total:int} Sum of completed batches, terminal batches, and total batches from remote sites.
+	 */
+	public function fetch_remote_job_progress( array $remote_sites ): array {
+		$completed    = 0;
+		$terminal     = 0;
+		$total        = 0;
+		$current_site = Utils::normalize_url( get_site_url() );
+
+		foreach ( $remote_sites as $site_info ) {
+			$site_url = Utils::normalize_url( $site_info['site_url'] ?? '' );
+			$job_id   = $site_info['job_id'] ?? '';
+
+			if ( $site_url === $current_site || empty( $job_id ) ) {
+				continue;
+			}
+
+			$shared_sites = Settings::get_shared_sites();
+			$api_key      = '';
+
+			foreach ( $shared_sites as $url => $data ) {
+				if ( Utils::normalize_url( $url ) === $site_url ) {
+					$api_key = $data['api_key'] ?? '';
+					break;
+				}
+			}
+
+			if ( empty( $api_key ) ) {
+				continue;
+			}
+
+			$response = wp_safe_remote_get(
+				sprintf(
+					'%s/wp-json/%s/jobs/%s',
+					untrailingslashit( $site_url ),
+					'onesearch/v1',
+					rawurlencode( $job_id )
+				),
+				[
+					'headers' => [
+						'Content-Type'      => 'application/json',
+						'Origin'            => get_site_url(),
+						'X-OneSearch-Token' => $api_key,
+					],
+					'timeout' => 5, // phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout
+				]
+			);
+
+			if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
+				continue;
+			}
+
+			$body = wp_remote_retrieve_body( $response );
+			$data = json_decode( $body, true );
+
+			if ( ! is_array( $data ) || ! isset( $data['job'] ) ) {
+				continue;
+			}
+
+			$job_data      = $data['job'];
+			$job_completed = (int) ( $job_data['children_completed'] ?? $job_data['progress'] ?? 0 );
+			$job_failed    = (int) ( $job_data['children_failed'] ?? 0 );
+			$job_cancelled = (int) ( $job_data['children_cancelled'] ?? 0 );
+
+			$completed += $job_completed;
+			$terminal  += $job_completed + $job_failed + $job_cancelled;
+			$total     += (int) ( $job_data['children_total'] ?? $job_data['progress_total'] ?? 0 );
+		}
+
+		return [
+			'completed' => $completed,
+			'terminal'  => $terminal,
+			'total'     => $total,
+		];
+	}
+
+	/**
 	 * Fire the registered progress callback, if any.
 	 *
 	 * @param \OneSearch\Modules\Jobs\AbstractJob $job The job whose progress changed.
@@ -833,136 +928,11 @@ final class JobScheduler {
 	}
 
 	/**
-	 * Add a job ID to the active jobs index.
-	 *
-	 * @param string $job_id The job ID to add.
-	 */
-	public function add_to_active_index( string $job_id ): void {
-		$active = get_option( self::ACTIVE_JOBS_OPTION, [] );
-		if ( ! is_array( $active ) ) {
-			$active = [];
-		}
-		if ( ! in_array( $job_id, $active, true ) ) {
-			$active[] = $job_id;
-			update_option( self::ACTIVE_JOBS_OPTION, $active, false );
-		}
-	}
-
-	/**
-	 * Add multiple job IDs to the active jobs index in a single write.
-	 *
-	 * More efficient than calling add_to_active_index() in a loop
-	 * because it performs only one option read and one option write.
-	 *
-	 * @param string[] $job_ids The job IDs to add.
-	 */
-	public function add_many_to_active_index( array $job_ids ): void {
-		if ( empty( $job_ids ) ) {
-			return;
-		}
-		$active = get_option( self::ACTIVE_JOBS_OPTION, [] );
-		if ( ! is_array( $active ) ) {
-			$active = [];
-		}
-		$changed  = false;
-		$existing = array_flip( $active );
-		foreach ( $job_ids as $id ) {
-			if ( ! isset( $existing[ $id ] ) ) {
-				$active[]        = $id;
-				$existing[ $id ] = true;
-				$changed         = true;
-			}
-		}
-		if ( $changed ) {
-			update_option( self::ACTIVE_JOBS_OPTION, $active, false );
-		}
-	}
-
-	/**
-	 * Remove a job ID from the active jobs index.
-	 *
-	 * @param string $job_id The job ID to remove.
-	 */
-	private function remove_from_active_index( string $job_id ): void {
-		$active = get_option( self::ACTIVE_JOBS_OPTION, [] );
-		if ( ! is_array( $active ) ) {
-			$active = [];
-		}
-		$active = array_values(
-			array_filter(
-				$active,
-				static function ( $id ) use ( $job_id ) {
-					return $id !== $job_id;
-				}
-			)
-		);
-		update_option( self::ACTIVE_JOBS_OPTION, $active, false );
-	}
-
-	/**
-	 * Get all active job IDs from the active jobs index.
+	 * Get all active job IDs (pending or running) from the custom table.
 	 *
 	 * @return string[] Array of job IDs currently in pending or running state.
 	 */
 	public function get_active_job_ids(): array {
-		$active = get_option( self::ACTIVE_JOBS_OPTION, [] );
-		return is_array( $active ) ? $active : [];
-	}
-
-	/**
-	 * Get terminal (completed/failed/cancelled) job IDs from wp_options.
-	 *
-	 * Excludes auxiliary keys (_action_id, _children_done, etc.) and
-	 * IDs still present in the active index.
-	 *
-	 * @param int $limit Maximum number of IDs to return.
-	 * @return string[] Array of terminal job IDs.
-	 */
-	public function get_terminal_job_ids( int $limit = 100 ): array {
-		global $wpdb;
-
-		$prefix     = self::OPTION_PREFIX;
-		$prefix_len = strlen( $prefix );
-		$active     = get_option( self::ACTIVE_JOBS_OPTION, [] );
-		$active     = is_array( $active ) ? array_flip( $active ) : [];
-
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-		$results = $wpdb->get_col(
-			$wpdb->prepare(
-				"SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s ORDER BY option_id DESC LIMIT %d",
-				$wpdb->esc_like( $prefix ) . '%',
-				$limit * 3
-			)
-		);
-
-		if ( ! is_array( $results ) ) {
-			return [];
-		}
-
-		$job_ids = [];
-		foreach ( $results as $option_name ) {
-			$suffix = substr( $option_name, $prefix_len );
-
-			if (
-				str_ends_with( $suffix, '_action_id' )
-				|| str_ends_with( $suffix, '_action_args' )
-				|| str_ends_with( $suffix, '_children_done' )
-				|| str_ends_with( $suffix, '_children_failed' )
-				|| str_ends_with( $suffix, '_lock' )
-			) {
-				continue;
-			}
-
-			if ( isset( $active[ $suffix ] ) ) {
-				continue;
-			}
-
-			$job_ids[] = $suffix;
-			if ( count( $job_ids ) >= $limit ) {
-				break;
-			}
-		}
-
-		return $job_ids;
+		return $this->repository->get_active_job_ids();
 	}
 }
