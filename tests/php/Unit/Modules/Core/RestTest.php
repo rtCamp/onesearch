@@ -36,14 +36,14 @@ final class RestTest extends TestCase {
 		$rest = new Rest();
 
 		$this->assertSame(
-			[ 'X-WP-Nonce', 'X-OneSearch-Token' ],
+			[ 'X-WP-Nonce', 'X-OneSearch-Token', 'X-OneSearch-Site-URL' ],
 			$rest->allowed_cors_headers( [ 'X-WP-Nonce' ] ),
 			'Token should be added to headers'
 		);
 
 		$this->assertSame(
-			[ 'X-OneSearch-Token' ],
-			$rest->allowed_cors_headers( [ 'X-OneSearch-Token' ] ),
+			[ 'X-OneSearch-Token', 'X-OneSearch-Site-URL' ],
+			$rest->allowed_cors_headers( [ 'X-OneSearch-Token', 'X-OneSearch-Site-URL' ] ),
 			'Token should not be readded'
 		);
 	}
