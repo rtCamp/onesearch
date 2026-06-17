@@ -365,7 +365,7 @@ class Search_Controller extends Abstract_REST_Controller {
 		// Add local site to the jobs list.
 		$local_site_name = Settings::is_governing_site() ? __( 'Governing Site', 'onesearch' ) : get_bloginfo( 'name' );
 		$local_site_url  = get_site_url();
-		$local_batches   = $job->get_progress_total();
+		$local_batches   = count( $job->get_child_ids() );
 
 		if ( $job_id ) {
 			array_unshift(
@@ -416,7 +416,7 @@ class Search_Controller extends Abstract_REST_Controller {
 					? __( 'Re-indexing scheduled successfully.', 'onesearch' )
 					: implode( "\n", array_column( $errors, 'message' ) ),
 				'job_id'      => $job_id,
-				'batch_count' => $job->get_progress_total(),
+				'batch_count' => count( $job->get_child_ids() ),
 				'jobs'        => $jobs,
 			]
 		);
