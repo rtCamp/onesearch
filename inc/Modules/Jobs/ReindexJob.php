@@ -182,18 +182,9 @@ final class ReindexJob extends AbstractJob {
 				break;
 			}
 
-			$post_ids = array_merge(
-				$post_ids,
-				array_map(
-					static function ( $p ): int {
-						if ( is_object( $p ) ) {
-							return (int) $p->ID;
-						}
-						return (int) $p;
-					},
-					$posts
-				)
-			);
+			foreach ( $posts as $p ) {
+				$post_ids[] = is_object( $p ) ? (int) $p->ID : (int) $p;
+			}
 
 			if ( count( $posts ) < $per_page ) {
 				break;

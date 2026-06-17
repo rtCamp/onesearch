@@ -57,6 +57,14 @@ namespace {
 	function as_unschedule_action( string $hook, array $args = [], string $group = '' ): ?int {}
 
 	/**
+	 * @param string $hook
+	 * @param array<string, mixed> $args
+	 * @param string $group
+	 * @return void
+	 */
+	function as_unschedule_all_actions( string $hook, array $args = [], string $group = '' ): void {}
+
+	/**
 	 * @param array<string, mixed> $args
 	 * @return ActionScheduler_Action[]
 	 */

@@ -203,7 +203,7 @@ class Job_Controller extends Abstract_REST_Controller {
 				[
 					'methods'             => WP_REST_Server::CREATABLE,
 					'callback'            => [ $this, 'retry_job' ],
-					'permission_callback' => [ $this, 'check_job_read_permissions' ],
+					'permission_callback' => [ $this, 'check_api_permissions' ],
 					'args'                => [
 						'id' => [
 							'required'          => true,
@@ -797,9 +797,13 @@ class Job_Controller extends Abstract_REST_Controller {
 	 * @return array<string, mixed>
 	 */
 	private function hydrate_history_job( array $job, JobScheduler $scheduler ): array {
-		$child_ids = $job['child_ids'] ?? [];
+		$child_ids    = $job['child_ids'] ?? [];
+		$remote_sites = $job['data']['sites'] ?? [];
+		$has_remote   = Settings::is_governing_site()
+			&& is_array( $remote_sites )
+			&& count( $remote_sites ) > 1;
 
-		if ( ! is_array( $child_ids ) || empty( $child_ids ) ) {
+		if ( ( ! is_array( $child_ids ) || empty( $child_ids ) ) && ! $has_remote ) {
 			return $job;
 		}
 

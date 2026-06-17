@@ -9,11 +9,18 @@ import type { PostTypeOption } from '../SiteSearchSettings';
 import type { EntitiesMap, JobStatus, SiteJob } from './types';
 
 export const formatDuration = ( seconds: number ): string => {
+	if ( seconds < 1 ) {
+		return sprintf(
+			/* translators: %d: milliseconds */
+			__( '%dms', 'onesearch' ),
+			Math.round( seconds * 1000 )
+		);
+	}
 	if ( seconds < 60 ) {
 		return sprintf(
 			/* translators: %d: seconds */
 			__( '%ds', 'onesearch' ),
-			seconds
+			Math.floor( seconds )
 		);
 	}
 	const mins = Math.floor( seconds / 60 );
