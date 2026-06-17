@@ -10,13 +10,13 @@ declare( strict_types = 1 );
 namespace OneSearch\Modules\Schema;
 
 /**
- * Class - JobSchema
+ * Class - Job_Schema
  *
  * Creates and upgrades the wp_onesearch_index_jobs table via dbDelta.
  * Called on plugin activation and on each request when the schema version
  * option doesn't match the current version constant.
  */
-class JobSchema {
+class Job_Schema {
 	public const TABLE_NAME     = 'onesearch_index_jobs';
 	public const SCHEMA_VERSION = 1;
 	public const VERSION_OPTION = 'onesearch_jobs_schema_version';

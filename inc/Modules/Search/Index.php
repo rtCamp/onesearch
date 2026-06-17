@@ -194,7 +194,7 @@ final class Index {
 	/**
 	 * Index the post types objects into Algolia.
 	 *
-	 * @deprecated Use ReindexJob for async batch processing instead.
+	 * @deprecated Use Reindex_Job for async batch processing instead.
 	 *
 	 * @param string[] $post_types The post types to index.
 	 *

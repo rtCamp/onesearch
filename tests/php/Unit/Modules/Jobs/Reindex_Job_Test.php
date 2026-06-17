@@ -1,6 +1,6 @@
 <?php
 /**
- * Tests for the ReindexJob class.
+ * Tests for the Reindex_Job class.
  *
  * @package OneSearch\Tests\Unit\Modules\Jobs
  */
@@ -9,70 +9,70 @@ declare(strict_types = 1);
 
 namespace OneSearch\Tests\Unit\Modules\Jobs;
 
-use OneSearch\Modules\Jobs\AbstractJob;
-use OneSearch\Modules\Jobs\ReindexJob;
+use OneSearch\Modules\Jobs\Abstract_Job;
+use OneSearch\Modules\Jobs\Reindex_Job;
 use OneSearch\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
- * Tests for ReindexJob.
+ * Tests for Reindex_Job.
  */
-#[CoversClass( ReindexJob::class )]
-class ReindexJobTest extends TestCase {
+#[CoversClass( Reindex_Job::class )]
+class Reindex_Job_Test extends TestCase {
 	/**
 	 * Verifies get_type() returns 'reindex'.
 	 */
 	public function test_get_type_returns_reindex(): void {
-		$this->assertSame( 'reindex', ReindexJob::get_type() );
+		$this->assertSame( 'reindex', Reindex_Job::get_type() );
 	}
 
 	/**
-	 * Verifies ReindexJob extends AbstractJob.
+	 * Verifies Reindex_Job extends Abstract_Job.
 	 */
 	public function test_extends_abstract_job(): void {
-		$this->assertInstanceOf( AbstractJob::class, new ReindexJob() );
+		$this->assertInstanceOf( Abstract_Job::class, new Reindex_Job() );
 	}
 
 	/**
 	 * Verifies the default job group is 'reindex'.
 	 */
 	public function test_default_group(): void {
-		$this->assertSame( 'reindex', ( new ReindexJob() )->get_group() );
+		$this->assertSame( 'reindex', ( new Reindex_Job() )->get_group() );
 	}
 
 	/**
 	 * Verifies the default progress total is 1.
 	 */
 	public function test_default_progress_total(): void {
-		$this->assertSame( 1, ( new ReindexJob() )->get_progress_total() );
+		$this->assertSame( 1, ( new Reindex_Job() )->get_progress_total() );
 	}
 
 	/**
 	 * Verifies the default max retries is 2.
 	 */
 	public function test_default_max_retries(): void {
-		$this->assertSame( 2, ( new ReindexJob() )->get_max_retries() );
+		$this->assertSame( 2, ( new Reindex_Job() )->get_max_retries() );
 	}
 
 	/**
 	 * Verifies the default retry delay is 60 seconds.
 	 */
 	public function test_default_retry_delay(): void {
-		$this->assertSame( 60, ( new ReindexJob() )->get_retry_delay_seconds() );
+		$this->assertSame( 60, ( new Reindex_Job() )->get_retry_delay_seconds() );
 	}
 
 	/**
 	 * Verifies the job ID starts with 'job_'.
 	 */
 	public function test_id_prefix(): void {
-		$this->assertStringStartsWith( 'job_', ( new ReindexJob() )->get_id() );
+		$this->assertStringStartsWith( 'job_', ( new Reindex_Job() )->get_id() );
 	}
 
 	/**
 	 * Verifies set_data() stores post_types and batch_size correctly.
 	 */
 	public function test_set_data_post_types(): void {
-		$j = new ReindexJob();
+		$j = new Reindex_Job();
 		$j->set_data(
 			[
 				'post_types' => [ 'post', 'page' ],

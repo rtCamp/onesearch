@@ -1,6 +1,6 @@
 <?php
 /**
- * Tests for the JobScheduler class.
+ * Tests for the Job_Scheduler class.
  *
  * @package OneSearch\Tests\Unit\Modules\Scheduler
  */
@@ -9,31 +9,31 @@ declare(strict_types = 1);
 
 namespace OneSearch\Tests\Unit\Modules\Scheduler;
 
-use OneSearch\Modules\Jobs\AbstractJob;
-use OneSearch\Modules\Jobs\SyncJob;
-use OneSearch\Modules\Scheduler\JobScheduler;
-use OneSearch\Modules\Schema\JobRepository;
+use OneSearch\Modules\Jobs\Abstract_Job;
+use OneSearch\Modules\Jobs\Sync_Job;
+use OneSearch\Modules\Scheduler\Job_Scheduler;
+use OneSearch\Modules\Schema\Job_Repository;
 use OneSearch\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
- * Tests for JobScheduler.
+ * Tests for Job_Scheduler.
  */
-#[CoversClass( JobScheduler::class )]
-class JobSchedulerTest extends TestCase {
+#[CoversClass( Job_Scheduler::class )]
+class Job_Scheduler_Test extends TestCase {
 	/**
 	 * Scheduler instance used across tests.
 	 *
-	 * @var \OneSearch\Modules\Scheduler\JobScheduler
+	 * @var \OneSearch\Modules\Scheduler\Job_Scheduler
 	 */
-	private JobScheduler $scheduler;
+	private Job_Scheduler $scheduler;
 
 	/**
 	 * Repository for direct table assertions.
 	 *
-	 * @var \OneSearch\Modules\Schema\JobRepository
+	 * @var \OneSearch\Modules\Schema\Job_Repository
 	 */
-	private JobRepository $repository;
+	private Job_Repository $repository;
 
 	/**
 	 * Sets up the test environment.
@@ -41,8 +41,8 @@ class JobSchedulerTest extends TestCase {
 	public function set_up(): void {
 		parent::set_up();
 
-		$this->scheduler  = new JobScheduler();
-		$this->repository = new JobRepository();
+		$this->scheduler  = new Job_Scheduler();
+		$this->repository = new Job_Repository();
 	}
 
 	/**
@@ -54,7 +54,7 @@ class JobSchedulerTest extends TestCase {
 		$this->scheduler->persist_job( $j );
 		$s = $this->scheduler->get_status( $j->get_id() );
 		$this->assertNotNull( $s );
-		$this->assertSame( AbstractJob::STATUS_RUNNING, $s['status'] );
+		$this->assertSame( Abstract_Job::STATUS_RUNNING, $s['status'] );
 	}
 
 	/**
@@ -66,12 +66,12 @@ class JobSchedulerTest extends TestCase {
 		$j->mark_completed();
 		$this->scheduler->persist_job( $j );
 
-		$key = JobScheduler::OPTION_PREFIX . $j->get_id();
+		$key = Job_Scheduler::OPTION_PREFIX . $j->get_id();
 		$this->assertFalse( get_transient( $key ) );
 
 		$row = $this->repository->get_by_id( $j->get_id() );
 		$this->assertIsArray( $row );
-		$this->assertSame( AbstractJob::STATUS_COMPLETED, $row['status'] );
+		$this->assertSame( Abstract_Job::STATUS_COMPLETED, $row['status'] );
 	}
 
 	/**
@@ -153,7 +153,7 @@ class JobSchedulerTest extends TestCase {
 	public function test_schedule_sets_pending(): void {
 		$j = $this->make_job();
 		$this->scheduler->schedule( $j );
-		$this->assertSame( AbstractJob::STATUS_PENDING, $this->scheduler->get_status( $j->get_id() )['status'] );
+		$this->assertSame( Abstract_Job::STATUS_PENDING, $this->scheduler->get_status( $j->get_id() )['status'] );
 	}
 
 	/**
@@ -174,7 +174,7 @@ class JobSchedulerTest extends TestCase {
 		$j = $this->make_job();
 		$this->scheduler->schedule( $j );
 		$this->scheduler->cancel( $j->get_id() );
-		$this->assertSame( AbstractJob::STATUS_CANCELLED, $this->scheduler->get_status( $j->get_id() )['status'] );
+		$this->assertSame( Abstract_Job::STATUS_CANCELLED, $this->scheduler->get_status( $j->get_id() )['status'] );
 	}
 
 	/**
@@ -215,7 +215,7 @@ class JobSchedulerTest extends TestCase {
 		$this->scheduler->persist_job( $j, true );
 		$row = $this->repository->get_by_id( $j->get_id() );
 		$this->assertNotNull( $row );
-		$this->assertSame( AbstractJob::STATUS_RUNNING, $row['status'] );
+		$this->assertSame( Abstract_Job::STATUS_RUNNING, $row['status'] );
 	}
 
 	/**
@@ -227,10 +227,10 @@ class JobSchedulerTest extends TestCase {
 	}
 
 	/**
-	 * Creates a SyncJob with a single post ID for testing.
+	 * Creates a Sync_Job with a single post ID for testing.
 	 */
-	private function make_job(): SyncJob {
-		$j = new SyncJob();
+	private function make_job(): Sync_Job {
+		$j = new Sync_Job();
 		$j->set_data( [ 'post_ids' => [ 42 ] ] );
 		return $j;
 	}

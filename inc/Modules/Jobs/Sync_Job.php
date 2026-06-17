@@ -18,14 +18,14 @@ use function get_site_url;
 use function is_wp_error;
 
 /**
- * Class - SyncJob
+ * Class - Sync_Job
  *
  * Processes a batch of post IDs: transforms each post into Algolia
  * records via Post_Record::to_records() and saves them via Index::save_records().
  * For posts that are not indexable (e.g. trashed/draft), it deletes
  * the corresponding records from Algolia instead.
  */
-final class SyncJob extends AbstractJob {
+final class Sync_Job extends Abstract_Job {
 	/**
 	 * The default group for watcher-spawned sync jobs.
 	 *
@@ -74,7 +74,7 @@ final class SyncJob extends AbstractJob {
 		$post_ids = $this->data['post_ids'] ?? [];
 
 		if ( empty( $post_ids ) ) {
-			throw new \InvalidArgumentException( 'SyncJob requires post_ids in data payload.' );
+			throw new \InvalidArgumentException( 'Sync_Job requires post_ids in data payload.' );
 		}
 
 		$this->progress_total = count( $post_ids );

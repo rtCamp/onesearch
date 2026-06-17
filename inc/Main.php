@@ -10,7 +10,7 @@ declare( strict_types = 1 );
 namespace OneSearch;
 
 use OneSearch\Contracts\Traits\Singleton;
-use OneSearch\Modules\Schema\JobSchema;
+use OneSearch\Modules\Schema\Job_Schema;
 
 /**
  * Class - Main
@@ -36,7 +36,7 @@ final class Main {
 		Modules\Search\Watcher::class,
 		Modules\Rest\Basic_Options_Controller::class,
 		Modules\Rest\Governing_Data_Controller::class,
-		Modules\Rest\Job_Controller::class,
+		Modules\Scheduler\Job_REST_Controller::class,
 		Modules\Rest\Search_Controller::class,
 	];
 
@@ -107,7 +107,7 @@ final class Main {
 	 */
 	private function load(): void {
 		// Fires once after install or schema version bump; no-ops on every other request.
-		JobSchema::maybe_upgrade();
+		Job_Schema::maybe_upgrade();
 
 		// Loop through all the classes, instantiate them, and register any hooks.
 		$instances = [];

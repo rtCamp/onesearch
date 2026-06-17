@@ -9,8 +9,8 @@ declare(strict_types = 1);
 
 namespace OneSearch\Modules\Rest;
 
-use OneSearch\Modules\Jobs\ReindexJob;
-use OneSearch\Modules\Scheduler\JobScheduler;
+use OneSearch\Modules\Jobs\Reindex_Job;
+use OneSearch\Modules\Scheduler\Job_Scheduler;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Utils;
@@ -267,8 +267,8 @@ class Search_Controller extends Abstract_REST_Controller {
 	 * Reindex the current site.
 	 *
 	 * If the site is a governing site, trigger the reindex on children as well.
-	 * The parent ReindexJob runs in this request to resolve posts and enqueue
-	 * child SyncJobs; the child SyncJobs then run asynchronously via Action Scheduler.
+	 * The parent Reindex_Job runs in this request to resolve posts and enqueue
+	 * child Sync_Jobs; the child Sync_Jobs then run asynchronously via Action Scheduler.
 	 */
 	public function reindex(): \WP_REST_Response|\WP_Error {
 		// Guard: prevent starting a new reindex while one is already running.
@@ -322,10 +322,10 @@ class Search_Controller extends Abstract_REST_Controller {
 			return $post_types;
 		}
 
-		// Create and execute the ReindexJob synchronously.
+		// Create and execute the Reindex_Job synchronously.
 		// The parent job runs in this request (resolve posts, clear index,
-		// schedule child SyncJobs). Only the child SyncJobs run async via AS.
-		$job = new ReindexJob();
+		// schedule child Sync_Jobs). Only the child Sync_Jobs run async via AS.
+		$job = new Reindex_Job();
 		$job->set_data(
 			[
 				'post_types' => $post_types,
@@ -335,7 +335,7 @@ class Search_Controller extends Abstract_REST_Controller {
 		$job->set_max_retries( 2 );
 		$job->set_retry_delay_seconds( 60 );
 
-		$scheduler = new JobScheduler();
+		$scheduler = new Job_Scheduler();
 		$job_id    = $job->get_id();
 
 		try {
@@ -390,7 +390,7 @@ class Search_Controller extends Abstract_REST_Controller {
 			// Re-read the freshest stored state so we never downgrade a terminal
 			// status (e.g. COMPLETED) that notify_parent() may have already written.
 			$latest    = $scheduler->get_status( $job_id );
-			$merge_job = $latest ? ReindexJob::from_array( $latest ) : $job;
+			$merge_job = $latest ? Reindex_Job::from_array( $latest ) : $job;
 			$merge_job->set_data(
 				array_merge(
 					$merge_job->get_data() ?: [],
@@ -456,7 +456,7 @@ class Search_Controller extends Abstract_REST_Controller {
 			return null;
 		}
 
-		$scheduler = new JobScheduler();
+		$scheduler = new Job_Scheduler();
 		$blocking  = false;
 		$now       = time();
 
@@ -471,7 +471,7 @@ class Search_Controller extends Abstract_REST_Controller {
 			}
 
 			// Terminal status = not blocking.
-			if ( in_array( $job_status['status'] ?? '', JobScheduler::TERMINAL_STATUSES, true ) ) {
+			if ( in_array( $job_status['status'] ?? '', Job_Scheduler::TERMINAL_STATUSES, true ) ) {
 				continue;
 			}
 

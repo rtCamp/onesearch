@@ -10,14 +10,14 @@ declare( strict_types = 1 );
 namespace OneSearch\Modules\Schema;
 
 /**
- * Class - JobRepository
+ * Class - Job_Repository
  *
  * All reads and writes to the custom jobs table go through here.
  * Every job is inserted into the table on creation so active jobs
  * can be enumerated via a status query; transients remain the fast-read
  * path for active job state.
  */
-class JobRepository {
+class Job_Repository {
 	/** @var string Fully-qualified table name including WP prefix. */
 	private string $table;
 
@@ -26,13 +26,13 @@ class JobRepository {
 	 */
 	public function __construct() {
 		global $wpdb;
-		$this->table = $wpdb->prefix . JobSchema::TABLE_NAME;
+		$this->table = $wpdb->prefix . Job_Schema::TABLE_NAME;
 	}
 
 	/**
 	 * Insert a new job row.
 	 *
-	 * @param array<string, mixed> $data Flat row data from AbstractJob::to_array().
+	 * @param array<string, mixed> $data Flat row data from Abstract_Job::to_array().
 	 */
 	public function insert( array $data ): bool {
 		global $wpdb;
@@ -65,7 +65,7 @@ class JobRepository {
 	/**
 	 * Insert-or-update a job row (upsert via ON DUPLICATE KEY UPDATE).
 	 *
-	 * @param array<string, mixed> $data Full row data from AbstractJob::to_array().
+	 * @param array<string, mixed> $data Full row data from Abstract_Job::to_array().
 	 */
 	public function upsert( array $data ): bool {
 		global $wpdb;
@@ -436,12 +436,12 @@ class JobRepository {
 	}
 
 	/**
-	 * Convert a domain-model array (from AbstractJob::to_array()) into a flat DB row.
+	 * Convert a domain-model array (from Abstract_Job::to_array()) into a flat DB row.
 	 *
 	 * Retry fields and child_ids are folded into the `data` JSON blob since they
 	 * don't have dedicated columns.
 	 *
-	 * @param  array<string, mixed> $data Domain-model array from AbstractJob::to_array().
+	 * @param  array<string, mixed> $data Domain-model array from Abstract_Job::to_array().
 	 * @return array<string, mixed>
 	 */
 	private function prepare_row( array $data ): array {
@@ -479,7 +479,7 @@ class JobRepository {
 	}
 
 	/**
-	 * Convert a raw DB row back into the domain-model array shape (matching AbstractJob::to_array()).
+	 * Convert a raw DB row back into the domain-model array shape (matching Abstract_Job::to_array()).
 	 *
 	 * @param  array<string, mixed> $row Raw database row from $wpdb.
 	 * @return array<string, mixed>

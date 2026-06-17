@@ -5,9 +5,8 @@ import { __, sprintf } from '@wordpress/i18n';
 /**
  * Internal dependencies
  */
-import type { JobStatus } from './types';
 import JobStatusBadge from './JobStatusBadge';
-import ProgressBar from './ProgressBar';
+import type { JobStatus } from './types';
 
 interface BatchRowProps {
 	child: JobStatus;
@@ -24,9 +23,6 @@ const BatchRow = ( { child, idx }: BatchRowProps ) => (
 			) }
 		</span>
 		<JobStatusBadge status={ child.status } size="small" />
-		{ ( child.status === 'running' || child.status === 'pending' ) && (
-			<ProgressBar percent={ child.progress_percent || 0 } />
-		) }
 		{ child.error && (
 			<span className="onesearch-batch-error">
 				{ child.error.substring( 0, 80 ) }
