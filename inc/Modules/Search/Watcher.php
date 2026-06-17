@@ -10,9 +10,9 @@ declare(strict_types = 1);
 namespace OneSearch\Modules\Search;
 
 use OneSearch\Contracts\Interfaces\Registrable;
-use OneSearch\Modules\Jobs\SyncJob;
+use OneSearch\Modules\Jobs\Sync_Job;
 use OneSearch\Modules\Rest\Governing_Data_Handler;
-use OneSearch\Modules\Scheduler\JobScheduler;
+use OneSearch\Modules\Scheduler\Job_Scheduler;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Utils;
@@ -31,7 +31,7 @@ final class Watcher implements Registrable {
 	/**
 	 * Triggered when a post's status changes (e.g., publish, update, trash, etc.)
 	 *
-	 * Schedules an async SyncJob to update the post in Algolia instead of
+	 * Schedules an async Sync_Job to update the post in Algolia instead of
 	 * performing the sync inline, keeping the request fast.
 	 *
 	 * @internal Hook callback
@@ -45,7 +45,7 @@ final class Watcher implements Registrable {
 			return;
 		}
 
-		$job = new SyncJob();
+		$job = new Sync_Job();
 		$job->set_data(
 			[
 				'post_ids' => [ (int) $post->ID ],
@@ -55,14 +55,14 @@ final class Watcher implements Registrable {
 		$job->set_max_retries( 2 );
 		$job->set_retry_delay_seconds( 30 );
 
-		$scheduler = new JobScheduler();
+		$scheduler = new Job_Scheduler();
 
 		try {
 			$scheduler->schedule( $job );
 		} catch ( \Throwable $e ) {
 			// Fallback to synchronous indexing if scheduling fails.
 			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			error_log( sprintf( '[OneSearch] Failed to schedule SyncJob: %s', $e->getMessage() ) );
+			error_log( sprintf( '[OneSearch] Failed to schedule Sync_Job: %s', $e->getMessage() ) );
 
 			$this->sync_post_inline( $post );
 		}

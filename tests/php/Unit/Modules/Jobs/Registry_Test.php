@@ -9,7 +9,7 @@ declare( strict_types = 1 );
 
 namespace OneSearch\Tests\Unit\Modules\Jobs;
 
-use OneSearch\Modules\Jobs\AbstractJob;
+use OneSearch\Modules\Jobs\Abstract_Job;
 use OneSearch\Modules\Jobs\Registry;
 use OneSearch\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -21,7 +21,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
  * state leakage.
  */
 #[CoversClass( Registry::class )]
-class RegistryTest extends TestCase {
+class Registry_Test extends TestCase {
 	/**
 	 * Reset the Registry singleton before each test.
 	 */
@@ -85,7 +85,7 @@ class RegistryTest extends TestCase {
 	}
 
 	/**
-	 * Test that register rejects classes that do not extend AbstractJob.
+	 * Test that register rejects classes that do not extend Abstract_Job.
 	 */
 	public function test_register_throws_for_class_not_extending_abstract_job(): void {
 		$this->expectException( \InvalidArgumentException::class );
@@ -116,7 +116,7 @@ class RegistryTest extends TestCase {
 
 		$job = Registry::instance()->resolve( 'test' );
 
-		$this->assertInstanceOf( AbstractJob::class, $job );
+		$this->assertInstanceOf( Abstract_Job::class, $job );
 		$this->assertInstanceOf( TestConcreteJob::class, $job );
 	}
 
@@ -203,7 +203,7 @@ if ( ! class_exists( TestConcreteJob::class ) ) {
 	/**
 	 * Concrete job for registry tests.
 	 */
-	class TestConcreteJob extends AbstractJob {
+	class TestConcreteJob extends Abstract_Job {
 		/**
 		 * Mark the test job as completed.
 		 */
@@ -224,7 +224,7 @@ if ( ! class_exists( AnotherTestConcreteJob::class ) ) {
 	/**
 	 * Second concrete job for testing overwrites.
 	 */
-	class AnotherTestConcreteJob extends AbstractJob {
+	class AnotherTestConcreteJob extends Abstract_Job {
 		/**
 		 * Mark the test job as completed.
 		 */

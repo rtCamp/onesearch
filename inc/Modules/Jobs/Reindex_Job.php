@@ -1,6 +1,6 @@
 <?php
 /**
- * Parent job that orchestrates a full re-index by chunking posts into SyncJob children.
+ * Parent job that orchestrates a full re-index by chunking posts into Sync_Job children.
  *
  * @package OneSearch\Modules\Jobs
  */
@@ -9,19 +9,19 @@ declare( strict_types = 1 );
 
 namespace OneSearch\Modules\Jobs;
 
-use OneSearch\Modules\Scheduler\JobScheduler;
+use OneSearch\Modules\Scheduler\Job_Scheduler;
 use OneSearch\Modules\Search\Index;
 use OneSearch\Utils;
 
 /**
- * Class - ReindexJob
+ * Class - Reindex_Job
  *
  * Resolves all post IDs for the given post types, clears existing
  * Algolia records for the site, chunks the IDs into batches, and
- * schedules a SyncJob for each batch. Progress is tracked as
- * children complete via JobScheduler::notify_parent().
+ * schedules a Sync_Job for each batch. Progress is tracked as
+ * children complete via Job_Scheduler::notify_parent().
  */
-final class ReindexJob extends AbstractJob {
+final class Reindex_Job extends Abstract_Job {
 	/**
 	 * The default group for reindex jobs.
 	 *
@@ -60,11 +60,9 @@ final class ReindexJob extends AbstractJob {
 	/**
 	 * Execute the reindex job.
 	 *
-	 * 1. Resolve post IDs from post_types (or use provided post_ids).
-	 * 2. Clear existing Algolia records for the site.
-	 * 3. Chunk post IDs into batches.
-	 * 4. Schedule a SyncJob child for each batch.
-	 * 5. Track progress as children complete.
+	 * Streams posts page-by-page directly into Sync_Job children, keeping peak
+	 * memory at O(batch_size) regardless of total post count. Each WP_Query
+	 * page becomes exactly one child job — no full ID list is accumulated.
 	 *
 	 * @throws \InvalidArgumentException If post_types is missing or empty.
 	 * @throws \RuntimeException         If scheduling a child fails.
@@ -73,15 +71,10 @@ final class ReindexJob extends AbstractJob {
 		$post_types = $this->data['post_types'] ?? [];
 
 		if ( empty( $post_types ) ) {
-			throw new \InvalidArgumentException( 'ReindexJob requires post_types in data payload.' );
+			throw new \InvalidArgumentException( 'Reindex_Job requires post_types in data payload.' );
 		}
 
-		$post_ids = $this->resolve_post_ids( $post_types );
-
-		if ( empty( $post_ids ) ) {
-			$this->mark_completed();
-			return;
-		}
+		$allowed_statuses = \OneSearch\Modules\Search\Post_Record::get_allowed_statuses( $post_types );
 
 		// Clear existing records before reindexing.
 		$indexer = new Index();
@@ -93,20 +86,36 @@ final class ReindexJob extends AbstractJob {
 
 		$batch_size = $this->data['batch_size'] ?? 100;
 		$batch_size = max( 1, min( $batch_size, 500 ) );
-		$batches    = array_chunk( $post_ids, $batch_size );
-		$scheduler  = new JobScheduler();
+		$scheduler  = new Job_Scheduler();
 		$group      = 'reindex_' . $this->get_id();
+		$scheduled  = 0;
+		$page       = 1;
 
-		$this->set_progress_total( count( $batches ) );
-		$this->update_progress( 0 );
+		while ( true ) {
+			$query = new \WP_Query(
+				[
+					'post_type'              => $post_types,
+					'post_status'            => $allowed_statuses,
+					'posts_per_page'         => $batch_size,
+					'paged'                  => $page,
+					'fields'                 => 'ids',
+					'no_found_rows'          => true,
+					'update_post_meta_cache' => false,
+					'update_post_term_cache' => false,
+				]
+			);
 
-		$scheduled = 0;
+			$posts = $query->posts;
+			if ( ! is_array( $posts ) || empty( $posts ) ) {
+				break;
+			}
 
-		foreach ( $batches as $batch ) {
-			$child = new SyncJob();
+			$post_ids = array_map( static fn ( $p ) => is_object( $p ) ? (int) $p->ID : (int) $p, $posts );
+
+			$child = new Sync_Job();
 			$child->set_data(
 				[
-					'post_ids'   => $batch,
+					'post_ids'   => $post_ids,
 					'post_types' => $post_types,
 				]
 			);
@@ -116,7 +125,7 @@ final class ReindexJob extends AbstractJob {
 			$child->set_retry_delay_seconds( 30 );
 
 			try {
-				$scheduler->schedule( $child, true );
+				$scheduler->schedule( $child );
 				$this->add_child_id( $child->get_id() );
 				++$scheduled;
 			} catch ( \Throwable $e ) {
@@ -125,9 +134,20 @@ final class ReindexJob extends AbstractJob {
 					$scheduler->cancel( $child_id );
 				}
 				throw new \RuntimeException(
-					sprintf( 'Failed to schedule child SyncJob: %s', esc_html( $e->getMessage() ) )
+					sprintf( 'Failed to schedule child Sync_Job: %s', esc_html( $e->getMessage() ) )
 				);
 			}
+
+			if ( count( $posts ) < $batch_size ) {
+				break;
+			}
+
+			++$page;
+		}
+
+		if ( 0 === $scheduled ) {
+			$this->mark_completed();
+			return;
 		}
 
 		$this->set_progress_total( $scheduled );
@@ -149,50 +169,5 @@ final class ReindexJob extends AbstractJob {
 		}
 
 		spawn_cron();
-	}
-
-	/**
-	 * Resolve post IDs for the given post types using paginated queries.
-	 *
-	 * @param string[] $post_types Post types to query.
-	 * @return int[] Array of post IDs.
-	 */
-	private function resolve_post_ids( array $post_types ): array {
-		$allowed_statuses = \OneSearch\Modules\Search\Post_Record::get_allowed_statuses( $post_types );
-		$post_ids         = [];
-		$page             = 1;
-		$per_page         = 500;
-
-		while ( true ) {
-			$query = new \WP_Query(
-				[
-					'post_type'              => $post_types,
-					'post_status'            => $allowed_statuses,
-					'posts_per_page'         => $per_page,
-					'paged'                  => $page,
-					'fields'                 => 'ids',
-					'no_found_rows'          => true,
-					'update_post_meta_cache' => false,
-					'update_post_term_cache' => false,
-				]
-			);
-
-			$posts = $query->posts;
-			if ( ! is_array( $posts ) || empty( $posts ) ) {
-				break;
-			}
-
-			foreach ( $posts as $p ) {
-				$post_ids[] = is_object( $p ) ? (int) $p->ID : (int) $p;
-			}
-
-			if ( count( $posts ) < $per_page ) {
-				break;
-			}
-
-			++$page;
-		}
-
-		return $post_ids;
 	}
 }

@@ -1,42 +1,42 @@
 <?php
 /**
- * Tests for Job_Controller.
+ * Tests for Job_REST_Controller.
  *
- * @package OneSearch\Tests\Unit\Modules\Rest
+ * @package OneSearch\Tests\Unit\Modules\Scheduler
  */
 
 declare( strict_types = 1 );
 
 namespace OneSearch\Tests\Unit\Modules\Rest;
 
-use OneSearch\Modules\Jobs\AbstractJob;
-use OneSearch\Modules\Jobs\ReindexJob;
-use OneSearch\Modules\Jobs\SyncJob;
-use OneSearch\Modules\Rest\Job_Controller;
-use OneSearch\Modules\Scheduler\JobScheduler;
+use OneSearch\Modules\Jobs\Abstract_Job;
+use OneSearch\Modules\Jobs\Reindex_Job;
+use OneSearch\Modules\Jobs\Sync_Job;
+use OneSearch\Modules\Scheduler\Job_REST_Controller;
+use OneSearch\Modules\Scheduler\Job_Scheduler;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use WP_REST_Request;
 
 /**
- * REST endpoint tests for {@see Job_Controller}.
+ * REST endpoint tests for {@see Job_REST_Controller}.
  */
-#[CoversClass( Job_Controller::class )]
-#[CoversClass( JobScheduler::class )]
-#[CoversClass( AbstractJob::class )]
-#[CoversClass( ReindexJob::class )]
-#[CoversClass( SyncJob::class )]
-class Job_ControllerTest extends TestCase {
+#[CoversClass( Job_REST_Controller::class )]
+#[CoversClass( Job_Scheduler::class )]
+#[CoversClass( Abstract_Job::class )]
+#[CoversClass( Reindex_Job::class )]
+#[CoversClass( Sync_Job::class )]
+class Job_REST_Controller_Test extends TestCase {
 	/**
 	 * REST server.
 	 */
 	private ?\WP_REST_Server $server;
 
 	/**
-	 * JobScheduler instance.
+	 * Job_Scheduler instance.
 	 */
-	private JobScheduler $scheduler;
+	private Job_Scheduler $scheduler;
 
 	/**
 	 * {@inheritDoc}
@@ -51,9 +51,9 @@ class Job_ControllerTest extends TestCase {
 		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
 		wp_set_current_user( $admin_id );
 
-		$this->scheduler = new JobScheduler();
+		$this->scheduler = new Job_Scheduler();
 
-		( new Job_Controller() )->register_hooks();
+		( new Job_REST_Controller() )->register_hooks();
 		do_action( 'rest_api_init' );
 	}
 
@@ -68,10 +68,10 @@ class Job_ControllerTest extends TestCase {
 	}
 
 	/**
-	 * Create a SyncJob and schedule it for testing.
+	 * Create a Sync_Job and schedule it for testing.
 	 */
-	private function create_scheduled_job(): SyncJob {
-		$job = new SyncJob();
+	private function create_scheduled_job(): Sync_Job {
+		$job = new Sync_Job();
 		$job->set_data( [ 'post_ids' => [ 1 ] ] );
 		$job->set_max_retries( 2 );
 		$this->scheduler->schedule( $job );
@@ -118,7 +118,7 @@ class Job_ControllerTest extends TestCase {
 		$this->assertSame( 200, $response->get_status() );
 		$this->assertTrue( $data['success'] );
 		$this->assertSame( $job->get_id(), $data['job']['id'] );
-		$this->assertSame( AbstractJob::STATUS_PENDING, $data['job']['status'] );
+		$this->assertSame( Abstract_Job::STATUS_PENDING, $data['job']['status'] );
 	}
 
 	/**
@@ -160,7 +160,7 @@ class Job_ControllerTest extends TestCase {
 	 */
 	public function test_retry_job_allows_token_authenticated_request(): void {
 		$api_key = Settings::regenerate_api_key();
-		$job     = new SyncJob();
+		$job     = new Sync_Job();
 
 		$job->set_data( [ 'post_ids' => [ 1 ] ] );
 		$job->fail( 'Permanent batch failure.' );
@@ -182,9 +182,9 @@ class Job_ControllerTest extends TestCase {
 	 * POST /jobs/{id}/retry retries only failed child batches for a parent job.
 	 */
 	public function test_retry_parent_job_retries_failed_children_only(): void {
-		$parent          = new ReindexJob();
-		$completed_child = new SyncJob();
-		$failed_child    = new SyncJob();
+		$parent          = new Reindex_Job();
+		$completed_child = new Sync_Job();
+		$failed_child    = new Sync_Job();
 
 		$completed_child->set_parent_id( $parent->get_id() );
 		$completed_child->set_data( [ 'post_ids' => [ 1 ] ] );
@@ -214,12 +214,12 @@ class Job_ControllerTest extends TestCase {
 		$completed_child_status = $this->scheduler->get_status( $completed_child->get_id() );
 		$failed_child_status    = $this->scheduler->get_status( $failed_child->get_id() );
 
-		$this->assertSame( AbstractJob::STATUS_RUNNING, $parent_status['status'] );
+		$this->assertSame( Abstract_Job::STATUS_RUNNING, $parent_status['status'] );
 		$this->assertSame( 1, $parent_status['children_completed'] );
 		$this->assertSame( 0, $parent_status['children_failed'] );
 		$this->assertNull( $parent_status['finished_at'] );
-		$this->assertSame( AbstractJob::STATUS_COMPLETED, $completed_child_status['status'] );
-		$this->assertSame( AbstractJob::STATUS_PENDING, $failed_child_status['status'] );
+		$this->assertSame( Abstract_Job::STATUS_COMPLETED, $completed_child_status['status'] );
+		$this->assertSame( Abstract_Job::STATUS_PENDING, $failed_child_status['status'] );
 	}
 
 	/**
@@ -237,7 +237,7 @@ class Job_ControllerTest extends TestCase {
 
 		// Verify the job is now cancelled.
 		$status = $this->scheduler->get_status( $job->get_id() );
-		$this->assertSame( AbstractJob::STATUS_CANCELLED, $status['status'] );
+		$this->assertSame( Abstract_Job::STATUS_CANCELLED, $status['status'] );
 	}
 
 	/**
@@ -290,8 +290,8 @@ class Job_ControllerTest extends TestCase {
 	 * The /jobs/history endpoint reports a parent job as failed when any child failed.
 	 */
 	public function test_history_marks_parent_failed_when_child_failed(): void {
-		$parent = new ReindexJob();
-		$child  = new SyncJob();
+		$parent = new Reindex_Job();
+		$child  = new Sync_Job();
 
 		$child->set_parent_id( $parent->get_id() );
 		$child->set_data( [ 'post_ids' => [ 1 ] ] );
@@ -311,7 +311,7 @@ class Job_ControllerTest extends TestCase {
 
 		$jobs = array_column( $data['jobs'], null, 'id' );
 		$this->assertArrayHasKey( $parent->get_id(), $jobs );
-		$this->assertSame( AbstractJob::STATUS_FAILED, $jobs[ $parent->get_id() ]['status'] );
+		$this->assertSame( Abstract_Job::STATUS_FAILED, $jobs[ $parent->get_id() ]['status'] );
 		$this->assertSame( 1, $jobs[ $parent->get_id() ]['children_failed'] );
 	}
 
@@ -319,7 +319,7 @@ class Job_ControllerTest extends TestCase {
 	 * The /jobs/history endpoint includes parent jobs stored as failed.
 	 */
 	public function test_history_includes_failed_parent_jobs(): void {
-		$job = new ReindexJob();
+		$job = new Reindex_Job();
 		$job->set_data( [ 'post_types' => [ 'post' ] ] );
 		$job->fail( 'Permanent parent failure.' );
 		$this->scheduler->persist_job( $job );
@@ -332,7 +332,7 @@ class Job_ControllerTest extends TestCase {
 
 		$jobs = array_column( $data['jobs'], null, 'id' );
 		$this->assertArrayHasKey( $job->get_id(), $jobs );
-		$this->assertSame( AbstractJob::STATUS_FAILED, $jobs[ $job->get_id() ]['status'] );
+		$this->assertSame( Abstract_Job::STATUS_FAILED, $jobs[ $job->get_id() ]['status'] );
 	}
 
 	/**
