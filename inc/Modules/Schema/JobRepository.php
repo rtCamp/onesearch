@@ -279,6 +279,39 @@ class JobRepository {
 	}
 
 	/**
+	 * Cancel multiple jobs in one UPDATE, skipping already-terminal rows.
+	 *
+	 * Only transitions 'pending' and 'running' rows to 'cancelled';
+	 * completed or already-cancelled children are left untouched.
+	 *
+	 * @param string[] $ids Array of job IDs to cancel.
+	 * @param int      $now Unix timestamp for finished_at / cancelled_at / updated_at.
+	 */
+	public function batch_cancel( array $ids, int $now ): void {
+		global $wpdb;
+
+		if ( empty( $ids ) ) {
+			return;
+		}
+
+		$placeholders = implode( ', ', array_fill( 0, count( $ids ), '%s' ) );
+
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
+		$wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$this->table}
+				 SET status = 'cancelled', finished_at = %d, cancelled_at = %d, updated_at = %d
+				 WHERE id IN ({$placeholders}) AND status IN ('pending', 'running')",
+				$now,
+				$now,
+				$now,
+				...$ids
+			)
+		);
+		// phpcs:enable
+	}
+
+	/**
 	 * Reset counter columns to explicit values (e.g. when retrying jobs).
 	 *
 	 * @param string $parent_id Job ID of the parent.
