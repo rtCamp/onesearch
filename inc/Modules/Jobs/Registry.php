@@ -15,15 +15,15 @@ use OneSearch\Contracts\Traits\Singleton;
  * Class - Registry
  *
  * Singleton registry that maps job type names to their concrete FQCNs.
- * Used by JobScheduler to instantiate jobs from stored state, and by
+ * Used by Job_Scheduler to instantiate jobs from stored state, and by
  * Bootstrap to register built-in job types.
  *
  * Example usage:
- *   Registry::instance()->register( 'sync', SyncJob::class );
- *   Registry::instance()->register( 'reindex', ReindexJob::class );
+ *   Registry::instance()->register( 'sync', Sync_Job::class );
+ *   Registry::instance()->register( 'reindex', Reindex_Job::class );
  *
  *   $job = Registry::instance()->resolve( 'sync' );
- *   // $job is a fresh SyncJob instance.
+ *   // $job is a fresh Sync_Job instance.
  */
 final class Registry {
 	use Singleton;
@@ -31,7 +31,7 @@ final class Registry {
 	/**
 	 * Map of job type name → FQCN.
 	 *
-	 * @var array<string, class-string<\OneSearch\Modules\Jobs\AbstractJob>>
+	 * @var array<string, class-string<\OneSearch\Modules\Jobs\Abstract_Job>>
 	 */
 	private array $jobs = [];
 
@@ -39,8 +39,8 @@ final class Registry {
 	 * Register a job type by name and class.
 	 *
 	 * @param string $name      The job type name (e.g. "sync", "reindex").
-	 * @param string $class_name The fully-qualified class name that extends AbstractJob.
-	 * @throws \InvalidArgumentException If the class does not extend AbstractJob.
+	 * @param string $class_name The fully-qualified class name that extends Abstract_Job.
+	 * @throws \InvalidArgumentException If the class does not extend Abstract_Job.
 	 * @throws \InvalidArgumentException If the class does not exist.
 	 */
 	public function register( string $name, string $class_name ): void {
@@ -54,13 +54,13 @@ final class Registry {
 			);
 		}
 
-		if ( ! is_a( $class_name, AbstractJob::class, true ) ) {
+		if ( ! is_a( $class_name, Abstract_Job::class, true ) ) {
 			throw new \InvalidArgumentException(
 				sprintf(
 					/* translators: 1: class name, 2: abstract job class */
 					esc_html__( 'Job class "%1$s" must extend "%2$s".', 'onesearch' ),
 					esc_html( $class_name ),
-					AbstractJob::class
+					Abstract_Job::class
 				)
 			);
 		}
@@ -72,10 +72,10 @@ final class Registry {
 	 * Create a fresh job instance by type name.
 	 *
 	 * @param string $name The registered job type name.
-	 * @return \OneSearch\Modules\Jobs\AbstractJob A new instance of the registered job class.
+	 * @return \OneSearch\Modules\Jobs\Abstract_Job A new instance of the registered job class.
 	 * @throws \InvalidArgumentException If the job type is not registered.
 	 */
-	public function resolve( string $name ): AbstractJob {
+	public function resolve( string $name ): Abstract_Job {
 		if ( ! $this->has( $name ) ) {
 			throw new \InvalidArgumentException(
 				sprintf(
@@ -104,7 +104,7 @@ final class Registry {
 	/**
 	 * Get all registered job type names and their class names.
 	 *
-	 * @return array<string, class-string<\OneSearch\Modules\Jobs\AbstractJob>> Map of name → FQCN.
+	 * @return array<string, class-string<\OneSearch\Modules\Jobs\Abstract_Job>> Map of name → FQCN.
 	 */
 	public function all(): array {
 		return $this->jobs;

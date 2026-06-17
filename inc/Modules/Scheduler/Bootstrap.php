@@ -39,17 +39,17 @@ final class Bootstrap implements Registrable {
 			return;
 		}
 
-		$scheduler = new JobScheduler();
+		$scheduler = new Job_Scheduler();
 
 		$registry = Registry::instance();
-		$registry->register( 'sync', \OneSearch\Modules\Jobs\SyncJob::class );
-		$registry->register( 'reindex', \OneSearch\Modules\Jobs\ReindexJob::class );
+		$registry->register( 'sync', \OneSearch\Modules\Jobs\Sync_Job::class );
+		$registry->register( 'reindex', \OneSearch\Modules\Jobs\Reindex_Job::class );
 
 		/**
 		 * Fires after built-in job types are registered.
 		 *
 		 * @param \OneSearch\Modules\Jobs\Registry      $registry  The job registry instance.
-		 * @param \OneSearch\Modules\Scheduler\JobScheduler $scheduler The scheduler instance.
+		 * @param \OneSearch\Modules\Scheduler\Job_Scheduler $scheduler The scheduler instance.
 		 */
 		do_action( 'onesearch_register_jobs', $registry, $scheduler );
 	}

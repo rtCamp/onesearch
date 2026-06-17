@@ -18,19 +18,19 @@ namespace OneSearch\Modules\Jobs;
  *
  * Lifecycle states: PENDING → RUNNING → COMPLETED | FAILED | CANCELLED
  *
- * Storage strategy (managed by JobScheduler):
+ * Storage strategy (managed by Job_Scheduler):
  *   - Active jobs (PENDING/RUNNING) are stored in WordPress transients,
  *     auto-expiring after 12 hours.
  *   - Terminal jobs (COMPLETED/FAILED/CANCELLED) are moved to wp_options
  *     for permanent storage.
  *   - get_status() checks transient first, then falls back to wp_options.
  *
- * @see \OneSearch\Modules\Scheduler\JobScheduler::execute_job()  Where jobs are dispatched by Action Scheduler
- * @see \OneSearch\Modules\Scheduler\JobScheduler::schedule()     Where jobs are enqueued
- * @see \OneSearch\Modules\Jobs\SyncJob                           Concrete leaf job — syncs posts to Algolia
- * @see \OneSearch\Modules\Jobs\ReindexJob                        Concrete parent job — chunks posts into SyncJobs
+ * @see \OneSearch\Modules\Scheduler\Job_Scheduler::execute_job()  Where jobs are dispatched by Action Scheduler
+ * @see \OneSearch\Modules\Scheduler\Job_Scheduler::schedule()     Where jobs are enqueued
+ * @see \OneSearch\Modules\Jobs\Sync_Job                           Concrete leaf job — syncs posts to Algolia
+ * @see \OneSearch\Modules\Jobs\Reindex_Job                        Concrete parent job — chunks posts into Sync_Jobs
  */
-abstract class AbstractJob {
+abstract class Abstract_Job {
 	/**
 	 * Job is waiting to be processed.
 	 *
@@ -140,7 +140,7 @@ abstract class AbstractJob {
 
 	/**
 	 * ID of the parent job, if this is a child job in a composite workflow.
-	 * Set by ReindexJob when creating SyncJob children.
+	 * Set by Reindex_Job when creating Sync_Job children.
 	 *
 	 * @var string|null
 	 */
@@ -148,7 +148,7 @@ abstract class AbstractJob {
 
 	/**
 	 * IDs of all child jobs spawned by this parent job.
-	 * Used by ReindexJob to track its SyncJob children.
+	 * Used by Reindex_Job to track its Sync_Job children.
 	 *
 	 * @var string[]
 	 */
@@ -156,7 +156,7 @@ abstract class AbstractJob {
 
 	/**
 	 * Number of child jobs that have completed (success or failure).
-	 * Incremented by JobScheduler::notify_parent() when a child finishes.
+	 * Incremented by Job_Scheduler::notify_parent() when a child finishes.
 	 *
 	 * @var int
 	 */
@@ -169,6 +169,14 @@ abstract class AbstractJob {
 	 * @var int
 	 */
 	protected int $children_failed = 0;
+
+	/**
+	 * Number of child jobs that were cancelled.
+	 * When all children finish, if this is > 0 the parent is marked CANCELLED.
+	 *
+	 * @var int
+	 */
+	protected int $children_cancelled = 0;
 
 	/**
 	 * Unix timestamp when the job reached a terminal state, null while active.
@@ -214,13 +222,13 @@ abstract class AbstractJob {
 	/**
 	 * Execute the job's concrete logic.
 	 *
-	 * Called by JobScheduler::execute_job() after the job has been
+	 * Called by Job_Scheduler::execute_job() after the job has been
 	 * loaded from storage and marked as RUNNING. Implementations
 	 * should call update_progress() as they process units of work.
 	 *
 	 * Throwing an exception triggers the retry mechanism in execute_job().
 	 *
-	 * @throws \Throwable On any failure; caught by JobScheduler for retry logic.
+	 * @throws \Throwable On any failure; caught by Job_Scheduler for retry logic.
 	 */
 	abstract public function handle(): void;
 
@@ -362,6 +370,15 @@ abstract class AbstractJob {
 	}
 
 	/**
+	 * Get the number of child jobs that were cancelled.
+	 *
+	 * @return int Number of cancelled children.
+	 */
+	public function get_children_cancelled(): int {
+		return $this->children_cancelled;
+	}
+
+	/**
 	 * Get the Unix timestamp when the job was created.
 	 *
 	 * @return int Unix timestamp.
@@ -411,7 +428,7 @@ abstract class AbstractJob {
 	/**
 	 * Set the lifecycle status and touch the updated_at timestamp.
 	 *
-	 * Called by JobScheduler during scheduling (→ pending), execution
+	 * Called by Job_Scheduler during scheduling (→ pending), execution
 	 * (→ running), and cancellation (→ cancelled). For completed/failed
 	 * states, use mark_completed()/fail() instead.
 	 *
@@ -675,6 +692,7 @@ abstract class AbstractJob {
 			'child_ids'           => $this->child_ids,
 			'children_completed'  => $this->children_completed,
 			'children_failed'     => $this->children_failed,
+			'children_cancelled'  => $this->children_cancelled,
 			'children_total'      => count( $this->child_ids ),
 			'cancelled_at'        => $this->cancelled_at,
 			'finished_at'         => $this->finished_at,
@@ -709,6 +727,7 @@ abstract class AbstractJob {
 		$job->child_ids           = $data['child_ids'] ?? $job->child_ids;
 		$job->children_completed  = (int) ( $data['children_completed'] ?? $job->children_completed );
 		$job->children_failed     = (int) ( $data['children_failed'] ?? $job->children_failed );
+		$job->children_cancelled  = (int) ( $data['children_cancelled'] ?? $job->children_cancelled );
 		$job->cancelled_at        = isset( $data['cancelled_at'] ) ? (int) $data['cancelled_at'] : null;
 		$job->finished_at         = isset( $data['finished_at'] ) ? (int) $data['finished_at'] : null;
 		$job->created_at          = (int) ( $data['created_at'] ?? time() );
