@@ -253,6 +253,7 @@ final class JobScheduler {
 		$lock_key = $key . '_lock';
 
 		$max_tries = 10;
+		$acquired  = false;
 		for ( $attempt = 0; $attempt < $max_tries; ++$attempt ) {
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
 			$acquired = $wpdb->query(
@@ -266,6 +267,10 @@ final class JobScheduler {
 				break;
 			}
 			usleep( 100000 + $attempt * 50000 );
+		}
+
+		if ( ! $acquired ) {
+			return;
 		}
 
 		try {
@@ -335,9 +340,38 @@ final class JobScheduler {
 		}
 
 		if ( $cancelled && ! empty( $child_ids ) ) {
-			foreach ( $child_ids as $child_id ) {
-				$this->cancel( $child_id );
-			}
+			$this->cancel_children( $job_id, $child_ids );
+		}
+	}
+
+	/**
+	 * Cancel all pending/running child jobs of a parent in bulk.
+	 *
+	 * ReindexJob children all share a single Action Scheduler group
+	 * ("onesearch_reindex_{parent_id}"), so one as_unschedule_all_actions()
+	 * call replaces N individual as_unschedule_action() calls. The DB update
+	 * is also batched into a single UPDATE … WHERE id IN (…) statement.
+	 * Completed or already-cancelled children are left untouched.
+	 *
+	 * @param string   $parent_id Job ID of the parent (used to derive the AS group).
+	 * @param string[] $child_ids Job IDs of all children registered on the parent.
+	 */
+	private function cancel_children( string $parent_id, array $child_ids ): void {
+		if ( empty( $child_ids ) ) {
+			return;
+		}
+
+		// Children share one AS group: onesearch_reindex_{parent_id}.
+		$child_as_group = 'onesearch_reindex_' . $parent_id;
+		if ( function_exists( 'as_unschedule_all_actions' ) ) {
+			as_unschedule_all_actions( self::HOOK, [], $child_as_group );
+		}
+
+		$now = time();
+		$this->repository->batch_cancel( $child_ids, $now );
+
+		foreach ( $child_ids as $child_id ) {
+			delete_transient( self::OPTION_PREFIX . $child_id );
 		}
 	}
 
@@ -442,6 +476,12 @@ final class JobScheduler {
 	public function execute_job( string $job_class, string $job_id, int $retry = 0 ): void {
 		if ( ! $job_class || ! $job_id || ! class_exists( $job_class ) ) {
 			throw new \InvalidArgumentException( 'Invalid job arguments: missing job_class or job_id.' );
+		}
+
+		if ( ! is_a( $job_class, AbstractJob::class, true ) ) {
+			throw new \InvalidArgumentException(
+				sprintf( 'Job class "%s" must extend AbstractJob.', esc_html( $job_class ) )
+			);
 		}
 
 		$stored = $this->get_status( $job_id );

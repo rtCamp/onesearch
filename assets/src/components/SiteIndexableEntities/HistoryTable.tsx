@@ -1,13 +1,13 @@
 /**
  * WordPress dependencies
  */
-import { __ } from '@wordpress/i18n';
 import { __experimentalText as Text } from '@wordpress/components';
+import { __ } from '@wordpress/i18n';
 /**
  * Internal dependencies
  */
-import type { JobStatus } from './types';
 import JobStatusBadge from './JobStatusBadge';
+import type { JobStatus } from './types';
 import { formatDuration, formatTimestamp } from './utils';
 
 interface HistoryTableProps {
@@ -46,6 +46,7 @@ const HistoryTable = ( { history, onOpenDetails }: HistoryTableProps ) => {
 						totalBatches > 0
 							? `${ completedBatches }/${ totalBatches }`
 							: '—';
+
 					const duration =
 						job.finished_at && job.created_at
 							? job.finished_at - job.created_at
