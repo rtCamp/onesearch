@@ -362,4 +362,221 @@ class Job_REST_Controller_Test extends TestCase {
 		$this->assertTrue( $data['success'] );
 		$this->assertIsArray( $data['children'] );
 	}
+
+	/**
+	 * POST /jobs/reindex creates and schedules a Reindex_Job.
+	 */
+	public function test_create_reindex_schedules_a_job(): void {
+		$request = new WP_REST_Request( 'POST', '/onesearch/v1/jobs/reindex' );
+		$request->set_param( 'post_types', [ 'post' ] );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertTrue( $data['success'] );
+		$this->assertArrayHasKey( 'job_id', $data );
+		$this->assertNotEmpty( $data['job_id'] );
+	}
+
+	/**
+	 * POST /jobs/reindex returns 400 when no post types are configured.
+	 */
+	public function test_create_reindex_fails_when_no_post_types_configured(): void {
+		$request  = new WP_REST_Request( 'POST', '/onesearch/v1/jobs/reindex' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'onesearch_no_post_types', $data['code'] );
+	}
+
+	/**
+	 * DELETE /jobs/{id} returns 400 when the job is already in a terminal state.
+	 */
+	public function test_cancel_terminal_job_returns_400(): void {
+		$job = new Sync_Job();
+		$job->set_data( [ 'post_ids' => [ 1 ] ] );
+		$job->mark_completed();
+		$this->scheduler->persist_job( $job );
+
+		$request  = new WP_REST_Request( 'DELETE', '/onesearch/v1/jobs/' . $job->get_id() );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'onesearch_job_terminal', $data['code'] );
+	}
+
+	/**
+	 * GET /jobs/{id}/children returns 404 for an unknown job.
+	 */
+	public function test_get_children_returns_404_for_unknown_id(): void {
+		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/jobs/nonexistent_id_12345/children' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 404, $response->get_status() );
+	}
+
+	/**
+	 * GET /jobs/{id}/children includes persisted child job statuses.
+	 */
+	public function test_get_children_includes_child_jobs(): void {
+		$parent = new Reindex_Job();
+		$child  = new Sync_Job();
+
+		$child->set_parent_id( $parent->get_id() );
+		$child->set_data( [ 'post_ids' => [ 1 ] ] );
+		$this->scheduler->schedule( $child );
+
+		$parent->set_child_ids( [ $child->get_id() ] );
+		$this->scheduler->persist_job( $parent );
+
+		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/jobs/' . $parent->get_id() . '/children' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertTrue( $data['success'] );
+		$this->assertContains( $child->get_id(), array_column( $data['children'], 'id' ) );
+	}
+
+	/**
+	 * POST /jobs/{id}/retry on a failed child batch resets the parent job to running.
+	 */
+	public function test_retry_single_failed_child_resets_parent_to_running(): void {
+		$parent = new Reindex_Job();
+		$child  = new Sync_Job();
+
+		$child->set_parent_id( $parent->get_id() );
+		$child->set_data( [ 'post_ids' => [ 1 ] ] );
+		$child->fail( 'Permanent batch failure.' );
+		$this->scheduler->persist_job( $child );
+
+		$parent->set_child_ids( [ $child->get_id() ] );
+		$parent->set_progress_total( 1 );
+		$parent->fail( '1/1 child batches failed' );
+		$this->scheduler->persist_job( $parent );
+
+		$request  = new WP_REST_Request( 'POST', '/onesearch/v1/jobs/' . $child->get_id() . '/retry' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertTrue( $data['success'] );
+
+		$parent_status = $this->scheduler->get_status( $parent->get_id() );
+		$this->assertSame( Abstract_Job::STATUS_RUNNING, $parent_status['status'] );
+	}
+
+	/**
+	 * POST /jobs/{id}/retry reconciles a parent stuck as failed when all children actually completed.
+	 */
+	public function test_retry_parent_reconciles_stale_failed_status(): void {
+		$parent = new Reindex_Job();
+		$child  = new Sync_Job();
+
+		$child->set_parent_id( $parent->get_id() );
+		$child->set_data( [ 'post_ids' => [ 1 ] ] );
+		$child->mark_completed();
+		$this->scheduler->persist_job( $child );
+
+		$parent->set_child_ids( [ $child->get_id() ] );
+		$parent->set_progress_total( 1 );
+		$parent->fail( 'Stale failure.' );
+		$this->scheduler->persist_job( $parent );
+
+		$request  = new WP_REST_Request( 'POST', '/onesearch/v1/jobs/' . $parent->get_id() . '/retry' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertTrue( $data['success'] );
+		$this->assertSame( 0, $data['retried'] );
+
+		$parent_status = $this->scheduler->get_status( $parent->get_id() );
+		$this->assertSame( Abstract_Job::STATUS_COMPLETED, $parent_status['status'] );
+	}
+
+	/**
+	 * POST /jobs/{id}/retry returns 400 when the parent has no retryable or completed children.
+	 */
+	public function test_retry_parent_returns_400_when_no_retryable_children(): void {
+		$parent = new Reindex_Job();
+		$parent->set_child_ids( [ 'ghost_child_aaa', 'ghost_child_bbb' ] );
+		$parent->set_progress_total( 2 );
+		$parent->fail( 'All children gone.' );
+		$this->scheduler->persist_job( $parent );
+
+		$request  = new WP_REST_Request( 'POST', '/onesearch/v1/jobs/' . $parent->get_id() . '/retry' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'onesearch_retry_no_failed_children', $data['code'] );
+	}
+
+	/**
+	 * GET /jobs/{id} allows token-authenticated remote requests.
+	 */
+	public function test_get_job_allows_token_authenticated_read(): void {
+		$api_key = Settings::regenerate_api_key();
+		$job     = new Sync_Job();
+		$job->set_data( [ 'post_ids' => [ 1 ] ] );
+		$job->mark_running();
+		$this->scheduler->persist_job( $job );
+
+		wp_set_current_user( 0 );
+
+		$request = new WP_REST_Request( 'GET', '/onesearch/v1/jobs/' . $job->get_id() );
+		$request->set_header( 'X-OneSearch-Token', $api_key );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertTrue( $data['success'] );
+		$this->assertSame( $job->get_id(), $data['job']['id'] );
+	}
+
+	/**
+	 * GET /jobs/remote-status returns 404 when the site_url is not in shared sites.
+	 */
+	public function test_remote_status_returns_404_for_unknown_site(): void {
+		$request = new WP_REST_Request( 'GET', '/onesearch/v1/jobs/remote-status' );
+		$request->set_param( 'site_url', 'https://unknown.example.com' );
+		$request->set_param( 'job_id', 'some_job_id' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 404, $response->get_status() );
+		$this->assertSame( 'onesearch_unknown_site', $data['code'] );
+	}
+
+	/**
+	 * POST /jobs/remote-retry returns 404 when the site_url is not in shared sites.
+	 */
+	public function test_remote_retry_returns_404_for_unknown_site(): void {
+		$request = new WP_REST_Request( 'POST', '/onesearch/v1/jobs/remote-retry' );
+		$request->set_param( 'site_url', 'https://unknown.example.com' );
+		$request->set_param( 'job_id', 'some_job_id' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 404, $response->get_status() );
+		$this->assertSame( 'onesearch_unknown_site', $data['code'] );
+	}
+
+	/**
+	 * POST /jobs/remote-cancel returns success with a warning when the site is unreachable.
+	 */
+	public function test_remote_cancel_returns_success_with_warning_for_unknown_site(): void {
+		$request = new WP_REST_Request( 'POST', '/onesearch/v1/jobs/remote-cancel' );
+		$request->set_param( 'site_url', 'https://unknown.example.com' );
+		$request->set_param( 'job_id', 'some_job_id' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertTrue( $data['success'] );
+		$this->assertArrayHasKey( 'warning', $data );
+	}
 }
