@@ -69,10 +69,13 @@ class Sync_Job_Test extends TestCase {
 	}
 
 	/**
-	 * Verifies the job ID starts with 'job_'.
+	 * Verifies the job ID is a non-empty UUID string.
 	 */
 	public function test_id_prefix(): void {
-		$this->assertStringStartsWith( 'job_', ( new Sync_Job() )->get_id() );
+		$this->assertMatchesRegularExpression(
+			'/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/',
+			( new Sync_Job() )->get_id()
+		);
 	}
 
 	/**

@@ -9,8 +9,10 @@ declare( strict_types = 1 );
 
 namespace OneSearch\Tests\Integration\Modules\Rest;
 
+use OneSearch\Modules\Jobs\Reindex_Job;
 use OneSearch\Modules\Rest\Abstract_REST_Controller;
 use OneSearch\Modules\Rest\Search_Controller;
+use OneSearch\Modules\Scheduler\Job_Scheduler;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
@@ -37,6 +39,8 @@ class Search_Controller_GoverningSiteTest extends TestCase {
 	public function set_up(): void {
 		parent::set_up();
 
+		Search_Controller::clear_reindex_state();
+
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
 
 		global $wp_rest_server;
@@ -56,6 +60,9 @@ class Search_Controller_GoverningSiteTest extends TestCase {
 	public function tear_down(): void {
 		global $wp_rest_server;
 		$wp_rest_server = null;
+
+		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
+		delete_option( Settings::OPTION_GOVERNING_SHARED_SITES );
 
 		parent::tear_down();
 	}
@@ -427,11 +434,16 @@ class Search_Controller_GoverningSiteTest extends TestCase {
 	 * GET /re-index/status returns active when a reindex state transient exists.
 	 */
 	public function test_reindex_status_returns_active_with_state(): void {
+		$scheduler = new Job_Scheduler();
+		$job       = new Reindex_Job();
+		$job->mark_running();
+		$scheduler->persist_job( $job );
+
 		$jobs = [
 			[
 				'site_name'   => 'Test Site',
 				'site_url'    => 'https://example.com',
-				'job_id'      => 'test_job_123',
+				'job_id'      => $job->get_id(),
 				'batch_count' => 5,
 			],
 		];
@@ -445,19 +457,22 @@ class Search_Controller_GoverningSiteTest extends TestCase {
 		$this->assertTrue( $data['success'] );
 		$this->assertTrue( $data['active'] );
 		$this->assertEquals( $jobs, $data['jobs'] );
-
-		delete_transient( Search_Controller::REINDEX_STATE_TRANSIENT );
 	}
 
 	/**
 	 * POST /re-index returns 409 when a reindex is already active.
 	 */
 	public function test_reindex_returns_409_when_active_reindex_exists(): void {
+		$scheduler = new Job_Scheduler();
+		$job       = new Reindex_Job();
+		$job->mark_running();
+		$scheduler->persist_job( $job );
+
 		$jobs = [
 			[
 				'site_name'   => 'Test Site',
 				'site_url'    => get_site_url(),
-				'job_id'      => 'test_job_456',
+				'job_id'      => $job->get_id(),
 				'batch_count' => 3,
 			],
 		];
@@ -469,7 +484,5 @@ class Search_Controller_GoverningSiteTest extends TestCase {
 
 		$this->assertSame( 409, $response->get_status() );
 		$this->assertSame( 'onesearch_reindex_active', $data['code'] );
-
-		delete_transient( Search_Controller::REINDEX_STATE_TRANSIENT );
 	}
 }

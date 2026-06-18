@@ -24,6 +24,11 @@ final class SettingsTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 
+		delete_option( Settings::OPTION_SITE_TYPE );
+		delete_option( Settings::OPTION_CONSUMER_API_KEY );
+		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
+		delete_option( Settings::OPTION_GOVERNING_SHARED_SITES );
+
 		$this->settings = new Settings();
 	}
 
