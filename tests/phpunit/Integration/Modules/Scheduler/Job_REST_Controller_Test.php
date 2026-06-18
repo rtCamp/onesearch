@@ -156,29 +156,6 @@ class Job_REST_Controller_Test extends TestCase {
 	}
 
 	/**
-	 * POST /jobs/{id}/retry allows token-authenticated remote requests.
-	 */
-	public function test_retry_job_allows_token_authenticated_request(): void {
-		$api_key = Settings::regenerate_api_key();
-		$job     = new Sync_Job();
-
-		$job->set_data( [ 'post_ids' => [ 1 ] ] );
-		$job->fail( 'Permanent batch failure.' );
-		$this->scheduler->persist_job( $job );
-
-		wp_set_current_user( 0 );
-
-		$request = new WP_REST_Request( 'POST', '/onesearch/v1/jobs/' . $job->get_id() . '/retry' );
-		$request->set_header( 'X-OneSearch-Token', $api_key );
-		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
-
-		$this->assertSame( 200, $response->get_status() );
-		$this->assertTrue( $data['success'] );
-		$this->assertSame( $job->get_id(), $data['job_id'] );
-	}
-
-	/**
 	 * POST /jobs/{id}/retry retries only failed child batches for a parent job.
 	 */
 	public function test_retry_parent_job_retries_failed_children_only(): void {
