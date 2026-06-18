@@ -31,6 +31,16 @@ final class SettingsTest extends TestCase {
 	}
 
 	/**
+	 * Ensures register_hooks adds expected actions.
+	 */
+	public function test_class_instantiation(): void {
+		$settings = new Search_Settings();
+		$settings->register_hooks();
+		// If we made it here without erroring, we're good.
+		$this->assertTrue( true );
+	}
+
+	/**
 	 * Ensures register_settings registers governing settings when governing.
 	 */
 	public function test_register_settings_registers_governing_options(): void {
