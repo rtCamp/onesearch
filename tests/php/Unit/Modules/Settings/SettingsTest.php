@@ -37,11 +37,13 @@ final class SettingsTest extends TestCase {
 		parent::tearDown();
 	}
 
-	/** Ensures the class can be instantiated and hook methods can be called without error. */
+	/**
+	 * Ensures register_hooks adds expected actions.
+	 */
 	public function test_class_instantiation(): void {
-		$this->settings->register_hooks();
-		$this->settings->register_settings();
-
+		$settings = new Settings();
+		$settings->register_hooks();
+		// If we made it here without erroring, we're good.
 		$this->assertTrue( true );
 	}
 

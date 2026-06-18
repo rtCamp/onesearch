@@ -33,6 +33,16 @@ final class WatcherTest extends TestCase {
 	}
 
 	/**
+	 * Ensures the class is initialized correctly
+	 */
+	public function test_class_instantiation(): void {
+		$watcher = new Watcher();
+		$watcher->register_hooks();
+		// If we made it this far, we're good.
+		$this->assertTrue( true );
+	}
+
+	/**
 	 * Skips when post is not a WP_Post instance.
 	 */
 	public function test_on_post_transition_skips_non_wp_post(): void {
