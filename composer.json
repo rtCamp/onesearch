@@ -52,7 +52,7 @@
 	],
 	"require": {
 		"php": "^8.2",
-		"algolia/algoliasearch-client-php": "^3.0"
+		"algolia/algoliasearch-client-php": "^4.0"
 	},
 	"require-dev": {
 		"dealerdirect/phpcodesniffer-composer-installer": "^1.2",
