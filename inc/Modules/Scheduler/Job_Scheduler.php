@@ -21,24 +21,24 @@ use OneSearch\Utils;
  *
  * Bridges the domain model (Abstract_Job subclasses) with Action Scheduler's
  * async execution engine and WordPress's dual storage layer
- * (transients + wp_options).
+ * (transients + wp_onesearch_index_jobs custom table).
  *
  * Storage strategy:
  *   - Active jobs (pending/running): stored in WordPress transients with a TTL.
  *     Each persist_job() call resets the expiration.
- *   - Terminal jobs (completed/failed/cancelled): moved to wp_options for
- *     permanent storage. The transient is deleted and the active index updated.
- *   - All jobs are also written to wp_onesearch_index_jobs for enumeration.
- *     Active jobs are queryable via status; terminal rows are permanent.
- *   - Auxiliary keys (_action_id, _action_args, _children_done) remain in
- *     wp_options regardless of job status.
+ *   - Terminal jobs (completed/failed/cancelled): transient is deleted; the
+ *     custom table row (wp_onesearch_index_jobs) becomes the source of truth.
+ *   - All jobs are written to wp_onesearch_index_jobs on every persist_job()
+ *     call. Active jobs are queryable via status; terminal rows are permanent.
+ *   - Action ID, action args, and child counters are stored as dedicated
+ *     columns in the custom table.
  *
  * Execution flow:
- *   1. schedule($job) → persist (transient) + enqueue async action
+ *   1. schedule($job) → persist (transient + table) + enqueue async action
  *   2. AS worker fires 'onesearch_execute_job' → execute_job() called
- *   3. execute_job() loads job, marks RUNNING (transient), calls handle()
- *   4. On success: markCompleted/keep RUNNING + notify_parent
- *   5. On terminal: move from transient → wp_options, update active index
+ *   3. execute_job() loads job, marks RUNNING (transient + table), calls handle()
+ *   4. On success: mark_completed/keep RUNNING + notify_parent
+ *   5. On terminal: delete transient, table row is now source of truth
  *   6. On failure: retry if allowed, otherwise fail permanently + notify_parent
  */
 final class Job_Scheduler {
@@ -48,12 +48,15 @@ final class Job_Scheduler {
 	public const HOOK = 'onesearch_execute_job';
 
 	/**
-	 * Prefix for wp_options keys storing job state.
+	 * Prefix for transient keys storing active job state.
 	 *
-	 * Full key format: "onesearch_job_status_{jobId}" for the main job state.
-	 * Additional keys: "onesearch_job_status_{jobId}_action_id",
-	 * "onesearch_job_status_{jobId}_action_args",
-	 * "onesearch_job_status_{jobId}_children_done".
+	 * Main transient key: "onesearch_job_status_{jobId}" — holds the full
+	 * job payload for pending/running jobs. Deleted when the job reaches a
+	 * terminal state (the custom table row is then the source of truth).
+	 * Also used as a base for the spinlock key: "onesearch_job_status_{jobId}_lock".
+	 *
+	 * Note: action_id, action_args, and child counters are stored as dedicated
+	 * columns in wp_onesearch_index_jobs, not as separate wp_options/transient keys.
 	 */
 	public const OPTION_PREFIX = 'onesearch_job_status_';
 
@@ -69,8 +72,8 @@ final class Job_Scheduler {
 	/**
 	 * Job statuses that represent terminal (finished) states.
 	 *
-	 * When a job transitions to any of these, its data is moved
-	 * from transient to wp_options for permanent storage.
+	 * When a job transitions to any of these, its transient is deleted and
+	 * the custom table row (wp_onesearch_index_jobs) becomes the source of truth.
 	 */
 	public const TERMINAL_STATUSES = [
 		Abstract_Job::STATUS_COMPLETED,
@@ -228,7 +231,7 @@ final class Job_Scheduler {
 	}
 
 	/**
-	 * Cancel a job and all its children recursively.
+	 * Cancel a job and all its children in bulk.
 	 *
 	 * @param string $job_id The ID of the job to cancel.
 	 */
@@ -360,7 +363,7 @@ final class Job_Scheduler {
 	 * Retrieve the stored job state using the dual storage strategy.
 	 *
 	 * Checks transients first (where active pending/running jobs live),
-	 * then falls back to wp_options (where terminal jobs are stored).
+	 * then falls back to the custom table (where terminal jobs are stored).
 	 *
 	 * @param string $job_id The job ID to look up.
 	 * @return array<string, mixed>|null The job state, or null if not found.
@@ -626,10 +629,11 @@ final class Job_Scheduler {
 	/**
 	 * Notify a parent job that one of its children has completed.
 	 *
-	 * Uses an atomic SQL counter for _children_done to prevent race conditions
-	 * when multiple children complete simultaneously. A spinlock with retries
-	 * guards the parent data write to prevent concurrent overwrites while
-	 * ensuring no notifications are silently dropped.
+	 * Uses three atomic SQL counters (children_done, children_failed,
+	 * children_cancelled) to prevent race conditions when multiple children
+	 * complete simultaneously. A spinlock with retries guards the parent data
+	 * write to prevent concurrent overwrites while ensuring no notifications
+	 * are silently dropped.
 	 *
 	 * Remote site status checks are performed OUTSIDE the lock to prevent
 	 * blocking cancel() operations during slow API calls.
