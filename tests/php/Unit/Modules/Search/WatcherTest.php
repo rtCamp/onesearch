@@ -10,6 +10,7 @@ declare(strict_types = 1);
 namespace OneSearch\Tests\Unit\Modules\Search;
 
 use OneSearch\Modules\Rest\Governing_Data_Handler;
+use OneSearch\Modules\Scheduler\Job_Scheduler;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Search\Watcher;
 use OneSearch\Modules\Settings\Settings;
@@ -27,6 +28,11 @@ final class WatcherTest extends TestCase {
 	 * {@inheritDoc}
 	 */
 	protected function tearDown(): void {
+		// Prevent OPTION_SITE_TYPE from leaking into other test classes.
+		delete_option( Settings::OPTION_SITE_TYPE );
+		// Clean up any AS actions enqueued by the Watcher during this test.
+		as_unschedule_all_actions( Job_Scheduler::HOOK );
+
 		AlgoliaSDK::resetHttpClient();
 
 		parent::tearDown();
@@ -213,8 +219,8 @@ final class WatcherTest extends TestCase {
 	}
 
 	/**
-	 * Indexable post triggers Algolia saveObjects (reindex) call.
-	 * This verifies the full integration flow for a governing site.
+	 * Indexable post schedules an async Sync_Job for a governing site.
+	 * Algolia is no longer called synchronously — the job runs in an AS worker.
 	 */
 	public function test_on_post_transition_triggers_algolia_reindex(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
@@ -234,24 +240,23 @@ final class WatcherTest extends TestCase {
 			]
 		);
 
-		$recorded_paths = [];
-		$this->mock_algolia_http_client( $recorded_paths );
-
 		$post    = self::factory()->post->create_and_get( [ 'post_status' => 'publish' ] );
 		$watcher = new Watcher();
 
-		// Transition from 'draft' to 'publish' (should trigger reindex).
+		// Transition from 'draft' to 'publish' (should schedule async Sync_Job).
 		$watcher->on_post_transition( 'publish', 'draft', $post );
 
-		// Assert that a /batch (saveObjects) call was made.
-		$batch_calls = array_filter( $recorded_paths, static fn ( $p ) => str_contains( $p, '/batch' ) );
-		$this->assertNotEmpty( $batch_calls, 'Happy path should trigger Algolia reindex (saveObjects).' );
+		// Assert that an async action was enqueued for the job executor hook.
+		$this->assertNotFalse(
+			as_next_scheduled_action( Job_Scheduler::HOOK ),
+			'Happy path should schedule an async Sync_Job via Action Scheduler.'
+		);
 	}
 
 	/**
-	 * Indexable post triggers Algolia saveObjects (reindex) call on a consumer (brand) site.
-	 * This verifies the full integration flow where credentials and indexable entities
-	 * are resolved from the governing site's brand config cache.
+	 * Indexable post on a consumer site schedules an async Sync_Job.
+	 * Credentials and indexable entities are resolved from the brand config cache,
+	 * but Algolia is no longer called synchronously — the job runs in an AS worker.
 	 */
 	public function test_on_post_transition_triggers_algolia_reindex_consumer_site(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
@@ -259,17 +264,16 @@ final class WatcherTest extends TestCase {
 
 		$this->set_consumer_brand_config_cache( 'test-app', 'test-key' );
 
-		$recorded_paths = [];
-		$this->mock_algolia_http_client( $recorded_paths );
-
 		$post    = self::factory()->post->create_and_get( [ 'post_status' => 'publish' ] );
 		$watcher = new Watcher();
 
-		// Transition from 'draft' to 'publish' (should trigger reindex).
+		// Transition from 'draft' to 'publish' (should schedule async Sync_Job).
 		$watcher->on_post_transition( 'publish', 'draft', $post );
 
-		// Assert that a /batch (saveObjects) call was made.
-		$batch_calls = array_filter( $recorded_paths, static fn ( $p ) => str_contains( $p, '/batch' ) );
-		$this->assertNotEmpty( $batch_calls, 'Consumer site happy path should trigger Algolia reindex (saveObjects).' );
+		// Assert that an async action was enqueued for the job executor hook.
+		$this->assertNotFalse(
+			as_next_scheduled_action( Job_Scheduler::HOOK ),
+			'Consumer site happy path should schedule an async Sync_Job via Action Scheduler.'
+		);
 	}
 }
