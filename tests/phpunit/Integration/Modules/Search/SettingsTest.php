@@ -24,7 +24,20 @@ final class SettingsTest extends TestCase {
 	/**
 	 * {@inheritDoc}
 	 */
+	protected function setUp(): void {
+		parent::setUp();
+
+		// Ensure no stale site-type option from a previous test class causes
+		// is_governing_site() to return true during purge-cache assertions.
+		delete_option( Settings::OPTION_SITE_TYPE );
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
 	protected function tearDown(): void {
+		delete_option( Settings::OPTION_SITE_TYPE );
+
 		AlgoliaSDK::resetHttpClient();
 
 		parent::tearDown();
