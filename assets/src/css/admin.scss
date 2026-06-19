@@ -578,8 +578,7 @@ body:has(.onesearch-setup-overlay) .onesearch-search-content {
 	width: 36px;
 	height: 36px;
 	border: 3px solid #e0e0e0;
-	border-top-color:
- var(--wp-components-color-accent, var(--wp-admin-theme-color, #3858e9));
+	border-top-color: var(--wp-components-color-accent, var(--wp-admin-theme-color, #3858e9));
 	border-radius: 50%;
 	animation: onesearch-spin 0.7s linear infinite;
 }
@@ -932,8 +931,7 @@ body:has(.onesearch-setup-overlay) .onesearch-search-content {
 	}
 
 	& &-current.components-button {
-		background:
- var(--wp-components-color-accent, var(--wp-admin-theme-color, #3858e9));
+		background: var(--wp-components-color-accent, var(--wp-admin-theme-color, #3858e9));
 		color: #fff;
 		pointer-events: none;
 	}
