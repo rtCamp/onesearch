@@ -13,6 +13,7 @@ use OneSearch\Modules\Jobs\Abstract_Job;
 use OneSearch\Modules\Jobs\Reindex_Job;
 use OneSearch\Modules\Jobs\Sync_Job;
 use OneSearch\Modules\Rest\Abstract_REST_Controller;
+use OneSearch\Modules\Rest\Search_Controller;
 use OneSearch\Modules\Schema\Job_Repository;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Utils;
