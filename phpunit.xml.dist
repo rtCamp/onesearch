@@ -19,7 +19,7 @@
 	requireCoverageMetadata="true"
 >
 	<testsuites>
-		<testsuite name="unit">
+		<testsuite name="integration">
 			<directory suffix=".php">tests/php/Integration</directory>
 		</testsuite>
 	</testsuites>
