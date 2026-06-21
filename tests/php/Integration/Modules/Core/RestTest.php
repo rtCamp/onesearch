@@ -2,12 +2,12 @@
 /**
  * Rest unit tests.
  *
- * @package OneSearch\Tests\Unit\Modules\Core
+ * @package OneSearch\Tests\Integration\Modules\Core
  */
 
 declare(strict_types = 1);
 
-namespace OneSearch\Tests\Unit\Modules\Core;
+namespace OneSearch\Tests\Integration\Modules\Core;
 
 use OneSearch\Modules\Core\Rest;
 use OneSearch\Tests\TestCase;

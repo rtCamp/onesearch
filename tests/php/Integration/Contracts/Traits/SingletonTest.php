@@ -2,12 +2,12 @@
 /**
  * Singleton trait unit tests.
  *
- * @package OneSearch\Tests\Unit\Contracts\Traits
+ * @package OneSearch\Tests\Integration\Contracts\Traits
  */
 
 declare( strict_types = 1 );
 
-namespace OneSearch\Tests\Unit\Contracts\Traits;
+namespace OneSearch\Tests\Integration\Contracts\Traits;
 
 use OneSearch\Contracts\Traits\Singleton;
 use OneSearch\Tests\TestCase;

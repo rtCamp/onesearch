@@ -2,12 +2,12 @@
 /**
  * Tests for Governing_Data_Handler.
  *
- * @package OneSearch\Tests\Unit\Modules\Rest
+ * @package OneSearch\Tests\Integration\Modules\Rest
  */
 
 declare( strict_types = 1 );
 
-namespace OneSearch\Tests\Unit\Modules\Rest;
+namespace OneSearch\Tests\Integration\Modules\Rest;
 
 use OneSearch\Modules\Rest\Governing_Data_Handler;
 use OneSearch\Modules\Settings\Settings;

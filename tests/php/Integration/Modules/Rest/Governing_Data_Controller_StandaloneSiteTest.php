@@ -2,12 +2,12 @@
 /**
  * Tests for Governing_Data_Controller on a standalone (untyped) site.
  *
- * @package OneSearch\Tests\Unit\Modules\Rest
+ * @package OneSearch\Tests\Integration\Modules\Rest
  */
 
 declare( strict_types = 1 );
 
-namespace OneSearch\Tests\Unit\Modules\Rest;
+namespace OneSearch\Tests\Integration\Modules\Rest;
 
 use OneSearch\Modules\Rest\Abstract_REST_Controller;
 use OneSearch\Modules\Rest\Governing_Data_Controller;

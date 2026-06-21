@@ -2,12 +2,12 @@
 /**
  * Settings unit tests.
  *
- * @package OneSearch\Tests\Unit\Modules\Settings
+ * @package OneSearch\Tests\Integration\Modules\Settings
  */
 
 declare(strict_types = 1);
 
-namespace OneSearch\Tests\Unit\Modules\Settings;
+namespace OneSearch\Tests\Integration\Modules\Settings;
 
 use OneSearch\Encryptor;
 use OneSearch\Modules\Settings\Settings;

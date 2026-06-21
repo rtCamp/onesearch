@@ -2,12 +2,12 @@
 /**
  * Encryptor unit tests.
  *
- * @package OneSearch\Tests\Unit
+ * @package OneSearch\Tests\Integration
  */
 
 declare( strict_types = 1 );
 
-namespace OneSearch\Tests\Unit;
+namespace OneSearch\Tests\Integration;
 
 use OneSearch\Encryptor;
 use OneSearch\Tests\TestCase;

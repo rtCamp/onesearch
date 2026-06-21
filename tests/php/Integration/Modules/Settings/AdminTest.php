@@ -2,12 +2,12 @@
 /**
  * Admin settings screen unit tests.
  *
- * @package OneSearch\Tests\Unit\Modules\Settings
+ * @package OneSearch\Tests\Integration\Modules\Settings
  */
 
 declare(strict_types = 1);
 
-namespace OneSearch\Tests\Unit\Modules\Settings;
+namespace OneSearch\Tests\Integration\Modules\Settings;
 
 use OneSearch\Modules\Settings\Admin;
 use OneSearch\Modules\Settings\Settings;

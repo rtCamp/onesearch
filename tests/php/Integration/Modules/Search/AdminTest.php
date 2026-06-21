@@ -2,12 +2,12 @@
 /**
  * Search admin screen unit tests.
  *
- * @package OneSearch\Tests\Unit\Modules\Search
+ * @package OneSearch\Tests\Integration\Modules\Search
  */
 
 declare(strict_types = 1);
 
-namespace OneSearch\Tests\Unit\Modules\Search;
+namespace OneSearch\Tests\Integration\Modules\Search;
 
 use OneSearch\Modules\Core\Assets;
 use OneSearch\Modules\Search\Admin;
