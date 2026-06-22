@@ -10,7 +10,9 @@ declare(strict_types = 1);
 namespace OneSearch\Modules\Search;
 
 use OneSearch\Contracts\Interfaces\Registrable;
+use OneSearch\Modules\Jobs\Sync_Job;
 use OneSearch\Modules\Rest\Governing_Data_Handler;
+use OneSearch\Modules\Scheduler\Job_Scheduler;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Utils;
@@ -29,6 +31,9 @@ final class Watcher implements Registrable {
 	/**
 	 * Triggered when a post's status changes (e.g., publish, update, trash, etc.)
 	 *
+	 * Schedules an async Sync_Job to update the post in Algolia instead of
+	 * performing the sync inline, keeping the request fast.
+	 *
 	 * @internal Hook callback
 	 *
 	 * @param string   $new_status The new post status.
@@ -40,27 +45,49 @@ final class Watcher implements Registrable {
 			return;
 		}
 
-		// First delete the old post.
-		// @see Post_Record::prepare_record_object_name .
-		$site_post_id   = sprintf( '%s_%d', Utils::normalize_url( get_site_url() ), (int) $post->ID );
-		$indexer        = new Index();
-		$delete_success = $indexer->delete_by(
+		$job = new Sync_Job();
+		$job->set_data(
+			[
+				'post_ids' => [ (int) $post->ID ],
+			]
+		);
+		$job->set_group( 'watcher' );
+		$job->set_max_retries( 2 );
+		$job->set_retry_delay_seconds( 30 );
+
+		$scheduler = new Job_Scheduler();
+
+		try {
+			$scheduler->schedule( $job );
+		} catch ( \Throwable $e ) {
+			// Fallback to synchronous indexing if scheduling fails.
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			error_log( sprintf( '[OneSearch] Failed to schedule Sync_Job: %s', $e->getMessage() ) );
+
+			$this->sync_post_inline( $post );
+		}
+	}
+
+	/**
+	 * Synchronously sync a post to Algolia (fallback when async scheduling fails).
+	 *
+	 * @param \WP_Post $post The post to sync.
+	 */
+	private function sync_post_inline( \WP_Post $post ): void {
+		$site_post_id = sprintf( '%s_%d', Utils::normalize_url( get_site_url() ), (int) $post->ID );
+		$indexer      = new Index();
+
+		$indexer->delete_by(
 			[
 				'filters' => sprintf( 'site_post_id:"%s"', $site_post_id ),
 			]
 		);
 
-		if ( is_wp_error( $delete_success ) ) {
-			return;
-		}
-
-		// Check if the new status is allowed before reindexing.
-		if ( ! in_array( $new_status, Post_Record::get_allowed_statuses( [ $post->post_type ] ), true ) ) {
+		if ( ! in_array( $post->post_status, Post_Record::get_allowed_statuses( [ $post->post_type ] ), true ) ) {
 			return;
 		}
 
 		$records = ( new Post_Record() )->to_records( $post );
-
 		$indexer->save_records( $records );
 	}
 

@@ -9,7 +9,8 @@ declare(strict_types = 1);
 
 namespace OneSearch\Modules\Rest;
 
-use OneSearch\Modules\Search\Index;
+use OneSearch\Modules\Jobs\Reindex_Job;
+use OneSearch\Modules\Scheduler\Job_Scheduler;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Utils;
@@ -20,6 +21,25 @@ use WP_REST_Server;
  * Class Search_Controller
  */
 class Search_Controller extends Abstract_REST_Controller {
+	/**
+	 * Transient key for the active reindex state.
+	 *
+	 * Stores the jobs array so the frontend can restore progress UI
+	 * after a page refresh. Cleared when the reindex completes or is
+	 * cancelled.
+	 */
+	public const REINDEX_STATE_TRANSIENT = 'onesearch_reindex_state';
+
+	/**
+	 * TTL in seconds for the reindex state transient.
+	 */
+	private const REINDEX_STATE_TTL = 3600;
+
+	/**
+	 * Seconds of inactivity after which a non-terminal job is considered abandoned.
+	 */
+	private const STALE_JOB_THRESHOLD = 900; // 15 minutes
+
 	/**
 	 * {@inheritDoc}
 	 */
@@ -77,7 +97,10 @@ class Search_Controller extends Abstract_REST_Controller {
 								'required'          => true,
 								'type'              => 'array',
 								'sanitize_callback' => static function ( $value ) {
-									return is_array( $value );
+									if ( ! is_array( $value ) ) {
+										return [];
+									}
+									return $value;
 								},
 							],
 						],
@@ -93,6 +116,17 @@ class Search_Controller extends Abstract_REST_Controller {
 			[
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => [ $this, 'reindex' ],
+				'permission_callback' => [ $this, 'check_api_permissions' ],
+			]
+		);
+
+		// Get active reindex state for UI persistence across page refreshes.
+		register_rest_route(
+			self::NAMESPACE,
+			'/re-index/status',
+			[
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => [ $this, 'get_reindex_status' ],
 				'permission_callback' => [ $this, 'check_api_permissions' ],
 			]
 		);
@@ -193,58 +227,291 @@ class Search_Controller extends Abstract_REST_Controller {
 			return new \WP_Error( 'invalid_data', __( 'Failed saving settings. Please try again', 'onesearch' ), [ 'status' => 400 ] );
 		}
 
-		update_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES, $indexable_entities );
+		$sanitized = $this->sanitize_indexable_entities( $indexable_entities );
+
+		update_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES, $sanitized );
 
 		return rest_ensure_response(
 			[
 				'success'           => true,
 				'message'           => __( 'Data saved successfully.', 'onesearch' ),
-				'indexableEntities' => $indexable_entities,
+				'indexableEntities' => $sanitized,
 			]
 		);
+	}
+
+	/**
+	 * Recursively sanitize indexable entities data.
+	 *
+	 * @param mixed $data The data to sanitize.
+	 * @return mixed The sanitized data.
+	 */
+	private function sanitize_indexable_entities( $data ) {
+		if ( is_array( $data ) ) {
+			$sanitized = [];
+			foreach ( $data as $key => $value ) {
+				$sanitized_key               = is_string( $key ) ? sanitize_text_field( $key ) : $key;
+				$sanitized[ $sanitized_key ] = $this->sanitize_indexable_entities( $value );
+			}
+			return $sanitized;
+		}
+
+		if ( is_string( $data ) ) {
+			return sanitize_text_field( $data );
+		}
+
+		return $data;
 	}
 
 	/**
 	 * Reindex the current site.
 	 *
 	 * If the site is a governing site, trigger the reindex on children as well.
+	 * The parent Reindex_Job runs in this request to resolve posts and enqueue
+	 * child Sync_Jobs; the child Sync_Jobs then run asynchronously via Action Scheduler.
 	 */
 	public function reindex(): \WP_REST_Response|\WP_Error {
+		// Guard: prevent starting a new reindex while one is already running.
+		// Use an option-based mutex (add_option is atomic in MySQL) to prevent
+		// race conditions between concurrent requests.
+		$lock_key = self::REINDEX_STATE_TRANSIENT . '_lock';
+		if ( ! add_option( $lock_key, '1', '', false ) ) {
+			return new \WP_Error(
+				'onesearch_reindex_active',
+				__( 'A re-index is already in progress. Cancel it or wait for it to complete before starting a new one.', 'onesearch' ),
+				[ 'status' => 409 ]
+			);
+		}
+
+		// Auto-expire the lock after 5 minutes in case the process crashes
+		// before cleanup. wp_schedule_single_action is preferred but not
+		// guaranteed to be available during plugin init, so we use a transient
+		// as a safety net.
+		set_transient( $lock_key . '_expiry', '1', 5 * MINUTE_IN_SECONDS );
+
+		$active_state = $this->get_active_reindex_state();
+		if ( null !== $active_state ) {
+			$this->release_reindex_lock( $lock_key );
+			return new \WP_Error(
+				'onesearch_reindex_active',
+				__( 'A re-index is already in progress. Cancel it or wait for it to complete before starting a new one.', 'onesearch' ),
+				[ 'status' => 409 ]
+			);
+		}
+
+		$jobs   = [];
 		$errors = [];
 
 		// If Governing, trigger re-index on children as well.
 		if ( Settings::is_governing_site() ) {
-			$child_errors = $this->reindex_child_sites();
+			$child_result = $this->reindex_child_sites();
 
-			if ( is_array( $child_errors ) ) {
-				$errors = array_merge( $errors, $child_errors );
+			if ( isset( $child_result['jobs'] ) ) {
+				$jobs = array_merge( $jobs, $child_result['jobs'] );
+			}
+
+			if ( isset( $child_result['errors'] ) ) {
+				$errors = array_merge( $errors, $child_result['errors'] );
 			}
 		}
 
 		$post_types = $this->get_post_types_to_index();
 
 		if ( is_wp_error( $post_types ) ) {
+			$this->release_reindex_lock( $lock_key );
 			return $post_types;
 		}
 
-		// Index the current site.
-		$indexed = ( new Index() )->index_all_posts( $post_types );
+		// Create and execute the Reindex_Job synchronously.
+		// The parent job runs in this request (resolve posts, clear index,
+		// schedule child Sync_Jobs). Only the child Sync_Jobs run async via AS.
+		$job = new Reindex_Job();
+		$job->set_data(
+			[
+				'post_types' => $post_types,
+				'batch_size' => 100,
+			]
+		);
+		$job->set_max_retries( 2 );
+		$job->set_retry_delay_seconds( 60 );
 
-		if ( is_wp_error( $indexed ) ) {
+		$scheduler = new Job_Scheduler();
+		$job_id    = $job->get_id();
+
+		try {
+			$job->mark_running();
+			$scheduler->persist_job( $job );
+			$job->handle();
+
+			// Only re-persist when no children were scheduled.
+			// When children exist, notify_parent() owns the parent lifecycle;
+			// re-persisting RUNNING here would clobber a terminal status that a
+			// fast child already wrote during async processing.
+			if ( ! $job->has_pending_children() ) {
+				if ( ! $job->is_finished() ) {
+					$job->mark_completed();
+				}
+				$scheduler->persist_job( $job );
+			}
+		} catch ( \Throwable $e ) {
+			$job->fail( $e->getMessage() );
+			$scheduler->persist_job( $job );
 			$errors[] = [
 				'site_url' => get_site_url(),
-				'message'  => $indexed->get_error_message() ?: __( 'Re-index failed.', 'onesearch' ),
+				'message'  => $e->getMessage(),
 			];
 		}
 
+		// Add local site to the jobs list.
+		$local_site_name = Settings::is_governing_site() ? __( 'Governing Site', 'onesearch' ) : get_bloginfo( 'name' );
+		$local_site_url  = get_site_url();
+		$local_batches   = count( $job->get_child_ids() );
+
+		if ( $job_id ) {
+			array_unshift(
+				$jobs,
+				[
+					'site_name'   => $local_site_name,
+					'site_url'    => $local_site_url,
+					'job_id'      => $job_id,
+					'batch_count' => $local_batches,
+				]
+			);
+		}
+
+		// Compute combined total across all sites and store in the
+		// governing site's job data so the history table can display it.
+		if ( Settings::is_governing_site() ) {
+			$total_batches      = $local_batches;
+			$child_batch_counts = $child_result['batch_counts'] ?? [];
+			foreach ( $child_batch_counts as $count ) {
+				$total_batches += $count;
+			}
+			// Re-read the freshest stored state so we never downgrade a terminal
+			// status (e.g. COMPLETED) that notify_parent() may have already written.
+			$latest    = $scheduler->get_status( $job_id );
+			$merge_job = $latest ? Reindex_Job::from_array( $latest ) : $job;
+			$merge_job->set_data(
+				array_merge(
+					$merge_job->get_data() ?: [],
+					[
+						'total_batches' => $total_batches,
+						'sites'         => $jobs,
+					]
+				)
+			);
+			$scheduler->persist_job( $merge_job );
+		}
+
+		// Persist the reindex state so the UI can survive page refreshes.
+		set_transient( self::REINDEX_STATE_TRANSIENT, $jobs, self::REINDEX_STATE_TTL );
+
+		// Release the reindex lock now that the state has been persisted.
+		$this->release_reindex_lock( $lock_key );
+
 		return rest_ensure_response(
 			[
-				'success' => empty( $errors ),
-				'message' => empty( $errors )
+				'success'     => empty( $errors ),
+				'message'     => empty( $errors )
 					? __( 'Re-indexing scheduled successfully.', 'onesearch' )
-					: __( 'Re-indexing was unsuccessful. Please try again later.', 'onesearch' ),
+					: implode( "\n", array_column( $errors, 'message' ) ),
+				'job_id'      => $job_id,
+				'batch_count' => count( $job->get_child_ids() ),
+				'jobs'        => $jobs,
 			]
 		);
+	}
+
+	/**
+	 * Get the current reindex status for UI persistence.
+	 *
+	 * Used by the frontend on mount to detect if a reindex was in progress
+	 * before a page refresh, so it can restore the progress UI.
+	 */
+	public function get_reindex_status(): WP_REST_Response {
+		$state = $this->get_active_reindex_state();
+
+		return new WP_REST_Response(
+			[
+				'success' => true,
+				'active'  => null !== $state,
+				'jobs'    => $state,
+			]
+		);
+	}
+
+	/**
+	 * Helper to get the active reindex state, or null if none/broken.
+	 *
+	 * Validates that the stored job IDs still exist in storage
+	 * and haven't reached terminal status. If they're terminal,
+	 * the state is auto-cleaned up.
+	 *
+	 * @return array<int, array{site_name:string, site_url:string, job_id:string}>|null
+	 */
+	private function get_active_reindex_state(): ?array {
+		$state = get_transient( self::REINDEX_STATE_TRANSIENT );
+
+		if ( ! is_array( $state ) || empty( $state ) ) {
+			return null;
+		}
+
+		$scheduler = new Job_Scheduler();
+		$blocking  = false;
+		$now       = time();
+
+		foreach ( $state as $entry ) {
+			$job_id     = $entry['job_id'] ?? '';
+			$job_status = $scheduler->get_status( $job_id );
+
+			// Missing row = not blocking; live jobs are always persisted before
+			// the reindex lock is released, so absence means the job is gone.
+			if ( ! $job_status ) {
+				continue;
+			}
+
+			// Terminal status = not blocking.
+			if ( in_array( $job_status['status'] ?? '', Job_Scheduler::TERMINAL_STATUSES, true ) ) {
+				continue;
+			}
+
+			// Pending/running but no progress for > 15 min = abandoned.
+			// updated_at is bumped by every notify_parent() call, so stale
+			// updated_at reliably means the job is wedged or the process died.
+			$updated_at = (int) ( $job_status['updated_at'] ?? 0 );
+			if ( $updated_at > 0 && ( $now - $updated_at ) > self::STALE_JOB_THRESHOLD ) {
+				continue;
+			}
+
+			$blocking = true;
+		}
+
+		if ( ! $blocking ) {
+			delete_transient( self::REINDEX_STATE_TRANSIENT );
+			return null;
+		}
+
+		return $state;
+	}
+
+	/**
+	 * Clear the active reindex state — called when a reindex completes
+	 * or is cancelled.
+	 */
+	public static function clear_reindex_state(): void {
+		delete_transient( self::REINDEX_STATE_TRANSIENT );
+		delete_option( self::REINDEX_STATE_TRANSIENT . '_lock' );
+		delete_transient( self::REINDEX_STATE_TRANSIENT . '_lock_expiry' );
+	}
+
+	/**
+	 * Release the reindex lock acquired at the start of reindex().
+	 *
+	 * @param string $lock_key The option name used as the mutex lock.
+	 */
+	private function release_reindex_lock( string $lock_key ): void {
+		delete_option( $lock_key );
+		delete_transient( $lock_key . '_expiry' );
 	}
 
 	/**
@@ -309,12 +576,14 @@ class Search_Controller extends Abstract_REST_Controller {
 	/**
 	 * Trigger batch reindexing of all child sites (for governing sites).
 	 *
-	 * @return true|array{site_url: string, message: string}[] Array of errors encountered, true if successful.
+	 * @return array{ jobs: array<int,array{site_name:string,site_url:string,job_id:string}>, errors: array<int,array{site_url:string,message:string}>, batch_counts: array<int,int> }
 	 */
-	private function reindex_child_sites() {
+	private function reindex_child_sites(): array {
 		$shared_sites = Settings::get_shared_sites();
 
-		$errors = [];
+		$child_jobs   = [];
+		$errors       = [];
+		$batch_counts = [];
 		// Build the requests array for each site.
 		foreach ( $shared_sites as $site_data ) {
 			if ( empty( $site_data['url'] ) || empty( $site_data['api_key'] ) ) {
@@ -374,8 +643,23 @@ class Search_Controller extends Abstract_REST_Controller {
 				];
 				continue;
 			}
+
+			// Capture the child job ID from the child's response.
+			if ( ! empty( $response_data['job_id'] ) ) {
+				$child_jobs[]   = [
+					'site_name'   => $site_data['name'] ?? $site_data['url'],
+					'site_url'    => $site_data['url'],
+					'job_id'      => $response_data['job_id'],
+					'batch_count' => (int) ( $response_data['batch_count'] ?? 0 ),
+				];
+				$batch_counts[] = (int) ( $response_data['batch_count'] ?? 0 );
+			}
 		}
 
-		return $errors ?: true;
+		return [
+			'jobs'         => $child_jobs,
+			'errors'       => $errors,
+			'batch_counts' => $batch_counts,
+		];
 	}
 }
