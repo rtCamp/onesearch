@@ -132,7 +132,7 @@ Code contributions, bug reports, and feature requests are welcome! The following
 │   │   └── tsconfig.json     # Test TypeScript config.
 │   │   # PHPUnit tests.
 │   └── php/
-│       ├── Unit/             # Unit tests.
+│       ├── Integration/      # Integration tests.
 │       ├── bootstrap.php     # PHPUnit bootstrapper.
 │       └── TestCase.php      # Base test case class.
 │

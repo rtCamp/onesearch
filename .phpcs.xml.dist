@@ -8,7 +8,7 @@
 
 	<!-- What to scan: include any root-level PHP files and any folders that contain PHP -->
 	<file>./inc/</file>
-	<file>./tests/php</file>
+	<file>./tests/phpunit</file>
 	<file>./tests/_data/plugins/</file>
 	<file>./onesearch.php</file>
 	<file>./uninstall.php</file>
