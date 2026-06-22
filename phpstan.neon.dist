@@ -22,7 +22,7 @@ parameters:
 	bootstrapFiles:
 		- onesearch.php
 	stubFiles:
-		- phpstan/stubs/wordpress-extended.php
+		- tests/phpstan/stubs/wordpress-extended.php
 	paths:
 		- onesearch.php
 		- uninstall.php
