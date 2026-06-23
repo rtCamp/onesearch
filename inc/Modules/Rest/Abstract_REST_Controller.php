@@ -65,14 +65,12 @@ abstract class Abstract_REST_Controller extends WP_REST_Controller implements Re
 		$request_origin = $request->get_header( 'origin' );
 		$request_origin = ! empty( $request_origin ) ? esc_url_raw( wp_unslash( $request_origin ) ) : '';
 		$parsed_origin  = wp_parse_url( $request_origin );
-		$request_url    = ! empty( $parsed_origin['scheme'] ) && ! empty( $parsed_origin['host'] ) ? sprintf(
-			'%s://%s%s',
-			$parsed_origin['scheme'],
-			$parsed_origin['host'],
-			isset( $parsed_origin['port'] ) ? ':' . $parsed_origin['port'] : ''
-		) : '';
+		$parsed_origin  = is_array( $parsed_origin ) ? $parsed_origin : [];
+		$request_url    = ! empty( $parsed_origin['scheme'] ) && ! empty( $parsed_origin['host'] )
+			? Utils::normalize_url( $request_origin )
+			: '';
 
-		$origin_port = $parsed_origin['port'] ?? 80;
+		$origin_port = isset( $parsed_origin['port'] ) ? (int) $parsed_origin['port'] : null;
 
 		// See if the `X-OneSearch-Token` header is present.
 		// Token-based auth takes priority so that cross-site requests from sub-directory
@@ -90,13 +88,11 @@ abstract class Abstract_REST_Controller extends WP_REST_Controller implements Re
 				if ( ! empty( $site_url_header ) ) {
 					$request_origin = esc_url_raw( wp_unslash( $site_url_header ) );
 					$parsed_origin  = wp_parse_url( $request_origin );
-					$request_url    = ! empty( $parsed_origin['scheme'] ) && ! empty( $parsed_origin['host'] ) ? sprintf(
-						'%s://%s%s',
-						$parsed_origin['scheme'],
-						$parsed_origin['host'],
-						isset( $parsed_origin['port'] ) ? ':' . $parsed_origin['port'] : ''
-					) : '';
-					$origin_port    = $parsed_origin['port'] ?? 80;
+					$parsed_origin  = is_array( $parsed_origin ) ? $parsed_origin : [];
+					$request_url    = ! empty( $parsed_origin['scheme'] ) && ! empty( $parsed_origin['host'] )
+						? Utils::normalize_url( $request_origin )
+						: '';
+					$origin_port    = isset( $parsed_origin['port'] ) ? (int) $parsed_origin['port'] : null;
 				}
 			}
 
