@@ -4,21 +4,21 @@
 /**
  * External dependencies
  */
-import { useState, useMemo } from 'react';
 import {
+	Button,
 	Modal,
+	Notice,
 	TextControl,
 	TextareaControl,
-	Button,
-	Notice,
 } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
+import { useMemo, useState } from 'react';
 
 /**
  * Internal dependencies
  */
-import { isValidUrl } from '../js/utils';
 import type { defaultBrandSite } from '@/admin/settings/page';
+import { isValidUrl } from '../js/utils';
 interface ErrorsType {
 	name: string;
 	url: string;
@@ -117,9 +117,6 @@ const SiteModal = ( {
 					headers: {
 						'Content-Type': 'application/json',
 						'X-OneSearch-Token': formData.api_key,
-						// Explicit site URL so the brand site can identify the governing site
-						// when both share the same domain (sub-directory multisite), where the
-						// browser omits Origin for same-origin requests.
 						'X-OneSearch-Site-URL':
 							window.OneSearchSettings.currentSiteUrl,
 					},
