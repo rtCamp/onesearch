@@ -39,7 +39,12 @@ add_filter(
 			return $preempt;
 		}
 
+		$parsed        = wp_parse_url( $url );
+		$original_host = $parsed['host'] . ( isset( $parsed['port'] ) ? ':' . $parsed['port'] : '' );
+
 		$rewritten_url = str_replace( '://localhost', '://host.docker.internal', $url );
+
+		$args['headers']['Host'] = $original_host;
 
 		return wp_remote_request( $rewritten_url, $args );
 	},
