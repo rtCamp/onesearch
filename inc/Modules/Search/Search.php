@@ -414,9 +414,9 @@ final class Search implements Registrable {
 		}
 
 		return [
-			$thumbnail['url'],
-			$thumbnail['width'] ?? 0,
-			$thumbnail['height'] ?? 0,
+			esc_url_raw( $thumbnail['url'] ),
+			absint( $thumbnail['width'] ?? 0 ),
+			absint( $thumbnail['height'] ?? 0 ),
 			false,
 		];
 	}
