@@ -2,12 +2,12 @@
 /**
  * Post record unit tests.
  *
- * @package OneSearch\Tests\Integrationgration\Modules\Search
+ * @package OneSearch\Tests\Integration\Modules\Search
  */
 
 declare(strict_types = 1);
 
-namespace OneSearch\Tests\Integrationgration\Modules\Search;
+namespace OneSearch\Tests\Integration\Modules\Search;
 
 use OneSearch\Modules\Search\Post_Record;
 use OneSearch\Tests\TestCase;

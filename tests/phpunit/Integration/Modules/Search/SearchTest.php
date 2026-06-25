@@ -268,6 +268,7 @@ final class SearchTest extends TestCase {
 
 		$remote_post                        = new \WP_Post( new \stdClass() );
 		$remote_post->onesearch_original_id = 17;
+		$remote_post->ID                    = -18;
 		$remote_post->guid                  = 'https://remote.example.com/posts/17/';
 
 		$wp_query->posts = [ $remote_post ];
@@ -316,8 +317,9 @@ final class SearchTest extends TestCase {
 		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
 		global $post;
 
-		$post     = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-		$post->ID = -10;
+		$post                        = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		$post->ID                    = -10;
+		$post->onesearch_original_id = 9;
 		$post->onesearch_remote_post_author_display_name = 'Remote Author';
 
 		$search = new Search();
@@ -362,6 +364,7 @@ final class SearchTest extends TestCase {
 
 		$post                                    = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 		$post->ID                                = -11;
+		$post->onesearch_original_id             = 10;
 		$post->onesearch_remote_post_author_link = 'https://remote.example.com/authors/john/';
 
 		$search = new Search();
@@ -406,6 +409,7 @@ final class SearchTest extends TestCase {
 
 		$post                                        = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 		$post->ID                                    = -12;
+		$post->onesearch_original_id                 = 11;
 		$post->onesearch_remote_post_author_gravatar = 'https://remote.example.com/avatar.jpg';
 
 		$search = new Search();
@@ -457,6 +461,7 @@ final class SearchTest extends TestCase {
 
 		$post                              = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 		$post->ID                          = -13;
+		$post->onesearch_original_id       = 12;
 		$post->onesearch_remote_taxonomies = [
 			[
 				'taxonomy'  => 'category',
@@ -496,6 +501,7 @@ final class SearchTest extends TestCase {
 
 		$post                              = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 		$post->ID                          = -105;
+		$post->onesearch_original_id       = 104;
 		$post->onesearch_remote_taxonomies = [
 			[
 				'taxonomy'  => 'category',
@@ -535,6 +541,7 @@ final class SearchTest extends TestCase {
 
 		$post                              = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 		$post->ID                          = -106;
+		$post->onesearch_original_id       = 105;
 		$post->onesearch_remote_taxonomies = [
 			[
 				'taxonomy'  => 'post_tag',
@@ -637,9 +644,10 @@ final class SearchTest extends TestCase {
 		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
 		global $post;
 
-		$post       = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-		$post->ID   = -14;
-		$post->guid = 'https://remote.example.com/post/14/';
+		$post                        = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		$post->ID                    = -14;
+		$post->onesearch_original_id = 13;
+		$post->guid                  = 'https://remote.example.com/post/14/';
 
 		$search  = new Search();
 		$content = '<h2><a href="https://example.com/old/">Title</a></h2>';
@@ -660,10 +668,11 @@ final class SearchTest extends TestCase {
 		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
 		global $post;
 
-		$post               = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-		$post->ID           = -15;
-		$post->guid         = 'https://remote.example.com/post/15/';
-		$post->post_excerpt = 'Remote excerpt body';
+		$post                        = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		$post->ID                    = -15;
+		$post->onesearch_original_id = 14;
+		$post->guid                  = 'https://remote.example.com/post/15/';
+		$post->post_excerpt          = 'Remote excerpt body';
 
 		$search  = new Search();
 		$content = '<div class="wp-block-post-excerpt"><p>Old excerpt</p></div>';
