@@ -32,7 +32,7 @@ function run_uninstaller(): void {
 	) ?: [];
 
 	foreach ( $site_ids as $site_id ) {
-		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.switch_to_blog_switch_to_blog -- The state doesn't matter during uninstall.
+        // phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.switch_to_blog_switch_to_blog -- The state doesn't matter during uninstall.
 		if ( ! switch_to_blog( (int) $site_id ) ) {
 			continue;
 		}
@@ -47,11 +47,23 @@ function run_uninstaller(): void {
  */
 function uninstall(): void {
 	cleanup_algolia_index();
+	delete_proxy_attachment();
 
 	// Wait until the end to delete options and transients.
 
 	delete_transients();
 	delete_options();
+}
+
+/**
+ * Delete the shared "proxy" attachment used for remote post thumbnails.
+ */
+function delete_proxy_attachment(): void {
+	$proxy_id = (int) get_option( PLUGIN_PREFIX . 'proxy_attachment_id', 0 );
+
+	if ( $proxy_id > 0 ) {
+		wp_delete_post( $proxy_id, true );
+	}
 }
 
 /**
@@ -72,6 +84,9 @@ function delete_options(): void {
 		// Brand site options.
 		PLUGIN_PREFIX . 'parent_site_url',
 		PLUGIN_PREFIX . 'consumer_api_key',
+
+		// Shared proxy attachment used for remote post thumbnails.
+		PLUGIN_PREFIX . 'proxy_attachment_id',
 	];
 
 	foreach ( $options as $option ) {
