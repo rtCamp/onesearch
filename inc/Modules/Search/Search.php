@@ -591,7 +591,7 @@ final class Search implements Registrable {
 		}
 
 		global $post;
-		if ( $this->is_remote_post( $post ) && ! empty( $post->onesearch_thumbnail['url'] ) ) {
+		if ( $post instanceof \WP_Post && $this->is_remote_post( $post ) && ! empty( $post->onesearch_thumbnail['url'] ) ) {
 			return $post;
 		}
 		return $this->current_remote_post;
