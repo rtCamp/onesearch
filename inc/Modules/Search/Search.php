@@ -518,8 +518,8 @@ final class Search implements Registrable {
 	 *
 	 * Handles two cases, both keyed off the Algolia thumbnail data:
 	 *  - the shared proxy attachment, assigned as a remote post's thumbnail; and
-	 *  - a remote attachment post (negative ID) that is itself a search result.
-	 *
+	 *  - a remote attachment search result, which is assigned the shared proxy ID
+	 *    so core attachment functions resolve it natively.
 	 * @param array{0: string, 1: int, 2: int, 3: bool}|false $image         Array of image data or false.
 	 * @param int                                             $attachment_id Attachment post ID.
 	 * @param string|int[]                                    $size          Image size.
