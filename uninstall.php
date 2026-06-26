@@ -32,7 +32,7 @@ function run_uninstaller(): void {
 	) ?: [];
 
 	foreach ( $site_ids as $site_id ) {
-        // phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.switch_to_blog_switch_to_blog -- The state doesn't matter during uninstall.
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.switch_to_blog_switch_to_blog -- The state doesn't matter during uninstall.
 		if ( ! switch_to_blog( (int) $site_id ) ) {
 			continue;
 		}
