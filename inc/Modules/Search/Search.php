@@ -586,21 +586,14 @@ final class Search implements Registrable {
 	 * @return \WP_Post|null The matching remote post, or null if not ours.
 	 */
 	private function resolve_remote_attachment_post( int $attachment_id ): ?\WP_Post {
-		// Only the shared proxy attachment is ever ours.
 		if ( null === $this->proxy_attachment_id || $attachment_id !== $this->proxy_attachment_id ) {
 			return null;
 		}
 
 		global $post;
-
-		// Attachment-as-result path: the remote attachment that carries the proxy
-		// ID is itself the post being rendered.
-		if ( $post instanceof \WP_Post && 'attachment' === $post->post_type && ! empty( $post->onesearch_thumbnail['url'] ) ) {
+		if ( $this->is_remote_post( $post ) && ! empty( $post->onesearch_thumbnail['url'] ) ) {
 			return $post;
 		}
-
-		// Featured-image path: the proxy stands in for a regular remote post's
-		// thumbnail (recorded by get_remote_thumbnail_id()).
 		return $this->current_remote_post;
 	}
 

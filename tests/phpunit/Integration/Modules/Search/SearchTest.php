@@ -756,6 +756,60 @@ final class SearchTest extends TestCase {
 	}
 
 	/**
+	 * Resolves the in-loop post's thumbnail even after another remote post's
+	 * _thumbnail_id was requested, guarding the shared current_remote_post slot
+	 * from being overwritten before the image renders.
+	 */
+	public function test_get_remote_attachment_image_src_prefers_in_loop_post_over_last_recorded(): void {
+		$first                        = new \WP_Post( new \stdClass() );
+		$first->ID                    = -18;
+		$first->onesearch_original_id = 17;
+		$first->post_title            = 'First Remote';
+		$first->onesearch_thumbnail   = [
+			'url'    => 'https://remote.example.com/uploads/first-300x200.jpeg',
+			'width'  => 300,
+			'height' => 200,
+		];
+
+		$second                        = new \WP_Post( new \stdClass() );
+		$second->ID                    = -20;
+		$second->onesearch_original_id = 19;
+		$second->post_title            = 'Second Remote';
+		$second->onesearch_thumbnail   = [
+			'url'    => 'https://remote.example.com/uploads/second-640x480.jpeg',
+			'width'  => 640,
+			'height' => 480,
+		];
+
+		$search = new Search();
+		$this->set_private_property(
+			$search,
+			'remote_posts_map',
+			[
+				-18 => $first,
+				-20 => $second,
+			]
+		);
+
+		// Both posts' _thumbnail_id are requested before any image renders, so the
+		// shared current_remote_post slot now points at $second.
+		$proxy_id = (int) $search->get_remote_thumbnail_id( null, -18, '_thumbnail_id', true );
+		$search->get_remote_thumbnail_id( null, -20, '_thumbnail_id', true );
+
+		// $first is the post actually being rendered in the loop.
+		global $post;
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Simulating the in-loop post.
+		$post = $first;
+
+		$src = $search->get_remote_attachment_image_src( false, $proxy_id, 'medium', false );
+
+		$this->assertSame(
+			[ 'https://remote.example.com/uploads/first-300x200.jpeg', 300, 200, false ],
+			$src
+		);
+	}
+
+	/**
 	 * Leaves the image data untouched for attachments that are not ours.
 	 */
 	public function test_get_remote_attachment_image_src_passes_through_for_local_attachment(): void {
