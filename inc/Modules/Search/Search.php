@@ -982,7 +982,7 @@ final class Search implements Registrable {
 
 			if ( is_wp_error( $results ) || empty( $results['hits'] ) || ! is_array( $results['hits'] ) ) {
 				// Skip this group on error and continue with others.
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- @todo we need visibility until we have a proper Logger.
+				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- @todo we need visibility until we have a proper Logger.
 				error_log( 'OneSearch: Error fetching chunks from Algolia: ' . ( is_wp_error( $results ) ? $results->get_error_message() : 'No hits returned' ) );
 				continue;
 			}
