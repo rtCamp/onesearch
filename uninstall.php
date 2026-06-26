@@ -60,10 +60,16 @@ function uninstall(): void {
  */
 function delete_proxy_attachment(): void {
 	$proxy_id = (int) get_option( PLUGIN_PREFIX . 'proxy_attachment_id', 0 );
-
-	if ( $proxy_id > 0 ) {
-		wp_delete_post( $proxy_id, true );
+	if ( $proxy_id <= 0 ) {
+		return;
 	}
+
+	$proxy_post = get_post( $proxy_id );
+	if ( ! $proxy_post instanceof \WP_Post || 'attachment' !== $proxy_post->post_type || 'onesearch-remote-attachment-proxy' !== $proxy_post->post_name ) {
+		return;
+	}
+
+	wp_delete_post( $proxy_id, true );
 }
 
 /**
