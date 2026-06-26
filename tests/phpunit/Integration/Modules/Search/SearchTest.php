@@ -280,11 +280,10 @@ final class SearchTest extends TestCase {
 	}
 
 	/**
-	 * Returns default author name when search is not enabled.
+	 * Returns the default author name when search is not enabled.
 	 *
-	 * Primes $wp_query and sets a remote $post so that should_filter_query() and
-	 * the negative-ID guard both pass — ensuring the default is returned solely
-	 * because search is disabled, not because of a missing query or local post.
+	 * Sets otherwise valid query/post context so disabled search is the only unmet
+	 * precondition.
 	 */
 	public function test_get_post_author_returns_default_when_search_disabled(): void {
 		// Set up everything search needs EXCEPT the search settings option itself.
@@ -298,7 +297,7 @@ final class SearchTest extends TestCase {
 		$post->ID = -99;
 		$post->onesearch_remote_post_author_display_name = 'Remote Author';
 
-		// Now disable search — this is the sole reason the default should be returned.
+		// Now disable search; this is the sole reason the default should be returned.
 		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
 
 		$search = new Search();
@@ -329,9 +328,10 @@ final class SearchTest extends TestCase {
 	}
 
 	/**
-	 * Returns default author link when search is not enabled.
+	 * Returns the default author link when search is not enabled.
 	 *
-	 * Primes query and remote $post so the only exit condition is search being disabled.
+	 * Sets otherwise valid query/post context so disabled search is the only unmet
+	 * precondition.
 	 */
 	public function test_get_post_author_link_returns_default_when_search_disabled(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
@@ -374,9 +374,10 @@ final class SearchTest extends TestCase {
 	}
 
 	/**
-	 * Returns default avatar URL when search is not enabled.
+	 * Returns the default avatar URL when search is not enabled.
 	 *
-	 * Primes query and remote $post so the only exit condition is search being disabled.
+	 * Sets otherwise valid query/post context so disabled search is the only unmet
+	 * precondition.
 	 */
 	public function test_get_post_author_avatar_returns_default_when_search_disabled(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
@@ -419,9 +420,10 @@ final class SearchTest extends TestCase {
 	}
 
 	/**
-	 * Returns default term link when search is not enabled.
+	 * Returns the default term link when search is not enabled.
 	 *
-	 * Primes query and remote $post so the only exit condition is search being disabled.
+	 * Sets otherwise valid query/post context so disabled search is the only unmet
+	 * precondition.
 	 */
 	public function test_get_term_link_returns_default_when_search_disabled(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
@@ -611,8 +613,8 @@ final class SearchTest extends TestCase {
 	/**
 	 * Returns unchanged block content when search is not enabled.
 	 *
-	 * Sets a negative-ID $post with a guid so the only exit condition is
-	 * search being disabled, not a missing/local post.
+	 * Sets otherwise valid remote-post context so disabled search is the only unmet
+	 * precondition.
 	 */
 	public function test_filter_render_block_returns_original_when_search_disabled(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
@@ -620,9 +622,10 @@ final class SearchTest extends TestCase {
 		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
 		global $post;
 
-		$post       = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-		$post->ID   = -99;
-		$post->guid = 'https://remote.example.com/post/99/';
+		$post                        = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		$post->ID                    = -99;
+		$post->onesearch_original_id = 98;
+		$post->guid                  = 'https://remote.example.com/post/99/';
 
 		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
 
@@ -682,6 +685,175 @@ final class SearchTest extends TestCase {
 
 		$this->assertStringContainsString( 'Remote excerpt body', $result );
 		$this->assertStringNotContainsString( 'Old excerpt', $result );
+	}
+
+	/**
+	 * Passes the meta value through unchanged for local posts (non-negative IDs).
+	 */
+	public function test_get_remote_thumbnail_id_passes_through_for_local_post(): void {
+		$search = new Search();
+
+		$result = $search->get_remote_thumbnail_id( 'original-value', 123, '_thumbnail_id', true );
+
+		$this->assertSame( 'original-value', $result );
+	}
+
+	/**
+	 * Points a remote post's _thumbnail_id at the shared proxy attachment.
+	 */
+	public function test_get_remote_thumbnail_id_returns_proxy_for_remote_post(): void {
+		$remote                        = new \WP_Post( new \stdClass() );
+		$remote->ID                    = -18;
+		$remote->onesearch_original_id = 17;
+		$remote->post_title            = 'Remote Post';
+		$remote->onesearch_thumbnail   = [
+			'url'    => 'https://remote.example.com/uploads/img-300x200.jpeg',
+			'width'  => 300,
+			'height' => 200,
+		];
+
+		$search = new Search();
+		$this->set_private_property( $search, 'remote_posts_map', [ -18 => $remote ] );
+
+		$proxy_id = (int) $search->get_remote_thumbnail_id( null, -18, '_thumbnail_id', true );
+
+		$proxy_post = get_post( $proxy_id );
+		$this->assertGreaterThan( 0, $proxy_id );
+		$this->assertInstanceOf( \WP_Post::class, $proxy_post );
+		$this->assertSame( 'attachment', $proxy_post->post_type );
+	}
+
+	/**
+	 * Featured image: resolves a regular remote post's thumbnail to the remote file.
+	 */
+	public function test_get_remote_attachment_image_src_uses_remote_file_for_featured_image(): void {
+		global $post;
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Ensure no attachment-as-result context.
+		$post = null;
+
+		$remote                        = new \WP_Post( new \stdClass() );
+		$remote->ID                    = -18;
+		$remote->onesearch_original_id = 17;
+		$remote->post_title            = 'Remote Post';
+		$remote->onesearch_thumbnail   = [
+			'url'    => 'https://remote.example.com/uploads/img-300x200.jpeg',
+			'width'  => 300,
+			'height' => 200,
+		];
+
+		$search = new Search();
+		$this->set_private_property( $search, 'remote_posts_map', [ -18 => $remote ] );
+
+		// Drives the featured-image path: records current_remote_post + proxy id.
+		$proxy_id = (int) $search->get_remote_thumbnail_id( null, -18, '_thumbnail_id', true );
+
+		$src = $search->get_remote_attachment_image_src( false, $proxy_id, 'medium', false );
+
+		$this->assertSame(
+			[ 'https://remote.example.com/uploads/img-300x200.jpeg', 300, 200, false ],
+			$src
+		);
+	}
+
+	/**
+	 * Leaves the image data untouched for attachments that are not ours.
+	 */
+	public function test_get_remote_attachment_image_src_passes_through_for_local_attachment(): void {
+		$search   = new Search();
+		$original = [ 'https://example.com/local.jpg', 100, 100, false ];
+
+		$result = $search->get_remote_attachment_image_src( $original, 99, 'medium', false );
+
+		$this->assertSame( $original, $result );
+	}
+
+	/**
+	 * Attachment result: resolves the proxy URL to the remote file via the global post.
+	 */
+	public function test_get_remote_attachment_url_uses_remote_file_for_attachment_result(): void {
+		$proxy_id = 4242;
+
+		global $post;
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- The attachment result is the post being rendered.
+		$post                        = new \WP_Post( new \stdClass() );
+		$post->ID                    = $proxy_id;
+		$post->post_type             = 'attachment';
+		$post->onesearch_original_id = 8;
+		$post->post_title            = 'Remote Image';
+		$post->onesearch_thumbnail   = [
+			'url'    => 'https://remote.example.com/uploads/photo-300x200.jpeg',
+			'width'  => 300,
+			'height' => 200,
+		];
+
+		$search = new Search();
+		$this->set_private_property( $search, 'proxy_attachment_id', $proxy_id );
+
+		$url = $search->get_remote_attachment_url( 'https://example.com/local-file.jpg', $proxy_id );
+
+		$this->assertSame( 'https://remote.example.com/uploads/photo-300x200.jpeg', $url );
+	}
+
+	/**
+	 * Leaves the URL untouched for attachment IDs that are not the proxy.
+	 */
+	public function test_get_remote_attachment_url_passes_through_for_local_attachment(): void {
+		$search = new Search();
+		$this->set_private_property( $search, 'proxy_attachment_id', 4242 );
+
+		$url = $search->get_remote_attachment_url( 'https://example.com/local.jpg', 99 );
+
+		$this->assertSame( 'https://example.com/local.jpg', $url );
+	}
+
+	/**
+	 * Sets remote alt text and strips local srcset/sizes for a proxy attachment.
+	 */
+	public function test_filter_remote_attachment_image_attributes_sets_alt_and_strips_srcset(): void {
+		$proxy_id = 4242;
+
+		global $post;
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- The attachment result is the post being rendered.
+		$post                        = new \WP_Post( new \stdClass() );
+		$post->ID                    = $proxy_id;
+		$post->post_type             = 'attachment';
+		$post->onesearch_original_id = 8;
+		$post->post_title            = 'Remote Image';
+		$post->onesearch_thumbnail   = [
+			'url'    => 'https://remote.example.com/uploads/photo.jpeg',
+			'width'  => 300,
+			'height' => 200,
+		];
+
+		$search = new Search();
+		$this->set_private_property( $search, 'proxy_attachment_id', $proxy_id );
+
+		$attr = $search->filter_remote_attachment_image_attributes(
+			[
+				'srcset' => 'https://example.com/local-300w.jpg 300w',
+				'sizes'  => '(max-width: 300px) 100vw, 300px',
+				'alt'    => '',
+			],
+			$post,
+			'medium'
+		);
+
+		$this->assertArrayNotHasKey( 'srcset', $attr );
+		$this->assertArrayNotHasKey( 'sizes', $attr );
+		$this->assertSame( 'Remote Image', $attr['alt'] );
+	}
+
+	/**
+	 * Sets a private property on a Search instance for focused test setup.
+	 *
+	 * @param \OneSearch\Modules\Search\Search $search The Search instance.
+	 * @param string                           $prop   The private property name.
+	 * @param mixed                            $value  The value to assign.
+	 */
+	private function set_private_property( Search $search, string $prop, $value ): void {
+		$reflection = new \ReflectionProperty( Search::class, $prop );
+		$reflection->setAccessible( true );
+		$reflection->setValue( $search, $value );
 	}
 
 	/**
