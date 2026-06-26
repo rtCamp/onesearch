@@ -126,10 +126,10 @@ final class Search implements Registrable {
 	 * filter runs). We return the remote file URL so prepend_attachment() /
 	 * wp_get_attachment_link() render natively without replacing their output.
 	 *
-	 * @param string $url           The attachment URL.
-	 * @param int    $attachment_id The attachment post ID.
+	 * @param string|false $url           The attachment URL (or false if not resolved).
+	 * @param int          $attachment_id The attachment post ID.
 	 *
-	 * @return string The remote URL when this is a remote attachment, else $url.
+	 * @return string|false The remote URL when this is a remote attachment, else $url.
 	 */
 	public function get_remote_attachment_url( $url, $attachment_id ) {
 		$remote_post = $this->resolve_remote_attachment_post( (int) $attachment_id );
