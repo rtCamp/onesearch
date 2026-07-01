@@ -4,21 +4,21 @@
 /**
  * External dependencies
  */
-import { useState, useMemo } from 'react';
 import {
+	Button,
 	Modal,
+	Notice,
 	TextControl,
 	TextareaControl,
-	Button,
-	Notice,
 } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
+import { useMemo, useState } from 'react';
 
 /**
  * Internal dependencies
  */
-import { isValidUrl } from '../js/utils';
 import type { defaultBrandSite } from '@/admin/settings/page';
+import { isValidUrl } from '../js/utils';
 interface ErrorsType {
 	name: string;
 	url: string;
@@ -117,6 +117,8 @@ const SiteModal = ( {
 					headers: {
 						'Content-Type': 'application/json',
 						'X-OneSearch-Token': formData.api_key,
+						'X-OneSearch-Site-URL':
+							window.OneSearchSettings.currentSiteUrl,
 					},
 				}
 			);
