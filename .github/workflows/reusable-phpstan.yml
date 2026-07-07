@@ -7,6 +7,11 @@ on:
         description: 'PHP version to use'
         required: true
         type: string
+      run:
+        description: 'When false, the job still runs and reports success without doing any work (so the required check reports green instead of skipping).'
+        required: false
+        type: boolean
+        default: true
 
 permissions: {}
 
@@ -17,13 +22,19 @@ jobs:
     timeout-minutes: 20
 
     steps:
+      - name: No relevant changes — reporting success
+        if: ${{ !inputs.run }}
+        run: echo "No PHP / PHPStan-related changes in this PR. Reporting success without running PHPStan."
+
       - name: Checkout repository
+        if: ${{ inputs.run }}
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           show-progress: ${{ runner.debug == '1' && 'true' || 'false' }}
           persist-credentials: false
 
       - name: Set up PHP
+        if: ${{ inputs.run }}
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
         with:
           php-version: ${{ inputs.php-version }}
@@ -32,25 +43,29 @@ jobs:
 
       # This date is used to ensure that the PHPStan cache is cleared at least once every week.
       - name: "Get last Monday's date"
+        if: ${{ inputs.run }}
         id: get-date
         run: echo "date=$(/bin/date -u --date='last Mon' "+%F")" >> "$GITHUB_OUTPUT"
 
       - name: Cache PHPStan scan cache
+        if: ${{ inputs.run }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: tests/_output
           key: phpstan-result-cache-${{ runner.os }}-date-${{ steps.get-date.outputs.date }}
 
       - name: Install Composer dependencies
+        if: ${{ inputs.run }}
         uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda # v4.0.0
 
       - name: Run PHPStan
+        if: ${{ inputs.run }}
         id: phpstan
         run: composer run-script phpstan -- --memory-limit=1G  --error-format=checkstyle | cs2pr
 
       - name: Save result cache
+        if: ${{ inputs.run && !cancelled() }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        if: ${{ !cancelled() }}
         with:
           path: tests/_output
           key: phpstan-result-cache-${{ runner.os }}-date-${{ steps.get-date.outputs.date }}

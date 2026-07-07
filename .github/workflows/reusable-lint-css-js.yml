@@ -2,6 +2,12 @@ name: Run JS Lint
 
 on:
   workflow_call:
+    inputs:
+      run:
+        description: 'When false, the job still runs and reports success without doing any work (so the required check reports green instead of skipping).'
+        required: false
+        type: boolean
+        default: true
 
 permissions: {}
 
@@ -12,43 +18,54 @@ jobs:
     timeout-minutes: 20
 
     steps:
+      - name: No relevant changes — reporting success
+        if: ${{ !inputs.run }}
+        run: echo "No CSS/JS-related changes in this PR. Reporting success without running lint."
+
       - name: Checkout repository
+        if: ${{ inputs.run }}
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           show-progress: ${{ runner.debug == '1' && 'true' || 'false' }}
           persist-credentials: false
 
       - name: Setup Node.js
+        if: ${{ inputs.run }}
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version-file: '.nvmrc'
           cache: 'npm'
 
       - name: Install npm dependencies
+        if: ${{ inputs.run }}
         run: npm ci
 
       - name: Run ESLint
+        if: ${{ inputs.run }}
         id: eslint
         continue-on-error: true
         run: npm run lint:js
 
       - name: Run TypeScript check
+        if: ${{ inputs.run }}
         id: typescript
         continue-on-error: true
         run: npm run lint:js:types
 
       - name: Run Stylelint
+        if: ${{ inputs.run }}
         id: stylelint
         continue-on-error: true
         run: npm run lint:css
 
       - name: Run Prettier check
+        if: ${{ inputs.run }}
         id: prettier
         continue-on-error: true
         run: npm run format -- --check
 
       - name: Check for errors
-        if: ${{ steps.eslint.outcome == 'failure' || steps.typescript.outcome == 'failure' || steps.prettier.outcome == 'failure' || steps.stylelint.outcome == 'failure' }}
+        if: ${{ inputs.run && (steps.eslint.outcome == 'failure' || steps.typescript.outcome == 'failure' || steps.prettier.outcome == 'failure' || steps.stylelint.outcome == 'failure') }}
         run: |
           echo "One or more checks failed. See logs above for details."
           exit 1

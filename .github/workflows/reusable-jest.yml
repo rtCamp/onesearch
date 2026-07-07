@@ -8,6 +8,11 @@ on:
         required: false
         type: boolean
         default: true
+      run:
+        description: 'When false, the job still runs and reports success without doing any work (so the required check reports green instead of skipping).'
+        required: false
+        type: boolean
+        default: true
 
 permissions: {}
 
@@ -18,26 +23,34 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      - name: No relevant changes — reporting success
+        if: ${{ !inputs.run }}
+        run: echo "No JS/Jest-related changes in this PR. Reporting success without running Jest."
+
       - name: Checkout repository
+        if: ${{ inputs.run }}
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           show-progress: ${{ runner.debug == '1' && 'true' || 'false' }}
           persist-credentials: false
 
       - name: Setup Node.js
+        if: ${{ inputs.run }}
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version-file: '.nvmrc'
           cache: 'npm'
 
       - name: Install npm dependencies
+        if: ${{ inputs.run }}
         run: npm ci
 
       - name: Run Jest tests${{ inputs.coverage && ' with coverage' || '' }}
+        if: ${{ inputs.run }}
         run: npm run test:js${{ inputs.coverage && ':coverage' || '' }}
 
       - name: Upload code coverage report to Codecov
-        if: ${{ inputs.coverage }}
+        if: ${{ inputs.run && inputs.coverage }}
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -46,7 +59,7 @@ jobs:
           fail_ci_if_error: false
 
       - name: Upload HTML coverage report as artifact
-        if: ${{ inputs.coverage }}
+        if: ${{ inputs.run && inputs.coverage }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: jest-code-coverage

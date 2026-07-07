@@ -22,6 +22,11 @@ on:
         required: false
         type: boolean
         default: false
+      run:
+        description: 'When false, the job still runs and reports success without doing any work (so the required check reports green instead of skipping).'
+        required: false
+        type: boolean
+        default: true
 
 permissions: {}
 
@@ -35,39 +40,51 @@ jobs:
       WP_ENV_CORE: ${{ inputs.wp-version == 'trunk' && 'WordPress/WordPress' || format('https://wordpress.org/wordpress-{0}.zip', inputs.wp-version) }}
 
     steps:
+      - name: No relevant changes — reporting success
+        if: ${{ !inputs.run }}
+        run: echo "No PHP/PHPUnit-related changes in this PR. Reporting success without running PHPUnit."
+
       - name: Configure environment variables
+        if: ${{ inputs.run }}
         run: |
           echo "PHP_FPM_UID=$(id -u)" >> "$GITHUB_ENV"
           echo "PHP_FPM_GID=$(id -g)" >> "$GITHUB_ENV"
 
       - name: Checkout repository
+        if: ${{ inputs.run }}
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           show-progress: ${{ runner.debug == '1' && 'true' || 'false' }}
           persist-credentials: false
 
       - name: Set up PHP
+        if: ${{ inputs.run }}
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
         with:
           php-version: ${{ inputs.php-version }}
           coverage: ${{ inputs.coverage && 'xdebug' || 'none' }}
 
       - name: Install Composer dependencies
+        if: ${{ inputs.run }}
         uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda # v4.0.0
 
       - name: Setup Node.js
+        if: ${{ inputs.run }}
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version-file: '.nvmrc'
           cache: 'npm'
 
       - name: Install npm dependencies
+        if: ${{ inputs.run }}
         run: npm ci
 
       - name: Build development assets
+        if: ${{ inputs.run }}
         run: npm run build:dev
 
       - name: Start the Docker testing environment
+        if: ${{ inputs.run }}
         uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
         with:
           timeout_minutes: 10
@@ -80,15 +97,17 @@ jobs:
             fi
 
       - name: Log versions
+        if: ${{ inputs.run }}
         run: |
           npm run wp-env:test -- run cli php -- -v
           npm run wp-env:test -- run cli wp core version
 
       - name: Run PHPUnit tests${{ inputs.coverage && ' with coverage report' || '' }}
+        if: ${{ inputs.run }}
         run: npm run test:php ${{ !inputs.coverage && '-- --no-coverage' || '' }}
 
       - name: Upload code coverage report
-        if: ${{ inputs.coverage }}
+        if: ${{ inputs.run && inputs.coverage }}
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -97,7 +116,7 @@ jobs:
           fail_ci_if_error: false
 
       - name: Upload HTML coverage report as artifact
-        if: ${{ inputs.coverage }}
+        if: ${{ inputs.run && inputs.coverage }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: wp-code-coverage-${{ inputs.php-version }}-${{ inputs.wp-version }}
