@@ -184,7 +184,7 @@ jobs:
       artifact-prefix: 'onesearch-pr'
       artifact-filename: 'onesearch.zip'
 
-ci-gate:
+  ci-gate:
     name: CI Gate
     if: ${{ always() }}
     needs:
