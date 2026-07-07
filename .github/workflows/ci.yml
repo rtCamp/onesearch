@@ -93,45 +93,45 @@ jobs:
   phpcs:
     name: PHPCS
     needs: detect
-    if: needs.detect.outputs.php == 'true' || needs.detect.outputs.phpcs == 'true'
     uses: ./.github/workflows/reusable-phpcs.yml
     permissions:
       contents: read
     with:
       php-version: '8.3'
+      run: ${{ needs.detect.outputs.php == 'true' || needs.detect.outputs.phpcs == 'true' }}
 
   phpstan:
     name: PHPStan
     needs: detect
-    if: needs.detect.outputs.php == 'true' || needs.detect.outputs.phpstan == 'true'
     uses: ./.github/workflows/reusable-phpstan.yml
     permissions:
       contents: read
     with:
       php-version: '8.3'
+      run: ${{ needs.detect.outputs.php == 'true' || needs.detect.outputs.phpstan == 'true' }}
 
   lint-css-js:
     name: CSS/JS Lint
     needs: detect
-    if: needs.detect.outputs.css == 'true' || needs.detect.outputs.js == 'true'
     uses: ./.github/workflows/reusable-lint-css-js.yml
     permissions:
       contents: read
+    with:
+      run: ${{ needs.detect.outputs.css == 'true' || needs.detect.outputs.js == 'true' }}
 
   jest:
     name: Jest Unit Tests
     needs: detect
-    if: needs.detect.outputs.js == 'true' || needs.detect.outputs.jest == 'true'
     uses: ./.github/workflows/reusable-jest.yml
     permissions:
       contents: read
     with:
       coverage: true
+      run: ${{ needs.detect.outputs.js == 'true' || needs.detect.outputs.jest == 'true' }}
 
   phpunit:
     name: PHPUnit (PHP ${{ matrix.php }}, WP ${{ matrix.wp }})
     needs: detect
-    if: needs.detect.outputs.php == 'true' || needs.detect.outputs.phpunit == 'true'
     uses: ./.github/workflows/reusable-phpunit.yml
     permissions:
       contents: read
@@ -148,17 +148,18 @@ jobs:
       php-version: ${{ matrix.php }}
       wp-version: ${{ matrix.wp }}
       coverage: ${{ matrix.coverage == true }}
+      run: ${{ needs.detect.outputs.php == 'true' || needs.detect.outputs.phpunit == 'true' }}
     secrets: inherit
 
   e2e:
     name: E2E Tests
     needs: detect
-    if: needs.detect.outputs.php == 'true' || needs.detect.outputs.e2e == 'true' || needs.detect.outputs.js == 'true' || needs.detect.outputs.css == 'true'
     uses: ./.github/workflows/reusable-e2e.yml
     permissions:
       contents: read
     with:
       php-version: '8.3'
+      run: ${{ needs.detect.outputs.php == 'true' || needs.detect.outputs.e2e == 'true' || needs.detect.outputs.js == 'true' || needs.detect.outputs.css == 'true' }}
 
   build-plugin-zip:
     name: Build Plugin Zip
@@ -183,27 +184,3 @@ jobs:
       run-id: ${{ github.run_id }}
       artifact-prefix: 'onesearch-pr'
       artifact-filename: 'onesearch.zip'
-
-  ci-gate:
-    name: CI Gate
-    if: ${{ always() }}
-    needs:
-      - detect
-      - phpcs
-      - phpstan
-      - lint-css-js
-      - jest
-      - phpunit
-      - e2e
-      - build-plugin-zip
-    runs-on: ubuntu-latest
-    steps:
-      - name: Verify all CI jobs passed or were skipped
-        run: |
-          results='${{ toJSON(needs) }}'
-          echo "$results" | jq -r 'to_entries[] | "\(.key)=\(.value.result)"'
-          if echo "$results" | jq -e 'to_entries[] | select(.value.result=="failure" or .value.result=="cancelled")' >/dev/null; then
-            echo "::error::One or more CI jobs failed."
-            exit 1
-          fi
-          echo "All CI jobs passed or were skipped — OK to merge."
