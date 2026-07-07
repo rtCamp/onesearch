@@ -183,3 +183,27 @@ jobs:
       run-id: ${{ github.run_id }}
       artifact-prefix: 'onesearch-pr'
       artifact-filename: 'onesearch.zip'
+
+ci-gate:
+    name: CI Gate
+    if: ${{ always() }}
+    needs:
+      - detect
+      - phpcs
+      - phpstan
+      - lint-css-js
+      - jest
+      - phpunit
+      - e2e
+      - build-plugin-zip
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify all CI jobs passed or were skipped
+        run: |
+          results='${{ toJSON(needs) }}'
+          echo "$results" | jq -r 'to_entries[] | "\(.key)=\(.value.result)"'
+          if echo "$results" | jq -e 'to_entries[] | select(.value.result=="failure" or .value.result=="cancelled")' >/dev/null; then
+            echo "::error::One or more CI jobs failed."
+            exit 1
+          fi
+          echo "All CI jobs passed or were skipped — OK to merge."
