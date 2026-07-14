@@ -177,6 +177,85 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 	}
 
 	/**
+	 * Token auth: no Origin but a valid X-OneSearch-Site-URL fallback header
+	 * resolves the site key and authorizes the request. Current user is logged
+	 * out to prove success comes from the token, not the manage_options fallback.
+	 */
+	public function test_token_auth_succeeds_with_site_url_header_and_no_origin(): void {
+		$site_url = 'https://brand.example.com/';
+		$api_key  = 'brand-token';
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Brand Site',
+					'url'     => $site_url,
+					'api_key' => $api_key,
+				],
+			]
+		);
+
+		wp_set_current_user( 0 );
+
+		$request = new WP_REST_Request( 'GET', '/onesearch/v1/brand-config' );
+		$request->set_header( 'X-OneSearch-Token', $api_key );
+		$request->set_header( 'X-OneSearch-Site-URL', $site_url );
+
+		$this->assertTrue( ( new Governing_Data_Controller() )->check_api_permissions( $request ) );
+	}
+
+	/**
+	 * Token auth: a token with neither Origin nor X-OneSearch-Site-URL cannot
+	 * resolve a requesting site and must be rejected outright — it must not fall
+	 * back to the manage_options check even though an admin is logged in.
+	 */
+	public function test_token_auth_fails_without_origin_or_site_url_header(): void {
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Brand Site',
+					'url'     => 'https://brand.example.com/',
+					'api_key' => 'brand-token',
+				],
+			]
+		);
+
+		// Admin is logged in from set_up(); the assertFalse proves the fallback is NOT reached.
+		$this->assertTrue( current_user_can( 'manage_options' ) );
+
+		$request = new WP_REST_Request( 'GET', '/onesearch/v1/brand-config' );
+		$request->set_header( 'X-OneSearch-Token', 'brand-token' );
+
+		$this->assertFalse( ( new Governing_Data_Controller() )->check_api_permissions( $request ) );
+	}
+
+	/**
+	 * Token auth: the X-OneSearch-Site-URL fallback resolves the site but the token
+	 * itself is still validated. A wrong token is rejected even though an admin is
+	 * logged in — guarding against the fallback authorizing on header presence alone.
+	 */
+	public function test_token_auth_fails_with_wrong_token_via_site_url_fallback(): void {
+		$site_url = 'https://brand.example.com/';
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Brand Site',
+					'url'     => $site_url,
+					'api_key' => 'brand-token',
+				],
+			]
+		);
+
+		// Admin is logged in from set_up(); a wrong token must not slip through.
+		$this->assertTrue( current_user_can( 'manage_options' ) );
+
+		$request = new WP_REST_Request( 'GET', '/onesearch/v1/brand-config' );
+		$request->set_header( 'X-OneSearch-Token', 'wrong-token' );
+		$request->set_header( 'X-OneSearch-Site-URL', $site_url );
+
+		$this->assertFalse( ( new Governing_Data_Controller() )->check_api_permissions( $request ) );
+	}
+
+	/**
 	 * Returns an `errors` entry for shared sites missing required configuration.
 	 */
 	public function test_get_all_post_types_reports_errors_for_bad_sites(): void {
