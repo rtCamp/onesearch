@@ -30,17 +30,13 @@ final class Rest implements Registrable {
 	 * @return array<int, string> Modified headers.
 	 */
 	public function allowed_cors_headers( $headers ): array {
-		// Skip if the headers are already present.
-		if ( in_array( 'X-OneSearch-Token', $headers, true ) && in_array( 'X-OneSearch-Site-URL', $headers, true ) ) {
-			return $headers;
+		// Append only the headers not already present so the list stays de-duplicated.
+		foreach ( [ 'X-OneSearch-Token', 'X-OneSearch-Site-URL' ] as $header ) {
+			if ( ! in_array( $header, $headers, true ) ) {
+				$headers[] = $header;
+			}
 		}
 
-		return array_merge(
-			$headers,
-			[
-				'X-OneSearch-Token',
-				'X-OneSearch-Site-URL',
-			]
-		);
+		return $headers;
 	}
 }

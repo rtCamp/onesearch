@@ -265,6 +265,30 @@ class Basic_Options_ControllerTest extends TestCase {
 	}
 
 	/**
+	 * Consumer health-check over token auth with no Origin: the X-OneSearch-Site-URL
+	 * fallback authorizes the request and records the sender as the governing site.
+	 * The user is logged out so success can only come from token auth, not the
+	 * manage_options fallback — mirroring the subdirectory-multisite case where the
+	 * browser omits Origin for same-host fetches.
+	 */
+	public function test_health_check_via_token_sets_parent_site_url_without_origin(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
+		$api_key = Settings::get_api_key();
+
+		wp_set_current_user( 0 );
+
+		$request = new WP_REST_Request( 'GET', '/onesearch/v1/health-check' );
+		$request->set_header( 'X-OneSearch-Token', $api_key );
+		$request->set_header( 'X-OneSearch-Site-URL', 'https://governing.example.com' );
+
+		$response = $this->server->dispatch( $request );
+
+		$this->assertTrue( $response->get_data()['success'] );
+		$this->assertSame( 'https://governing.example.com', Settings::get_parent_site_url() );
+	}
+
+	/**
 	 * Returns stored governing site URL.
 	 */
 	public function test_get_governing_site_returns_stored_url(): void {
