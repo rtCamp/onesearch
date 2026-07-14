@@ -70,9 +70,7 @@ abstract class Abstract_REST_Controller extends WP_REST_Controller implements Re
 			? Utils::normalize_url( $request_origin )
 			: '';
 
-		// Browsers omit the default port from Origin, so treat a missing port as 80
-		// (matches the URL-side default in ::is_url_from_host).
-		$origin_port = isset( $parsed_origin['port'] ) ? (int) $parsed_origin['port'] : 80;
+		$origin_port = isset( $parsed_origin['port'] ) ? (int) $parsed_origin['port'] : null;
 
 		// See if the `X-OneSearch-Token` header is present.
 		// Token-based auth takes priority so that cross-site requests from sub-directory
@@ -94,7 +92,7 @@ abstract class Abstract_REST_Controller extends WP_REST_Controller implements Re
 					$request_url    = ! empty( $parsed_origin['scheme'] ) && ! empty( $parsed_origin['host'] )
 						? Utils::normalize_url( $request_origin )
 						: '';
-					$origin_port    = isset( $parsed_origin['port'] ) ? (int) $parsed_origin['port'] : 80;
+					$origin_port    = isset( $parsed_origin['port'] ) ? (int) $parsed_origin['port'] : null;
 				}
 			}
 
