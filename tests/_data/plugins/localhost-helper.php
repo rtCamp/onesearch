@@ -39,13 +39,19 @@ add_filter(
 			return $preempt;
 		}
 
-		$parsed        = wp_parse_url( $url );
-		$original_host = $parsed['host'] . ( isset( $parsed['port'] ) ? ':' . $parsed['port'] : '' );
+		$parsed = wp_parse_url( $url );
+		if ( ! is_array( $parsed ) || empty( $parsed['host'] ) ) {
+			return $preempt;
+		}
+
+		$original_host = $parsed['host'] . ( isset( $parsed['port'] ) ? ':' . (int) $parsed['port'] : '' );
 
 		$rewritten_url = str_replace( '://localhost', '://host.docker.internal', $url );
 
+		if ( empty( $args['headers'] ) || ! is_array( $args['headers'] ) ) {
+			$args['headers'] = [];
+		}
 		$args['headers']['Host'] = $original_host;
-
 		return wp_remote_request( $rewritten_url, $args );
 	},
 	PHP_INT_MAX,
