@@ -434,23 +434,23 @@ final class Post_Record {
 		return array_filter( $taxonomy_data );
 	}
 
-	/**
-	 * Get attachment image metadata for record.
-	 *
-	 * The top-level url/width/height describe the full-size image (used as the
-	 * canonical file URL and as the fallback when a requested size is missing).
-	 * The `sizes` map carries the intermediate sizes that actually exist on the
-	 * source site, so the consuming site can render remote images at the size the
-	 * theme requests rather than a single fixed thumbnail.
-	 *
-	 * @param \WP_Post $post The attachment post.
-	 * @return array{
-	 *   url: string,
-	 *   width: int,
-	 *   height: int,
-	 *   sizes: array<string, array{url: string, width: int, height: int}>,
-	 * }|array{}
-	 */
+/**
+ * Get image metadata (full + intermediate sizes) for the indexed record.
+ *
+ * The top-level url/width/height describe the full-size image (used as the
+ * canonical file URL and as the fallback when a requested size is missing).
+ * The `sizes` map carries the intermediate sizes that actually exist on the
+ * source site, so the consuming site can render remote images at the size the
+ * theme requests rather than a single fixed thumbnail.
+ *
+ * @param \WP_Post $post The post being indexed (attachment or post with a featured image).
+ * @return array{
+ *   url: string,
+ *   width: int,
+ *   height: int,
+ *   sizes: array<string, array{url: string, width: int, height: int}>,
+ * }|array{}
+ */
 	private function get_attachment_image_metadata( \WP_Post $post ): array {
 		$attachment_id = 'attachment' === $post->post_type ? (int) $post->ID : get_post_thumbnail_id( $post );
 
