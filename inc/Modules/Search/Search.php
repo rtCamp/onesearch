@@ -656,7 +656,10 @@ final class Search implements Registrable {
 	 * @param \WP_Query $query The query being run.
 	 */
 	public function exclude_proxy_from_media_library( \WP_Query $query ): void {
-		if ( 'attachment' !== $query->get( 'post_type' ) ) {
+		// post_type may be a string, an array (e.g. ['post','attachment']), or 'any'
+		// (which core expands to include attachment, since it is not exclude_from_search).
+		$post_types = (array) $query->get( 'post_type' );
+		if ( ! in_array( 'attachment', $post_types, true ) && ! in_array( 'any', $post_types, true ) ) {
 			return;
 		}
 
