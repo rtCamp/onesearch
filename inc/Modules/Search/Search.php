@@ -496,7 +496,7 @@ final class Search implements Registrable {
 
 		$global_post = $GLOBALS['post'] ?? null;
 
-		$remote_post = ( $this->is_remote_post( $global_post ) && (int) $global_post->ID === (int) $object_id )
+		$remote_post = $this->is_remote_post( $global_post ) && (int) $global_post->ID === (int) $object_id
 			? $global_post
 			: ( $this->remote_posts_map[ (int) $object_id ] ?? null );
 
