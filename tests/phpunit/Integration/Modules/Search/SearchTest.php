@@ -293,8 +293,9 @@ final class SearchTest extends TestCase {
 		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
 		global $post;
 
-		$post     = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-		$post->ID = -99;
+		$post                        = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		$post->ID                    = -99;
+		$post->onesearch_original_id = 98;
 		$post->onesearch_remote_post_author_display_name = 'Remote Author';
 
 		// Now disable search; this is the sole reason the default should be returned.
@@ -342,6 +343,7 @@ final class SearchTest extends TestCase {
 
 		$post                                    = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 		$post->ID                                = -99;
+		$post->onesearch_original_id             = 98;
 		$post->onesearch_remote_post_author_link = 'https://remote.example.com/authors/john/';
 
 		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
@@ -388,6 +390,7 @@ final class SearchTest extends TestCase {
 
 		$post                                        = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 		$post->ID                                    = -99;
+		$post->onesearch_original_id                 = 98;
 		$post->onesearch_remote_post_author_gravatar = 'https://remote.example.com/avatar.jpg';
 
 		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
@@ -434,6 +437,7 @@ final class SearchTest extends TestCase {
 
 		$post                              = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 		$post->ID                          = -99;
+		$post->onesearch_original_id       = 98;
 		$post->onesearch_remote_taxonomies = [
 			[
 				'taxonomy'  => 'category',
