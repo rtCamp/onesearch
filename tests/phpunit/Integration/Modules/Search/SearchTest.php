@@ -651,7 +651,7 @@ final class SearchTest extends TestCase {
 		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
 		global $post;
 
-		// Slug-based guid that doesn't coincide with |ID| (14), proving the link uses the guid, not the ID.
+		// Slug-based guid that doesn't coincide with `ID` (14), proving the link uses the guid, not the ID.
 		$post                        = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 		$post->ID                    = -14;
 		$post->onesearch_original_id = 13;
