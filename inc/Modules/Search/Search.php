@@ -646,12 +646,17 @@ final class Search implements Registrable {
 	}
 
 	/**
-	 * Exclude the proxy attachment from media library list queries.
+	 * Exclude the proxy attachment from attachment queries.
+	 *
+	 * Applies everywhere (front end, admin, and REST), so the synthetic proxy
+	 * never surfaces in any attachment listing. The internal thumbnail pipeline
+	 * resolves the proxy via get_post()/get_option(), not WP_Query, so it is
+	 * unaffected by this exclusion.
 	 *
 	 * @param \WP_Query $query The query being run.
 	 */
 	public function exclude_proxy_from_media_library( \WP_Query $query ): void {
-		if ( ! is_admin() || 'attachment' !== $query->get( 'post_type' ) ) {
+		if ( 'attachment' !== $query->get( 'post_type' ) ) {
 			return;
 		}
 
@@ -660,9 +665,11 @@ final class Search implements Registrable {
 			return;
 		}
 
-		$excluded   = (array) $query->get( 'post__not_in' );
+		// WP_Query::get() defaults to '' when unset, and (array) '' is [''] — not
+		// []; array_filter() drops that empty element (and any pre-existing ones).
+		$excluded   = array_filter( (array) $query->get( 'post__not_in' ) );
 		$excluded[] = $proxy_id;
-		// phpcs:ignore WordPressVIPMinimum.Hooks.PreGetPosts.PreGetPosts -- Intentionally filters admin media-library attachment queries (incl. the main upload.php query) to hide the single synthetic proxy attachment.
+		// phpcs:ignore WordPressVIPMinimum.Hooks.PreGetPosts.PreGetPosts -- Intentionally filters attachment queries (front end, admin, and REST) to hide the single synthetic proxy attachment.
 		$query->set( 'post__not_in', $excluded );
 	}
 
@@ -679,7 +686,7 @@ final class Search implements Registrable {
 			return $args;
 		}
 
-		$excluded   = isset( $args['post__not_in'] ) ? (array) $args['post__not_in'] : [];
+		$excluded   = array_filter( (array) ( $args['post__not_in'] ?? [] ) );
 		$excluded[] = $proxy_id;
 		// phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.PostNotIn_post__not_in -- Excludes a single synthetic proxy attachment from the media grid; negligible cost.
 		$args['post__not_in'] = $excluded;
