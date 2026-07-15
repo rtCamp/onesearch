@@ -810,6 +810,106 @@ final class SearchTest extends TestCase {
 	}
 
 	/**
+	 * Builds an attachment-result Search primed with a multi-size thumbnail.
+	 *
+	 * @param int $proxy_id The proxy attachment ID.
+	 *
+	 * @return \OneSearch\Modules\Search\Search The primed Search instance (global $post is the result).
+	 */
+	private function make_sized_attachment_search( int $proxy_id ): Search {
+		global $post;
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- The attachment result is the post being rendered.
+		$post                        = new \WP_Post( new \stdClass() );
+		$post->ID                    = $proxy_id;
+		$post->post_type             = 'attachment';
+		$post->onesearch_original_id = 8;
+		$post->post_title            = 'Remote Image';
+		$post->onesearch_thumbnail   = [
+			'url'    => 'https://remote.example.com/uploads/photo.jpeg',
+			'width'  => 1600,
+			'height' => 1200,
+			'sizes'  => [
+				'thumbnail' => [
+					'url'    => 'https://remote.example.com/uploads/photo-150x150.jpeg',
+					'width'  => 150,
+					'height' => 150,
+				],
+				'medium'    => [
+					'url'    => 'https://remote.example.com/uploads/photo-300x225.jpeg',
+					'width'  => 300,
+					'height' => 225,
+				],
+			],
+		];
+
+		$search = new Search();
+		$this->set_private_property( $search, 'proxy_attachment_id', $proxy_id );
+
+		return $search;
+	}
+
+	/**
+	 * Returns the matching named-size variant when the record carries a size map.
+	 */
+	public function test_get_remote_attachment_image_src_returns_named_size(): void {
+		$proxy_id = 4242;
+		$search   = $this->make_sized_attachment_search( $proxy_id );
+
+		$src = $search->get_remote_attachment_image_src( false, $proxy_id, 'medium', false );
+
+		$this->assertSame(
+			[ 'https://remote.example.com/uploads/photo-300x225.jpeg', 300, 225, true ],
+			$src
+		);
+	}
+
+	/**
+	 * Falls back to the full image for the 'full' size and reports it as such.
+	 */
+	public function test_get_remote_attachment_image_src_returns_full_for_full_size(): void {
+		$proxy_id = 4242;
+		$search   = $this->make_sized_attachment_search( $proxy_id );
+
+		$src = $search->get_remote_attachment_image_src( false, $proxy_id, 'full', false );
+
+		$this->assertSame(
+			[ 'https://remote.example.com/uploads/photo.jpeg', 1600, 1200, false ],
+			$src
+		);
+	}
+
+	/**
+	 * Picks the smallest variant that covers a requested [width, height].
+	 */
+	public function test_get_remote_attachment_image_src_best_fits_dimension_array(): void {
+		$proxy_id = 4242;
+		$search   = $this->make_sized_attachment_search( $proxy_id );
+
+		// 200x200 fits within medium (300x225) but not thumbnail (150x150).
+		$src = $search->get_remote_attachment_image_src( false, $proxy_id, [ 200, 200 ], false );
+
+		$this->assertSame(
+			[ 'https://remote.example.com/uploads/photo-300x225.jpeg', 300, 225, true ],
+			$src
+		);
+	}
+
+	/**
+	 * Uses the full image when no variant is large enough for the request.
+	 */
+	public function test_get_remote_attachment_image_src_uses_full_when_no_variant_fits(): void {
+		$proxy_id = 4242;
+		$search   = $this->make_sized_attachment_search( $proxy_id );
+
+		$src = $search->get_remote_attachment_image_src( false, $proxy_id, [ 1200, 900 ], false );
+
+		$this->assertSame(
+			[ 'https://remote.example.com/uploads/photo.jpeg', 1600, 1200, false ],
+			$src
+		);
+	}
+
+	/**
 	 * Leaves the image data untouched for attachments that are not ours.
 	 */
 	public function test_get_remote_attachment_image_src_passes_through_for_local_attachment(): void {

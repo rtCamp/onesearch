@@ -535,14 +535,81 @@ final class Search implements Registrable {
 			return $image;
 		}
 
-		$thumbnail = $remote_post->onesearch_thumbnail;
+		return $this->select_remote_image_size( $remote_post->onesearch_thumbnail, $size );
+	}
+
+	/**
+	 * Pick the best remote image variant for a requested size.
+	 *
+	 * The record's top-level url/width/height are the full-size image; `sizes`
+	 * holds the intermediate variants that exist on the source site. We honor the
+	 * requested size — a named size (e.g. 'medium'), or a [width, height] array —
+	 * and fall back to the full image. When no `sizes` map is present (records
+	 * indexed before size support, or a post's featured thumbnail), the full
+	 * image is returned unchanged.
+	 *
+	 * @param array<string, mixed> $thumbnail The record's thumbnail metadata.
+	 * @param string|int[]         $size      Requested size (name or [w, h]).
+	 *
+	 * @return array{0: string, 1: int, 2: int, 3: bool} Image src tuple.
+	 */
+	private function select_remote_image_size( array $thumbnail, $size ): array {
+		$full = [
+			'url'    => (string) $thumbnail['url'],
+			'width'  => (int) ( $thumbnail['width'] ?? 0 ),
+			'height' => (int) ( $thumbnail['height'] ?? 0 ),
+		];
+
+		$sizes  = isset( $thumbnail['sizes'] ) && is_array( $thumbnail['sizes'] ) ? $thumbnail['sizes'] : [];
+		$chosen = $full;
+
+		if ( ! empty( $sizes ) ) {
+			if ( is_string( $size ) && 'full' !== $size && isset( $sizes[ $size ] ) ) {
+				// Exact named-size match.
+				$chosen = $sizes[ $size ];
+			} elseif ( is_array( $size ) && isset( $size[0], $size[1] ) ) {
+				// Dimension request: smallest variant that covers it, else largest.
+				$chosen = $this->best_fit_remote_size( $sizes, $full, (int) $size[0], (int) $size[1] );
+			}
+			// Any other case (named 'full', or an unknown named size) keeps $full.
+		}
 
 		return [
-			esc_url_raw( $thumbnail['url'] ),
-			absint( $thumbnail['width'] ?? 0 ),
-			absint( $thumbnail['height'] ?? 0 ),
-			false,
+			esc_url_raw( (string) $chosen['url'] ),
+			absint( $chosen['width'] ?? 0 ),
+			absint( $chosen['height'] ?? 0 ),
+			$chosen['url'] !== $full['url'],
 		];
+	}
+
+	/**
+	 * Choose the remote image variant that best fits requested dimensions.
+	 *
+	 * Prefers the smallest variant whose width and height both cover the request;
+	 * when none is large enough, returns the largest available variant.
+	 *
+	 * @param array<string, array{url: string, width: int, height: int}> $sizes  Available variants.
+	 * @param array{url: string, width: int, height: int}                $full   Full-size fallback.
+	 * @param int                                                        $width  Requested width.
+	 * @param int                                                        $height Requested height.
+	 *
+	 * @return array{url: string, width: int, height: int} The chosen variant.
+	 */
+	private function best_fit_remote_size( array $sizes, array $full, int $width, int $height ): array {
+		$candidates   = array_values( $sizes );
+		$candidates[] = $full;
+
+		// Sort ascending by width so the first covering match is the smallest.
+		usort( $candidates, static fn ( $a, $b ) => (int) $a['width'] <=> (int) $b['width'] );
+
+		foreach ( $candidates as $candidate ) {
+			if ( (int) $candidate['width'] >= $width && (int) $candidate['height'] >= $height ) {
+				return $candidate;
+			}
+		}
+
+		// None cover the request; use the largest available.
+		return end( $candidates ) ?: $full;
 	}
 
 	/**
