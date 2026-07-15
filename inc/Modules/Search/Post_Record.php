@@ -483,8 +483,7 @@ final class Post_Record {
 		foreach ( (array) $sizes as $size ) {
 			$image_data = \wp_get_attachment_image_src( $attachment_id, $size );
 
-			// Skip when the size is missing or WordPress fell back to the full
-			// image (its URL matches full), i.e. no distinct intermediate exists.
+			// Skip missing sizes, or ones where WP fell back to full (URL matches) — no distinct intermediate exists.
 			if ( empty( $image_data ) || $image_data[0] === $metadata['url'] ) {
 				continue;
 			}

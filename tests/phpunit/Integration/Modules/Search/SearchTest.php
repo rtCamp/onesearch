@@ -625,7 +625,7 @@ final class SearchTest extends TestCase {
 		$post                        = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 		$post->ID                    = -99;
 		$post->onesearch_original_id = 98;
-		$post->guid                  = 'https://remote.example.com/post/99/';
+		$post->guid                  = 'https://remote.example.com/post/98/';
 
 		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
 
@@ -647,10 +647,11 @@ final class SearchTest extends TestCase {
 		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
 		global $post;
 
+		// Slug-based guid that doesn't coincide with |ID| (14), proving the link uses the guid, not the ID.
 		$post                        = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 		$post->ID                    = -14;
 		$post->onesearch_original_id = 13;
-		$post->guid                  = 'https://remote.example.com/post/14/';
+		$post->guid                  = 'https://remote.example.com/remote-title/';
 
 		$search  = new Search();
 		$content = '<h2><a href="https://example.com/old/">Title</a></h2>';
@@ -658,7 +659,7 @@ final class SearchTest extends TestCase {
 
 		$result = $search->filter_render_block( $content, $block );
 
-		$this->assertStringContainsString( 'https://remote.example.com/post/14/', $result );
+		$this->assertStringContainsString( 'https://remote.example.com/remote-title/', $result );
 		$this->assertStringNotContainsString( 'https://example.com/old/', $result );
 	}
 
@@ -674,7 +675,7 @@ final class SearchTest extends TestCase {
 		$post                        = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 		$post->ID                    = -15;
 		$post->onesearch_original_id = 14;
-		$post->guid                  = 'https://remote.example.com/post/15/';
+		$post->guid                  = 'https://remote.example.com/post/14/';
 		$post->post_excerpt          = 'Remote excerpt body';
 
 		$search  = new Search();
@@ -791,8 +792,7 @@ final class SearchTest extends TestCase {
 			]
 		);
 
-		// Both posts' _thumbnail_id are requested before any image renders, so the
-		// shared current_remote_post slot now points at $second.
+		// Both _thumbnail_id lookups happen before any render, so current_remote_post now points at $second.
 		$proxy_id = (int) $search->get_remote_thumbnail_id( null, -18, '_thumbnail_id', true );
 		$search->get_remote_thumbnail_id( null, -20, '_thumbnail_id', true );
 

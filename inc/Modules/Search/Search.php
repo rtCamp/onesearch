@@ -226,8 +226,7 @@ final class Search implements Registrable {
 		$post_id     = (int) $post;
 		$global_post = $GLOBALS['post'] ?? null;
 
-		// Loop context (covers proxy-ID attachments): the global post is the one
-		// being rendered and matches the requested ID.
+		// Loop context (covers proxy-ID attachments): the global post is the one being rendered and matches the ID.
 		if ( $this->is_remote_post( $global_post ) && (int) $global_post->ID === $post_id ) {
 			return $global_post;
 		}
@@ -565,7 +564,6 @@ final class Search implements Registrable {
 
 		if ( ! empty( $sizes ) ) {
 			if ( is_string( $size ) && 'full' !== $size && isset( $sizes[ $size ] ) ) {
-				// Exact named-size match.
 				$chosen = $sizes[ $size ];
 			} elseif ( is_array( $size ) && isset( $size[0], $size[1] ) ) {
 				// Dimension request: smallest variant that covers it, else largest.
@@ -723,8 +721,7 @@ final class Search implements Registrable {
 	 * @param \WP_Query $query The query being run.
 	 */
 	public function exclude_proxy_from_media_library( \WP_Query $query ): void {
-		// post_type may be a string, an array (e.g. ['post','attachment']), or 'any'
-		// (which core expands to include attachment, since it is not exclude_from_search).
+		// post_type may be string/array/'any'; core expands 'any' to attachment (not exclude_from_search).
 		$post_types = (array) $query->get( 'post_type' );
 		if ( ! in_array( 'attachment', $post_types, true ) && ! in_array( 'any', $post_types, true ) ) {
 			return;
@@ -735,8 +732,7 @@ final class Search implements Registrable {
 			return;
 		}
 
-		// WP_Query::get() defaults to '' when unset, and (array) '' is [''] — not
-		// []; array_filter() drops that empty element (and any pre-existing ones).
+		// get() returns '' when unset and (array) '' is [''], so array_filter() strips that empty element.
 		$excluded   = array_filter( (array) $query->get( 'post__not_in' ) );
 		$excluded[] = $proxy_id;
 		// phpcs:ignore WordPressVIPMinimum.Hooks.PreGetPosts.PreGetPosts -- Intentionally filters attachment queries (front end, admin, and REST) to hide the single synthetic proxy attachment.
@@ -1130,10 +1126,12 @@ final class Search implements Registrable {
 		$post      = new \WP_Post( new \stdClass() );
 		$post_type = $record['post_type'] ?? '';
 
-		// Attachment results take the real (positive) proxy attachment ID so core's
-		// attachment functions resolve them natively; every other remote post gets a
-		// negative placeholder ID to avoid colliding with local posts. Fall back to
-		// the negative ID when the proxy can't be created.
+		/**
+		 * Attachment results take the real (positive) proxy attachment ID so core's
+		 * attachment functions resolve them natively; every other remote post gets a
+		 * negative placeholder ID to avoid colliding with local posts. Fall back to
+		 * the negative ID when the proxy can't be created.
+		 */
 		$proxy_id = 'attachment' === $post_type ? $this->get_proxy_attachment_id() : 0;
 
 		$post->ID                = $proxy_id > 0 ? $proxy_id : -1 - absint( $record['post_id'] );
