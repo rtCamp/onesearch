@@ -47,11 +47,29 @@ function run_uninstaller(): void {
  */
 function uninstall(): void {
 	cleanup_algolia_index();
+	delete_proxy_attachment();
 
 	// Wait until the end to delete options and transients.
 
 	delete_transients();
 	delete_options();
+}
+
+/**
+ * Delete the shared "proxy" attachment used for remote post thumbnails.
+ */
+function delete_proxy_attachment(): void {
+	$proxy_id = (int) get_option( PLUGIN_PREFIX . 'proxy_attachment_id', 0 );
+	if ( $proxy_id <= 0 ) {
+		return;
+	}
+
+	$proxy_post = get_post( $proxy_id );
+	if ( ! $proxy_post instanceof \WP_Post || 'attachment' !== $proxy_post->post_type || 'onesearch-remote-attachment-proxy' !== $proxy_post->post_name ) {
+		return;
+	}
+
+	wp_delete_post( $proxy_id, true );
 }
 
 /**
@@ -72,6 +90,9 @@ function delete_options(): void {
 		// Brand site options.
 		PLUGIN_PREFIX . 'parent_site_url',
 		PLUGIN_PREFIX . 'consumer_api_key',
+
+		// Shared proxy attachment used for remote post thumbnails.
+		PLUGIN_PREFIX . 'proxy_attachment_id',
 	];
 
 	foreach ( $options as $option ) {
