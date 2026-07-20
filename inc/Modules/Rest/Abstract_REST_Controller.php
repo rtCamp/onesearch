@@ -62,15 +62,11 @@ abstract class Abstract_REST_Controller extends WP_REST_Controller implements Re
 	 * @param \WP_REST_Request<array{}> $request Request.
 	 */
 	public function check_api_permissions( $request ): bool {
-		$request_origin = $request->get_header( 'origin' );
-		$request_origin = ! empty( $request_origin ) ? esc_url_raw( wp_unslash( $request_origin ) ) : '';
-		$parsed_origin  = wp_parse_url( $request_origin );
-		$parsed_origin  = is_array( $parsed_origin ) ? $parsed_origin : [];
-		$request_url    = ! empty( $parsed_origin['scheme'] ) && ! empty( $parsed_origin['host'] )
-			? Utils::normalize_url( $request_origin )
-			: '';
-
-		$origin_port = isset( $parsed_origin['port'] ) ? (int) $parsed_origin['port'] : null;
+		$origin         = $this->parse_origin( $request->get_header( 'origin' ) );
+		$request_origin = $origin['origin'];
+		$parsed_origin  = $origin['parsed'];
+		$request_url    = $origin['url'];
+		$origin_port    = $origin['port'];
 
 		/**
 		 * Token-based auth takes priority over the Origin same-host check: cross-site
@@ -90,13 +86,11 @@ abstract class Abstract_REST_Controller extends WP_REST_Controller implements Re
 			if ( empty( $request_url ) ) {
 				$site_url_header = $request->get_header( 'X-OneSearch-Site-URL' );
 				if ( ! empty( $site_url_header ) ) {
-					$request_origin = esc_url_raw( wp_unslash( $site_url_header ) );
-					$parsed_origin  = wp_parse_url( $request_origin );
-					$parsed_origin  = is_array( $parsed_origin ) ? $parsed_origin : [];
-					$request_url    = ! empty( $parsed_origin['scheme'] ) && ! empty( $parsed_origin['host'] )
-						? Utils::normalize_url( $request_origin )
-						: '';
-					$origin_port    = isset( $parsed_origin['port'] ) ? (int) $parsed_origin['port'] : null;
+					$origin         = $this->parse_origin( $site_url_header );
+					$request_origin = $origin['origin'];
+					$parsed_origin  = $origin['parsed'];
+					$request_url    = $origin['url'];
+					$origin_port    = $origin['port'];
 				}
 			}
 
@@ -132,6 +126,30 @@ abstract class Abstract_REST_Controller extends WP_REST_Controller implements Re
 		}
 
 		return false;
+	}
+
+	/**
+	 * Parses a raw Origin or X-OneSearch-Site-URL header value into its components.
+	 *
+	 * @param ?string $raw Raw header value.
+	 *
+	 * @return array{origin: string, parsed: array<string, mixed>, url: string, port: int|null}
+	 */
+	private function parse_origin( ?string $raw ): array {
+		$origin = ! empty( $raw ) ? esc_url_raw( wp_unslash( $raw ) ) : '';
+		$parsed = wp_parse_url( $origin );
+		$parsed = is_array( $parsed ) ? $parsed : [];
+		$url    = ! empty( $parsed['scheme'] ) && ! empty( $parsed['host'] )
+			? Utils::normalize_url( $origin )
+			: '';
+		$port   = isset( $parsed['port'] ) ? (int) $parsed['port'] : null;
+
+		return [
+			'origin' => $origin,
+			'parsed' => $parsed,
+			'url'    => $url,
+			'port'   => $port,
+		];
 	}
 
 	/**
