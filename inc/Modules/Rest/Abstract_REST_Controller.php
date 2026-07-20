@@ -72,17 +72,21 @@ abstract class Abstract_REST_Controller extends WP_REST_Controller implements Re
 
 		$origin_port = isset( $parsed_origin['port'] ) ? (int) $parsed_origin['port'] : null;
 
-		// See if the `X-OneSearch-Token` header is present.
-		// Token-based auth takes priority so that cross-site requests from sub-directory
-		// multisite installs (where Origin loses the path and same-host detection fires
-		// on sibling sub-sites) are validated by key rather than by logged-in user.
+		/**
+		 * Token-based auth takes priority over the Origin same-host check: cross-site
+		 * requests from sub-directory multisite installs lose the path in Origin, so
+		 * same-host detection can misfire on sibling sub-sites. Validating by key
+		 * instead avoids that false match.
+		 */
 		$token = $request->get_header( 'X-OneSearch-Token' );
 		$token = ! empty( $token ) ? sanitize_text_field( wp_unslash( $token ) ) : '';
 
 		if ( ! empty( $token ) ) {
-			// When Origin is absent (same-origin browser requests in sub-directory multisite,
-			// where the browser omits Origin for same-host fetches), fall back to the
-			// explicitly-sent site URL header so token auth can still proceed.
+			/**
+			 * Origin is absent for same-origin browser requests in sub-directory multisite
+			 * installs, since the browser omits Origin for same-host fetches. Fall back to
+			 * the explicitly-sent site URL header so token auth can still proceed.
+			 */
 			if ( empty( $request_url ) ) {
 				$site_url_header = $request->get_header( 'X-OneSearch-Site-URL' );
 				if ( ! empty( $site_url_header ) ) {
@@ -111,13 +115,13 @@ abstract class Abstract_REST_Controller extends WP_REST_Controller implements Re
 				return true;
 			}
 
-			// If it's not a healthcheck, compare the origins.
+			// Non-healthcheck requests must match the site already recorded as governing.
 			$governing_site_url = Settings::get_parent_site_url();
 			if ( '/' . $this->namespace . '/health-check' !== $request->get_route() ) {
 				return ! empty( $governing_site_url ) ? $this->is_url_from_host( $governing_site_url, $parsed_origin['host'], $origin_port ) : false;
 			}
 
-			// For health-checks, if no governing site is set, we set it now.
+			// Health-checks bootstrap the governing-site relationship since none is recorded yet.
 			Settings::set_parent_site_url( $request_origin );
 			return true;
 		}
