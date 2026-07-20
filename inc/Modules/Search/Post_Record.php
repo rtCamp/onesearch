@@ -472,15 +472,9 @@ final class Post_Record {
 			'sizes'  => [],
 		];
 
-		/**
-		 * Filters the intermediate image sizes indexed for remote rendering.
-		 *
-		 * @param string[] $sizes         Registered image size names to index.
-		 * @param int      $attachment_id The attachment ID.
-		 */
-		$sizes = apply_filters( 'onesearch_indexed_image_sizes', [ 'thumbnail', 'medium', 'large' ], $attachment_id );
-
-		foreach ( (array) $sizes as $size ) {
+		// get_intermediate_image_sizes() is VIP-restricted (always empty there); the registered-subsizes
+		// registry gives the same size names without depending on intermediate files actually existing.
+		foreach ( array_keys( wp_get_registered_image_subsizes() ) as $size ) {
 			$image_data = \wp_get_attachment_image_src( $attachment_id, $size );
 
 			// Skip missing sizes, or ones where WP fell back to full (URL matches) — no distinct intermediate exists.

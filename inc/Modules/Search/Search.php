@@ -95,50 +95,9 @@ final class Search implements Registrable {
 
 		// Keep the proxy attachment hidden from the media library.
 		add_action( 'pre_get_posts', [ $this, 'exclude_proxy_from_media_library' ] );
-		add_filter( 'ajax_query_attachments_args', [ $this, 'exclude_proxy_from_attachments_ajax' ] );
 
 		// Block-theme compatibility: fix remote permalinks/excerpts in rendered blocks.
 		add_filter( 'render_block', [ $this, 'filter_render_block' ], 10, 2 );
-	}
-
-	/**
-	 * Whether a post is a remote (Algolia-mocked) search result.
-	 *
-	 * Remote results are the only posts that carry `onesearch_original_id`
-	 * (local-site results return early in build_post_from_record() without it),
-	 * so this identifies them regardless of whether their ID is the negative
-	 * placeholder (regular posts) or the positive proxy ID (attachments).
-	 *
-	 * @param mixed $post The candidate post.
-	 *
-	 * @return bool True when the post is a remote result.
-	 */
-	private function is_remote_post( $post ): bool {
-		return $post instanceof \WP_Post && property_exists( $post, 'onesearch_original_id' );
-	}
-
-	/**
-	 * Provide the remote file URL when core asks for a remote attachment's URL.
-	 *
-	 * A remote attachment search result is assigned the proxy attachment's real
-	 * (positive) ID, so core's wp_get_attachment_url() resolves the post and
-	 * reaches this filter (unlike a negative ID, which it rejects before any
-	 * filter runs). We return the remote file URL so prepend_attachment() /
-	 * wp_get_attachment_link() render natively without replacing their output.
-	 *
-	 * @param string|false $url           The attachment URL (or false if not resolved).
-	 * @param int          $attachment_id The attachment post ID.
-	 *
-	 * @return string|false The remote URL when this is a remote attachment, else $url.
-	 */
-	public function get_remote_attachment_url( $url, $attachment_id ) {
-		$remote_post = $this->resolve_remote_attachment_post( (int) $attachment_id );
-
-		if ( $remote_post instanceof \WP_Post && ! empty( $remote_post->onesearch_thumbnail['url'] ) ) {
-			return esc_url_raw( $remote_post->onesearch_thumbnail['url'] );
-		}
-
-		return $url;
 	}
 
 	/**
@@ -202,45 +161,6 @@ final class Search implements Registrable {
 		}
 
 		return $permalink;
-	}
-
-	/**
-	 * Locate the remote post a permalink request belongs to.
-	 *
-	 * Some link filters pass the WP_Post object, others only an ID. Attachment
-	 * results share a single proxy ID, so an ID alone can't identify them — for
-	 * those we rely on the in-loop global post. Regular remote posts have unique
-	 * negative IDs and can be matched by scanning the result set.
-	 *
-	 * @param int|\WP_Post $post Post object or ID from the link filter.
-	 *
-	 * @return \WP_Post|null The matching remote post, or null when not ours.
-	 */
-	private function resolve_remote_post_for_permalink( $post ): ?\WP_Post {
-		global $wp_query;
-
-		if ( $post instanceof \WP_Post ) {
-			return $this->is_remote_post( $post ) ? $post : null;
-		}
-
-		$post_id     = (int) $post;
-		$global_post = $GLOBALS['post'] ?? null;
-
-		// Loop context (covers proxy-ID attachments): the global post is the one being rendered and matches the ID.
-		if ( $this->is_remote_post( $global_post ) && (int) $global_post->ID === $post_id ) {
-			return $global_post;
-		}
-
-		// Regular remote posts have unique negative IDs; match by scanning results.
-		if ( $post_id < 0 ) {
-			foreach ( $wp_query->posts as $found ) {
-				if ( $this->is_remote_post( $found ) && (int) $found->ID === $post_id ) {
-					return $found;
-				}
-			}
-		}
-
-		return null;
 	}
 
 	/**
@@ -454,23 +374,27 @@ final class Search implements Registrable {
 	}
 
 	/**
-	 * Register the remote posts for the current request.
+	 * Provide the remote file URL when core asks for a remote attachment's URL.
 	 *
-	 * Builds the negative-ID -> WP_Post map used by the attachment hooks. Remote
-	 * posts are mocked WP_Post objects with negative IDs, so they are not in the
-	 * database and cannot be resolved via get_post(); the filters that handle
-	 * them read from this map (and the global $post) instead.
+	 * A remote attachment search result is assigned the proxy attachment's real
+	 * (positive) ID, so core's wp_get_attachment_url() resolves the post and
+	 * reaches this filter (unlike a negative ID, which it rejects before any
+	 * filter runs). We return the remote file URL so prepend_attachment() /
+	 * wp_get_attachment_link() render natively without replacing their output.
 	 *
-	 * @param \WP_Post[] $posts The posts returned for the query.
+	 * @param string|false $url           The attachment URL (or false if not resolved).
+	 * @param int          $attachment_id The attachment post ID.
+	 *
+	 * @return string|false The remote URL when this is a remote attachment, else $url.
 	 */
-	private function register_remote_posts( array $posts ): void {
-		foreach ( $posts as $post ) {
-			if ( ! $post instanceof \WP_Post || (int) $post->ID >= 0 ) {
-				continue;
-			}
+	public function get_remote_attachment_url( $url, $attachment_id ) {
+		$remote_post = $this->resolve_remote_attachment_post( (int) $attachment_id );
 
-			$this->remote_posts_map[ (int) $post->ID ] = $post;
+		if ( $remote_post instanceof \WP_Post && ! empty( $remote_post->onesearch_thumbnail['url'] ) ) {
+			return esc_url_raw( $remote_post->onesearch_thumbnail['url'] );
 		}
+
+		return $url;
 	}
 
 	/**
@@ -539,6 +463,143 @@ final class Search implements Registrable {
 		}
 
 		return $this->select_remote_image_size( $remote_post->onesearch_thumbnail, $size );
+	}
+
+	/**
+	 * Adjust a remote attachment's image attributes for the remote file.
+	 *
+	 * Remote attachments (and the proxy) have no real metadata, so we set a
+	 * meaningful alt text from the remote post and drop any srcset/sizes that
+	 * would point at non-existent local files.
+	 *
+	 * @param array<string, string> $attr       Image attributes.
+	 * @param \WP_Post              $attachment The attachment post.
+	 * @param string|int[]          $size       Requested size.
+	 *
+	 * @return array<string, string> Filtered attributes.
+	 */
+	public function filter_remote_attachment_image_attributes( $attr, $attachment, $size ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+		if ( ! $attachment instanceof \WP_Post ) {
+			return $attr;
+		}
+
+		$remote_post = $this->resolve_remote_attachment_post( (int) $attachment->ID );
+
+		if ( ! $remote_post instanceof \WP_Post ) {
+			return $attr;
+		}
+
+		unset( $attr['srcset'], $attr['sizes'] );
+
+		if ( empty( $attr['alt'] ) && ! empty( $remote_post->post_title ) ) {
+			$attr['alt'] = esc_attr( $remote_post->post_title );
+		}
+
+		return $attr;
+	}
+
+	/**
+	 * Exclude the proxy attachment from attachment queries.
+	 *
+	 * Applies everywhere (front end, admin, and REST), so the synthetic proxy
+	 * never surfaces in any attachment listing. The internal thumbnail pipeline
+	 * resolves the proxy via get_post()/get_option(), not WP_Query, so it is
+	 * unaffected by this exclusion.
+	 *
+	 * @param \WP_Query $query The query being run.
+	 */
+	public function exclude_proxy_from_media_library( \WP_Query $query ): void {
+		// post_type may be string/array/'any'; core expands 'any' to attachment (not exclude_from_search).
+		$post_types = (array) $query->get( 'post_type' );
+		if ( ! in_array( 'attachment', $post_types, true ) && ! in_array( 'any', $post_types, true ) ) {
+			return;
+		}
+
+		$proxy_id = (int) get_option( self::PROXY_ATTACHMENT_OPTION, 0 );
+		if ( ! $proxy_id ) {
+			return;
+		}
+
+		// get() returns '' when unset and (array) '' is [''], so array_filter() strips that empty element.
+		$excluded   = array_filter( (array) $query->get( 'post__not_in' ) );
+		$excluded[] = $proxy_id;
+		// phpcs:ignore WordPressVIPMinimum.Hooks.PreGetPosts.PreGetPosts -- Intentionally filters attachment queries (front end, admin, and REST) to hide the single synthetic proxy attachment.
+		$query->set( 'post__not_in', $excluded );
+	}
+
+	/**
+	 * Whether a post is a remote (Algolia-mocked) search result.
+	 *
+	 * Remote results are the only posts that carry `onesearch_original_id`
+	 * (local-site results return early in build_post_from_record() without it),
+	 * so this identifies them regardless of whether their ID is the negative
+	 * placeholder (regular posts) or the positive proxy ID (attachments).
+	 *
+	 * @param mixed $post The candidate post.
+	 *
+	 * @return bool True when the post is a remote result.
+	 */
+	private function is_remote_post( $post ): bool {
+		return $post instanceof \WP_Post && property_exists( $post, 'onesearch_original_id' );
+	}
+
+	/**
+	 * Locate the remote post a permalink request belongs to.
+	 *
+	 * Some link filters pass the WP_Post object, others only an ID. Attachment
+	 * results share a single proxy ID, so an ID alone can't identify them — for
+	 * those we rely on the in-loop global post. Regular remote posts have unique
+	 * negative IDs and can be matched by scanning the result set.
+	 *
+	 * @param int|\WP_Post $post Post object or ID from the link filter.
+	 *
+	 * @return \WP_Post|null The matching remote post, or null when not ours.
+	 */
+	private function resolve_remote_post_for_permalink( $post ): ?\WP_Post {
+		global $wp_query;
+
+		if ( $post instanceof \WP_Post ) {
+			return $this->is_remote_post( $post ) ? $post : null;
+		}
+
+		$post_id     = (int) $post;
+		$global_post = $GLOBALS['post'] ?? null;
+
+		// Loop context (covers proxy-ID attachments): the global post is the one being rendered and matches the ID.
+		if ( $this->is_remote_post( $global_post ) && (int) $global_post->ID === $post_id ) {
+			return $global_post;
+		}
+
+		// Regular remote posts have unique negative IDs; match by scanning results.
+		if ( $post_id < 0 ) {
+			foreach ( $wp_query->posts as $found ) {
+				if ( $this->is_remote_post( $found ) && (int) $found->ID === $post_id ) {
+					return $found;
+				}
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Register the remote posts for the current request.
+	 *
+	 * Builds the negative-ID -> WP_Post map used by the attachment hooks. Remote
+	 * posts are mocked WP_Post objects with negative IDs, so they are not in the
+	 * database and cannot be resolved via get_post(); the filters that handle
+	 * them read from this map (and the global $post) instead.
+	 *
+	 * @param \WP_Post[] $posts The posts returned for the query.
+	 */
+	private function register_remote_posts( array $posts ): void {
+		foreach ( $posts as $post ) {
+			if ( ! $post instanceof \WP_Post || (int) $post->ID >= 0 ) {
+				continue;
+			}
+
+			$this->remote_posts_map[ (int) $post->ID ] = $post;
+		}
 	}
 
 	/**
@@ -615,39 +676,6 @@ final class Search implements Registrable {
 	}
 
 	/**
-	 * Adjust a remote attachment's image attributes for the remote file.
-	 *
-	 * Remote attachments (and the proxy) have no real metadata, so we set a
-	 * meaningful alt text from the remote post and drop any srcset/sizes that
-	 * would point at non-existent local files.
-	 *
-	 * @param array<string, string> $attr       Image attributes.
-	 * @param \WP_Post              $attachment The attachment post.
-	 * @param string|int[]          $size       Requested size.
-	 *
-	 * @return array<string, string> Filtered attributes.
-	 */
-	public function filter_remote_attachment_image_attributes( $attr, $attachment, $size ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-		if ( ! $attachment instanceof \WP_Post ) {
-			return $attr;
-		}
-
-		$remote_post = $this->resolve_remote_attachment_post( (int) $attachment->ID );
-
-		if ( ! $remote_post instanceof \WP_Post ) {
-			return $attr;
-		}
-
-		unset( $attr['srcset'], $attr['sizes'] );
-
-		if ( empty( $attr['alt'] ) && ! empty( $remote_post->post_title ) ) {
-			$attr['alt'] = esc_attr( $remote_post->post_title );
-		}
-
-		return $attr;
-	}
-
-	/**
 	 * Resolve which remote post an attachment request belongs to.
 	 *
 	 * @param int $attachment_id The attachment ID being resolved.
@@ -712,56 +740,6 @@ final class Search implements Registrable {
 		$this->proxy_attachment_id = (int) $proxy_id;
 
 		return $this->proxy_attachment_id;
-	}
-
-	/**
-	 * Exclude the proxy attachment from attachment queries.
-	 *
-	 * Applies everywhere (front end, admin, and REST), so the synthetic proxy
-	 * never surfaces in any attachment listing. The internal thumbnail pipeline
-	 * resolves the proxy via get_post()/get_option(), not WP_Query, so it is
-	 * unaffected by this exclusion.
-	 *
-	 * @param \WP_Query $query The query being run.
-	 */
-	public function exclude_proxy_from_media_library( \WP_Query $query ): void {
-		// post_type may be string/array/'any'; core expands 'any' to attachment (not exclude_from_search).
-		$post_types = (array) $query->get( 'post_type' );
-		if ( ! in_array( 'attachment', $post_types, true ) && ! in_array( 'any', $post_types, true ) ) {
-			return;
-		}
-
-		$proxy_id = (int) get_option( self::PROXY_ATTACHMENT_OPTION, 0 );
-		if ( ! $proxy_id ) {
-			return;
-		}
-
-		// get() returns '' when unset and (array) '' is [''], so array_filter() strips that empty element.
-		$excluded   = array_filter( (array) $query->get( 'post__not_in' ) );
-		$excluded[] = $proxy_id;
-		// phpcs:ignore WordPressVIPMinimum.Hooks.PreGetPosts.PreGetPosts -- Intentionally filters attachment queries (front end, admin, and REST) to hide the single synthetic proxy attachment.
-		$query->set( 'post__not_in', $excluded );
-	}
-
-	/**
-	 * Exclude the proxy attachment from the media library grid (AJAX) query.
-	 *
-	 * @param array<string, mixed> $args The attachment query args.
-	 *
-	 * @return array<string, mixed> Filtered query args.
-	 */
-	public function exclude_proxy_from_attachments_ajax( $args ) {
-		$proxy_id = (int) get_option( self::PROXY_ATTACHMENT_OPTION, 0 );
-		if ( ! $proxy_id ) {
-			return $args;
-		}
-
-		$excluded   = array_filter( (array) ( $args['post__not_in'] ?? [] ) );
-		$excluded[] = $proxy_id;
-		// phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.PostNotIn_post__not_in -- Excludes a single synthetic proxy attachment from the media grid; negligible cost.
-		$args['post__not_in'] = $excluded;
-
-		return $args;
 	}
 
 	/**
