@@ -2,12 +2,12 @@
 /**
  * Tests for Search_Controller on a consumer site.
  *
- * @package OneSearch\Tests\Integrationgration\Modules\Rest
+ * @package OneSearch\Tests\Integration\Modules\Rest
  */
 
 declare( strict_types = 1 );
 
-namespace OneSearch\Tests\Integrationgration\Modules\Rest;
+namespace OneSearch\Tests\Integration\Modules\Rest;
 
 use OneSearch\Modules\Rest\Abstract_REST_Controller;
 use OneSearch\Modules\Rest\Governing_Data_Handler;

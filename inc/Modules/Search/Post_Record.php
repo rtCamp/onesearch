@@ -32,6 +32,7 @@ use OneSearch\Utils;
  *    url: string,
  *    width: int,
  *    height: int,
+ *    sizes?: array<string, array{url: string, width: int, height: int}>,
  *  }|array{},
  *  post_author_data?: array{
  *    author_display_name: string,
@@ -75,6 +76,7 @@ use OneSearch\Utils;
  *    url: string,
  *    width: int,
  *    height: int,
+ *    sizes?: array<string, array{url: string, width: int, height: int}>,
  *  }|array{},
  *  post_author_data?: array{
  *    author_display_name: string,
@@ -433,13 +435,20 @@ final class Post_Record {
 	}
 
 	/**
-	 * Get attachment image metadata for record.
+	 * Get image metadata (full + intermediate sizes) for the indexed record.
 	 *
-	 * @param \WP_Post $post The attachment post.
+	 * The top-level url/width/height describe the full-size image (used as the
+	 * canonical file URL and as the fallback when a requested size is missing).
+	 * The `sizes` map carries the intermediate sizes that actually exist on the
+	 * source site, so the consuming site can render remote images at the size the
+	 * theme requests rather than a single fixed thumbnail.
+	 *
+	 * @param \WP_Post $post The post being indexed (attachment or post with a featured image).
 	 * @return array{
 	 *   url: string,
 	 *   width: int,
 	 *   height: int,
+	 *   sizes: array<string, array{url: string, width: int, height: int}>,
 	 * }|array{}
 	 */
 	private function get_attachment_image_metadata( \WP_Post $post ): array {
@@ -449,13 +458,41 @@ final class Post_Record {
 			return [];
 		}
 
-		$image_data = \wp_get_attachment_image_src( $attachment_id, 'thumbnail' );
+		// Full-size image is the canonical URL and the fallback for unknown sizes.
+		$full = \wp_get_attachment_image_src( $attachment_id, 'full' );
 
-		return ! empty( $image_data ) ? [
-			'url'    => $image_data[0],
-			'width'  => $image_data[1],
-			'height' => $image_data[2],
-		] : [];
+		if ( empty( $full ) ) {
+			return [];
+		}
+
+		$metadata = [
+			'url'    => $full[0],
+			'width'  => (int) $full[1],
+			'height' => (int) $full[2],
+			'sizes'  => [],
+		];
+
+		$attachment_metadata = wp_get_attachment_metadata( $attachment_id );
+		$size_names          = is_array( $attachment_metadata ) && ! empty( $attachment_metadata['sizes'] )
+			? array_keys( $attachment_metadata['sizes'] )
+			: array_keys( wp_get_registered_image_subsizes() );
+
+		foreach ( $size_names as $size ) {
+			$image_data = \wp_get_attachment_image_src( $attachment_id, $size );
+
+			// Skip missing sizes, or ones where WP fell back to full (URL matches) — no distinct intermediate exists.
+			if ( empty( $image_data ) || $image_data[0] === $metadata['url'] ) {
+				continue;
+			}
+
+			$metadata['sizes'][ (string) $size ] = [
+				'url'    => $image_data[0],
+				'width'  => (int) $image_data[1],
+				'height' => (int) $image_data[2],
+			];
+		}
+
+		return $metadata;
 	}
 
 	/**
