@@ -413,7 +413,7 @@ final class Search implements Registrable {
 	 *
 	 * @return mixed The proxy attachment ID for remote thumbnails, else $value.
 	 */
-	public function get_remote_thumbnail_id( $value, $object_id, $meta_key, $single ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+	public function get_remote_thumbnail_id( $value, $object_id, $meta_key, $single ) {
 		if ( '_thumbnail_id' !== $meta_key || (int) $object_id >= 0 ) {
 			return $value;
 		}
