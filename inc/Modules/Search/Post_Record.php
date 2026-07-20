@@ -472,9 +472,12 @@ final class Post_Record {
 			'sizes'  => [],
 		];
 
-		// get_intermediate_image_sizes() is VIP-restricted (always empty there); the registered-subsizes
-		// registry gives the same size names without depending on intermediate files actually existing.
-		foreach ( array_keys( wp_get_registered_image_subsizes() ) as $size ) {
+		$attachment_metadata = wp_get_attachment_metadata( $attachment_id );
+		$size_names          = is_array( $attachment_metadata ) && ! empty( $attachment_metadata['sizes'] )
+			? array_keys( $attachment_metadata['sizes'] )
+			: array_keys( wp_get_registered_image_subsizes() );
+
+		foreach ( $size_names as $size ) {
 			$image_data = \wp_get_attachment_image_src( $attachment_id, $size );
 
 			// Skip missing sizes, or ones where WP fell back to full (URL matches) — no distinct intermediate exists.
