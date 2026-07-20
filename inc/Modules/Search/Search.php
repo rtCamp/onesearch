@@ -93,8 +93,8 @@ final class Search implements Registrable {
 		add_filter( 'wp_get_attachment_image_attributes', [ $this, 'filter_remote_attachment_image_attributes' ], 10, 3 );
 		add_filter( 'wp_get_attachment_url', [ $this, 'get_remote_attachment_url' ], 10, 2 );
 
-		// Keep the proxy attachment hidden from the media library.
-		add_action( 'pre_get_posts', [ $this, 'exclude_proxy_from_media_library' ] );
+		// Keep the proxy attachment hidden from attachment queries.
+		add_action( 'pre_get_posts', [ $this, 'exclude_proxy_from_attachment_queries' ] );
 
 		// Block-theme compatibility: fix remote permalinks/excerpts in rendered blocks.
 		add_filter( 'render_block', [ $this, 'filter_render_block' ], 10, 2 );
