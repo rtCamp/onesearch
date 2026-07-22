@@ -43,7 +43,7 @@ function constants(): void {
 	/**
 	 * Version of the plugin.
 	 */
-	define( 'ONESEARCH_VERSION', '1.0.1' ); // x-release-please-version
+	define( 'ONESEARCH_VERSION', '1.0.1' ); // x-release-please-version.
 
 	/**
 	 * Root path to the plugin directory.
