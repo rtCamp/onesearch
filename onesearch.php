@@ -17,7 +17,7 @@
  * Text Domain:       onesearch
  * Domain Path:       /languages
  * x-release-please-start-version
- * Version:           1.1.0
+ * Version:           1.1.1
  * x-release-please-end
  * Requires PHP:      8.2
  * Requires at least: 6.8
@@ -43,7 +43,7 @@ function constants(): void {
 	/**
 	 * Version of the plugin.
 	 */
-	define( 'ONESEARCH_VERSION', '1.1.0' ); // x-release-please-version.
+	define( 'ONESEARCH_VERSION', '1.1.1' ); // x-release-please-version.
 
 	/**
 	 * Root path to the plugin directory.
