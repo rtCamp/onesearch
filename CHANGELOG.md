@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.1.1](https://github.com/rtCamp/onesearch/compare/v1.1.0...v1.1.1) (2026-07-23)
+
+
+### Miscellaneous Chores
+
+* **deps-dev:** bump fast-uri from 3.1.2 to 3.1.4 ([#277](https://github.com/rtCamp/onesearch/issues/277)) ([91d5eb4](https://github.com/rtCamp/onesearch/commit/91d5eb45b679d24a9ceb319255763f60fda541dc))
+* **deps-dev:** bump immutable from 5.1.6 to 5.1.9 ([#279](https://github.com/rtCamp/onesearch/issues/279)) ([786561d](https://github.com/rtCamp/onesearch/commit/786561dac23d57a66a5d282f36451a2da4a84ba9))
+* **deps-dev:** bump svgo from 3.3.3 to 3.3.4 ([#278](https://github.com/rtCamp/onesearch/issues/278)) ([3efbdc1](https://github.com/rtCamp/onesearch/commit/3efbdc1cd4f96e99718984446affc4c55fb57dab))
+* **deps:** bump shell-quote from 1.8.4 to 1.10.0 ([#276](https://github.com/rtCamp/onesearch/issues/276)) ([cc7af5d](https://github.com/rtCamp/onesearch/commit/cc7af5dac80aa0e51437df1097c36ee4958563fd))
+
 ## [1.1.0](https://github.com/rtCamp/onesearch/compare/v1.0.1...v1.1.0) (2026-07-22)
 
 
