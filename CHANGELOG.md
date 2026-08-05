@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.1.1](https://github.com/rtCamp/onesearch/compare/v1.1.0...v1.1.1) (2026-08-05)
+
+
+### Miscellaneous Chores
+
+* **deps-dev:** bump fast-uri from 3.1.2 to 3.1.4 ([#277](https://github.com/rtCamp/onesearch/issues/277)) ([91d5eb4](https://github.com/rtCamp/onesearch/commit/91d5eb45b679d24a9ceb319255763f60fda541dc))
+* **deps-dev:** bump fast-uri from 3.1.4 to 3.1.5 ([#286](https://github.com/rtCamp/onesearch/issues/286)) ([e4bc2c7](https://github.com/rtCamp/onesearch/commit/e4bc2c7f27c10eb91fa88534750611a6b7f54baf))
+* **deps-dev:** bump immutable from 5.1.6 to 5.1.9 ([#279](https://github.com/rtCamp/onesearch/issues/279)) ([786561d](https://github.com/rtCamp/onesearch/commit/786561dac23d57a66a5d282f36451a2da4a84ba9))
+* **deps-dev:** bump svgo from 3.3.3 to 3.3.4 ([#278](https://github.com/rtCamp/onesearch/issues/278)) ([3efbdc1](https://github.com/rtCamp/onesearch/commit/3efbdc1cd4f96e99718984446affc4c55fb57dab))
+* **deps-dev:** bump the composer-dev-minor-patch group with 2 updates ([#283](https://github.com/rtCamp/onesearch/issues/283)) ([1dbd847](https://github.com/rtCamp/onesearch/commit/1dbd84737c6a9700d1c726aac3bdc304c4fafc5b))
+* **deps-dev:** bump the npm-dev-minor-patch group with 5 updates ([#284](https://github.com/rtCamp/onesearch/issues/284)) ([c6b5937](https://github.com/rtCamp/onesearch/commit/c6b593762c7b57d568d0ec803fd08eccbbff53fe))
+* **deps-dev:** bump wp-coding-standards/wpcs from 3.4.0 to 3.4.1 ([#281](https://github.com/rtCamp/onesearch/issues/281)) ([05f3dfc](https://github.com/rtCamp/onesearch/commit/05f3dfc0530a49fcaf04f7842380ddd994ce0266))
+* **deps:** bump ip-address from 10.2.0 to 10.4.0 ([#285](https://github.com/rtCamp/onesearch/issues/285)) ([9d0d8c3](https://github.com/rtCamp/onesearch/commit/9d0d8c3c9e87c1d109b619c3847fb2a5254f48c2))
+* **deps:** bump postcss from 8.5.15 to 8.5.25 ([#282](https://github.com/rtCamp/onesearch/issues/282)) ([8887b2e](https://github.com/rtCamp/onesearch/commit/8887b2ec473c1e3f1cf8daf94ec7e52621233bf1))
+* **deps:** bump shell-quote from 1.8.4 to 1.10.0 ([#276](https://github.com/rtCamp/onesearch/issues/276)) ([cc7af5d](https://github.com/rtCamp/onesearch/commit/cc7af5dac80aa0e51437df1097c36ee4958563fd))
+
 ## [1.1.0](https://github.com/rtCamp/onesearch/compare/v1.0.1...v1.1.0) (2026-07-22)
 
 
