@@ -518,8 +518,12 @@ Releases are automated with [Release Please](https://github.com/googleapis/relea
 
 1. Merge pull requests into `main` with **squash merge** and a Conventional Commit title.
 2. Release Please updates and maintains a release PR from `main` using:
-   - [`.github/workflows/release-please.yml`](../.github/workflows/release-please.yml)
+   - [`.github/workflows/release.yml`](../.github/workflows/release.yml)
    - [`release-please-config.json`](../release-please-config.json)
    - [`.release-please-manifest.json`](../.release-please-manifest.json)
 3. Merge the release PR when you're ready to ship.
-4. Release Please creates the GitHub Release, which then triggers the [release workflow](../.github/workflows/release.yml) to build and upload the plugin zip asset.
+4. Release Please creates the GitHub Release, which then triggers [`reusable-build.yml`](../.github/workflows/reusable-build.yml) (via `release.yml`) to install production dependencies, compile assets, build `onesearch.zip`, and upload it to the release.
+
+`reusable-build.yml` fails the build before packaging if any required `build/`, `vendor/`, or `vendor-prefixed/` file is missing, and fails again after zipping if `onesearch.zip` doesn't contain those same paths. This guards against a release being published with missing compiled assets or production dependencies.
+
+Never build and attach a release zip manually (e.g. running `npm run plugin-zip` locally and uploading it by hand) — always let this automated, validated workflow produce the asset that gets attached to the GitHub Release.

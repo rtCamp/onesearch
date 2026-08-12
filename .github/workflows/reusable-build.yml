@@ -45,6 +45,40 @@ jobs:
       - name: Build plugin for release
         run: npm run build:prod
 
+      - name: Verify compiled assets and production dependencies
+        run: |
+          set -euo pipefail
+
+          required_files=(
+            "build/admin.css"
+            "build/admin-rtl.css"
+            "build/onboarding.css"
+            "build/onboarding-rtl.css"
+            "build/onboarding.js"
+            "build/onboarding.asset.php"
+            "build/search.js"
+            "build/search.asset.php"
+            "build/settings.js"
+            "build/settings.asset.php"
+            "vendor/autoload.php"
+            "vendor-prefixed/autoload.php"
+          )
+
+          missing=0
+          for file in "${required_files[@]}"; do
+            if [ ! -s "$file" ]; then
+              echo "::error::Missing or empty required file: $file"
+              missing=1
+            fi
+          done
+
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Release build is incomplete. Aborting before packaging."
+            exit 1
+          fi
+
+          echo "All required build/ and vendor(-prefixed)/ files are present."
+
       - name: Start the Docker testing environment
         uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
         with:
@@ -57,6 +91,43 @@ jobs:
 
       - name: Create plugin zip
         run: npm run plugin-zip
+
+      - name: Verify plugin zip contents
+        run: |
+          set -euo pipefail
+
+          required_paths=(
+            "onesearch/build/admin.css"
+            "onesearch/build/admin-rtl.css"
+            "onesearch/build/onboarding.css"
+            "onesearch/build/onboarding-rtl.css"
+            "onesearch/build/onboarding.js"
+            "onesearch/build/onboarding.asset.php"
+            "onesearch/build/search.js"
+            "onesearch/build/search.asset.php"
+            "onesearch/build/settings.js"
+            "onesearch/build/settings.asset.php"
+            "onesearch/vendor/autoload.php"
+            "onesearch/vendor-prefixed/autoload.php"
+            "onesearch/onesearch.php"
+          )
+
+          listing="$(unzip -Z1 onesearch.zip)"
+
+          missing=0
+          for path in "${required_paths[@]}"; do
+            if ! grep -qFx "$path" <<< "$listing"; then
+              echo "::error::onesearch.zip is missing required path: $path"
+              missing=1
+            fi
+          done
+
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::onesearch.zip failed validation. Refusing to publish this artifact."
+            exit 1
+          fi
+
+          echo "onesearch.zip contains all required release paths."
 
       - name: Upload plugin zip artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
