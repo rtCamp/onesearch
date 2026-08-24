@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.1.1](https://github.com/rtCamp/onesearch/compare/v1.1.0...v1.1.1) (2026-08-24)
+
+
+### Miscellaneous Chores
+
+* **deps-dev:** bump brace-expansion from 1.1.15 to 1.1.18 ([#295](https://github.com/rtCamp/onesearch/issues/295)) ([b202879](https://github.com/rtCamp/onesearch/commit/b202879922021366d3b098de1f7ebb0d1234a8be))
+* **deps-dev:** bump fast-uri from 3.1.2 to 3.1.4 ([#277](https://github.com/rtCamp/onesearch/issues/277)) ([91d5eb4](https://github.com/rtCamp/onesearch/commit/91d5eb45b679d24a9ceb319255763f60fda541dc))
+* **deps-dev:** bump fast-uri from 3.1.4 to 3.1.5 ([#286](https://github.com/rtCamp/onesearch/issues/286)) ([e4bc2c7](https://github.com/rtCamp/onesearch/commit/e4bc2c7f27c10eb91fa88534750611a6b7f54baf))
+* **deps-dev:** bump immutable from 5.1.6 to 5.1.9 ([#279](https://github.com/rtCamp/onesearch/issues/279)) ([786561d](https://github.com/rtCamp/onesearch/commit/786561dac23d57a66a5d282f36451a2da4a84ba9))
+* **deps-dev:** bump phpstan/phpstan ([#293](https://github.com/rtCamp/onesearch/issues/293)) ([41dc8b6](https://github.com/rtCamp/onesearch/commit/41dc8b6063b8de0d620d39c3809ff6f4b7733624))
+* **deps-dev:** bump squizlabs/php_codesniffer from 3.13.5 to 3.13.6 ([#287](https://github.com/rtCamp/onesearch/issues/287)) ([f7513d6](https://github.com/rtCamp/onesearch/commit/f7513d69e160cd8cc66a885f7fe42bf8360fafe1))
+* **deps-dev:** bump svgo from 3.3.3 to 3.3.4 ([#278](https://github.com/rtCamp/onesearch/issues/278)) ([3efbdc1](https://github.com/rtCamp/onesearch/commit/3efbdc1cd4f96e99718984446affc4c55fb57dab))
+* **deps-dev:** bump the composer-dev-minor-patch group with 2 updates ([#283](https://github.com/rtCamp/onesearch/issues/283)) ([1dbd847](https://github.com/rtCamp/onesearch/commit/1dbd84737c6a9700d1c726aac3bdc304c4fafc5b))
+* **deps-dev:** bump the npm-dev-minor-patch group with 2 updates ([#294](https://github.com/rtCamp/onesearch/issues/294)) ([e6b6ead](https://github.com/rtCamp/onesearch/commit/e6b6eadbc6566c97a44a275128b0775f7eda3443))
+* **deps-dev:** bump the npm-dev-minor-patch group with 5 updates ([#284](https://github.com/rtCamp/onesearch/issues/284)) ([c6b5937](https://github.com/rtCamp/onesearch/commit/c6b593762c7b57d568d0ec803fd08eccbbff53fe))
+* **deps-dev:** bump the npm-dev-minor-patch group with 6 updates ([#297](https://github.com/rtCamp/onesearch/issues/297)) ([fd8df51](https://github.com/rtCamp/onesearch/commit/fd8df510510c50ed1e0318234b151e910dbfe4bf))
+* **deps-dev:** bump the npm-dev-minor-patch group with 7 updates ([#289](https://github.com/rtCamp/onesearch/issues/289)) ([fb4db6e](https://github.com/rtCamp/onesearch/commit/fb4db6e4a219894a679ebc0f2ee1e61fdfb3280e))
+* **deps-dev:** bump wp-coding-standards/wpcs from 3.4.0 to 3.4.1 ([#281](https://github.com/rtCamp/onesearch/issues/281)) ([05f3dfc](https://github.com/rtCamp/onesearch/commit/05f3dfc0530a49fcaf04f7842380ddd994ce0266))
+* **deps-dev:** bump wp-phpunit/wp-phpunit ([#296](https://github.com/rtCamp/onesearch/issues/296)) ([2f24b45](https://github.com/rtCamp/onesearch/commit/2f24b4547ac415bc25e6dea500de6c401bd34f7d))
+* **deps:** bump dorny/paths-filter in the github-actions-updates group ([#288](https://github.com/rtCamp/onesearch/issues/288)) ([49d8190](https://github.com/rtCamp/onesearch/commit/49d8190a0c58d19cfb3aee2158b6901b22ccc67d))
+* **deps:** bump ip-address from 10.2.0 to 10.4.0 ([#285](https://github.com/rtCamp/onesearch/issues/285)) ([9d0d8c3](https://github.com/rtCamp/onesearch/commit/9d0d8c3c9e87c1d109b619c3847fb2a5254f48c2))
+* **deps:** bump postcss from 8.5.15 to 8.5.25 ([#282](https://github.com/rtCamp/onesearch/issues/282)) ([8887b2e](https://github.com/rtCamp/onesearch/commit/8887b2ec473c1e3f1cf8daf94ec7e52621233bf1))
+* **deps:** bump shell-quote from 1.8.4 to 1.10.0 ([#276](https://github.com/rtCamp/onesearch/issues/276)) ([cc7af5d](https://github.com/rtCamp/onesearch/commit/cc7af5dac80aa0e51437df1097c36ee4958563fd))
+* Run Copilot code review on GitHub-hosted runners ([#292](https://github.com/rtCamp/onesearch/issues/292)) ([1c1cb3b](https://github.com/rtCamp/onesearch/commit/1c1cb3b42932654b2a7fffd4b0d55898226771f5))
+
 ## [1.1.0](https://github.com/rtCamp/onesearch/compare/v1.0.1...v1.1.0) (2026-07-22)
 
 
