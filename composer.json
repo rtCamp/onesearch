@@ -33,7 +33,12 @@
 			"delete_vendor_packages": true,
 			"packages": [
 				"algolia/algoliasearch-client-php"
-			]
+			],
+			"exclude_from_prefix": {
+				"namespaces": [
+					"Psr\\Http\\Message"
+				]
+			}
 		}
 	},
 	"minimum-stability": "alpha",
