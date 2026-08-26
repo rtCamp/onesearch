@@ -114,12 +114,12 @@ abstract class TestCase extends WP_UnitTestCase {
 				/**
 				 * {@inheritDoc}
 				 *
-				 * @param \OneSearch\Vendor\Psr\Http\Message\RequestInterface $request         The PSR-7 request.
-				 * @param mixed                                               $timeout         Request timeout.
-				 * @param mixed                                               $connect_timeout Connection timeout.
+				 * @param \Psr\Http\Message\RequestInterface $request         The PSR-7 request.
+				 * @param mixed                              $timeout         Request timeout.
+				 * @param mixed                              $connect_timeout Connection timeout.
 				 * @throws \RuntimeException When the configured path segment is encountered.
 				 */
-				public function sendRequest( \OneSearch\Vendor\Psr\Http\Message\RequestInterface $request, mixed $timeout, mixed $connect_timeout ): \OneSearch\Vendor\Psr\Http\Message\ResponseInterface { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+				public function sendRequest( \Psr\Http\Message\RequestInterface $request, mixed $timeout, mixed $connect_timeout ): \Psr\Http\Message\ResponseInterface { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
 					$path          = (string) $request->getUri()->getPath();
 					$this->paths[] = $path;
 
