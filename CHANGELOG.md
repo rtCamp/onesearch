@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.2](https://github.com/rtCamp/onesearch/compare/v1.1.1...v1.1.2) (2026-08-26)
+
+
+### Bug Fixes
+
+* exclude Psr\Http\Message from vendor prefixing ([#299](https://github.com/rtCamp/onesearch/issues/299)) ([d166196](https://github.com/rtCamp/onesearch/commit/d1661960c794de540ffa5352db7732a584e408b0))
+
 ## [1.1.1](https://github.com/rtCamp/onesearch/compare/v1.1.0...v1.1.1) (2026-08-24)
 
 
