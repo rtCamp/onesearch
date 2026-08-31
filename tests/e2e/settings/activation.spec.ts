@@ -1,67 +1,63 @@
 /**
- * WordPress dependencies
+ * Internal dependencies
  */
-import { expect, test } from '@wordpress/e2e-test-utils-playwright';
+import { ADMIN_PAGE, SITE_TYPE, OPTION, expect, test } from '../scaffold';
+
+const PLUGIN_ROW = 'tr[data-plugin="onesearch/onesearch.php"]';
 
 test.describe( 'plugin activation', () => {
-	test( 'should activate and deactivate the plugin', async ( {
+	test( 'activates and deactivates the plugin', async ( {
 		admin,
+		oneSearch,
 		page,
+		requestUtils,
 	} ) => {
-		await admin.visitAdminPage( '/plugins.php' );
+		// A stored site type keeps the onboarding modal off the row; the modal has its own specs.
+		await oneSearch.setState( {
+			options: { [ OPTION.siteType ]: SITE_TYPE.governing },
+		} );
+		await requestUtils.deactivatePlugin( 'onesearch' );
 
-		// Helper to dismiss the onboarding modal if present.
-		const dismissOnboardingModal = async () => {
-			const modal = page.locator( '#onesearch-site-selection-modal' );
-			const backdrop = page.locator(
-				'body.onesearch-site-selection-modal'
-			);
+		await admin.visitAdminPage( ADMIN_PAGE.plugins );
 
-			if ( await modal.isVisible() ) {
-				await modal.evaluate( ( el ) => {
-					el.remove();
-				} );
-			}
-
-			if ( await backdrop.isVisible() ) {
-				await backdrop.evaluate( ( el ) => {
-					el.classList.remove( 'onesearch-site-selection-modal' );
-				} );
-			}
-		};
-
-		const pluginRow = page.locator(
-			'tr[data-plugin="onesearch/onesearch.php"]'
-		);
+		const pluginRow = page.locator( PLUGIN_ROW );
 		await expect( pluginRow ).toBeVisible();
 
-		// Dismiss modal before interacting with plugin row.
-		await dismissOnboardingModal();
-
-		const activateLink = pluginRow.locator( 'a', { hasText: 'Activate' } );
-
 		await Promise.all( [
 			page.waitForURL( /plugins.php/ ),
-			activateLink.click(),
+			pluginRow.getByRole( 'link', { name: 'Activate' } ).click(),
 		] );
 
 		await expect(
-			pluginRow.locator( 'a', { hasText: 'Deactivate' } )
-		).toBeVisible( { timeout: 10000 } );
+			pluginRow.getByRole( 'link', { name: 'Deactivate' } )
+		).toBeVisible();
 
-		// Dismiss modal again after activation.
-		await dismissOnboardingModal();
-
-		const deactivateLink = pluginRow.locator( 'a', {
-			hasText: 'Deactivate',
-		} );
 		await Promise.all( [
 			page.waitForURL( /plugins.php/ ),
-			deactivateLink.click(),
+			pluginRow.getByRole( 'link', { name: 'Deactivate' } ).click(),
 		] );
 
 		await expect(
-			pluginRow.locator( 'a', { hasText: 'Activate' } )
-		).toBeVisible( { timeout: 10000 } );
+			pluginRow.getByRole( 'link', { name: 'Activate' } )
+		).toBeVisible();
+
+		// Leave the install as the rest of the suite expects to find it.
+		await requestUtils.activatePlugin( 'onesearch' );
+	} );
+
+	test( 'registers the OneSearch admin menu on activation', async ( {
+		admin,
+		oneSearch,
+		page,
+	} ) => {
+		await oneSearch.setUpGoverningSite();
+		await admin.visitAdminPage( ADMIN_PAGE.plugins );
+
+		await expect(
+			page
+				.locator( '#adminmenu' )
+				.getByRole( 'link', { name: 'OneSearch' } )
+				.first()
+		).toBeVisible();
 	} );
 } );

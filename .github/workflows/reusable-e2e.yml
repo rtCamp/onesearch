@@ -55,6 +55,15 @@ jobs:
           max_attempts: 3
           command: npm run wp-env:test start
 
+      # The brand site half of the pair. Cross-site requests run for real
+      # against this install rather than against a fixture.
+      - name: Start the Docker brand site environment
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 10
+          max_attempts: 3
+          command: npm run wp-env:test-child start
+
       - name: Run E2E tests
         run: npm run test:e2e
 
