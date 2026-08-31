@@ -10,6 +10,7 @@
 	<file>./inc/</file>
 	<file>./tests/phpunit</file>
 	<file>./tests/_data/plugins/</file>
+	<file>./tests/_data/mu-plugins/</file>
 	<file>./onesearch.php</file>
 	<file>./uninstall.php</file>
 
