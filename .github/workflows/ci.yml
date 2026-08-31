@@ -88,8 +88,10 @@ jobs:
             e2e:
               - '.github/workflows/ci.yml'
               - 'tests/e2e/**/*'
+              - 'tests/_data/**/*'
               - 'playwright.config.ts'
               - '.wp-env.test.json'
+              - '.wp-env.test-child.json'
             vitest:
               - '.github/workflows/ci.yml'
               - 'assets/src/**/__tests__/**/*'

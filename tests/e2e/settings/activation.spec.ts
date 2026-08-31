@@ -1,43 +1,63 @@
-import { expect, test } from '@wordpress/e2e-test-utils-playwright';
+/**
+ * Internal dependencies
+ */
+import { ADMIN_PAGE, SITE_TYPE, OPTION, expect, test } from '../scaffold';
+
+const PLUGIN_ROW = 'tr[data-plugin="onesearch/onesearch.php"]';
 
 test.describe( 'plugin activation', () => {
-	test( 'should activate and deactivate the plugin', async ( {
+	test( 'activates and deactivates the plugin', async ( {
 		admin,
+		oneSearch,
 		page,
+		requestUtils,
 	} ) => {
-		await admin.visitAdminPage( '/plugins.php' );
+		// A stored site type keeps the onboarding modal off the row; the modal has its own specs.
+		await oneSearch.setState( {
+			options: { [ OPTION.siteType ]: SITE_TYPE.governing },
+		} );
+		await requestUtils.deactivatePlugin( 'onesearch' );
 
-		const pluginRow = page.locator(
-			'tr[data-plugin="onesearch/onesearch.php"]'
-		);
+		await admin.visitAdminPage( ADMIN_PAGE.plugins );
+
+		const pluginRow = page.locator( PLUGIN_ROW );
 		await expect( pluginRow ).toBeVisible();
 
-		const activateLink = pluginRow.locator( 'a[href*="action=activate"]' );
-		const deactivateLink = pluginRow.locator(
-			'a[href*="action=deactivate"]'
-		);
+		await Promise.all( [
+			page.waitForURL( /plugins.php/ ),
+			pluginRow.getByRole( 'link', { name: 'Activate' } ).click(),
+		] );
 
-		// wp-env activates mapped plugins on start, so the plugin may already be active — normalize to a known "inactive" starting state first.
-		if ( await deactivateLink.isVisible() ) {
-			await Promise.all( [
-				page.waitForURL( /plugins.php/ ),
-				deactivateLink.click(),
-			] );
-			await expect( activateLink ).toBeVisible( { timeout: 10000 } );
-		}
+		await expect(
+			pluginRow.getByRole( 'link', { name: 'Deactivate' } )
+		).toBeVisible();
 
 		await Promise.all( [
 			page.waitForURL( /plugins.php/ ),
-			activateLink.click(),
+			pluginRow.getByRole( 'link', { name: 'Deactivate' } ).click(),
 		] );
 
-		await expect( deactivateLink ).toBeVisible( { timeout: 10000 } );
+		await expect(
+			pluginRow.getByRole( 'link', { name: 'Activate' } )
+		).toBeVisible();
 
-		await Promise.all( [
-			page.waitForURL( /plugins.php/ ),
-			deactivateLink.click(),
-		] );
+		// Leave the install as the rest of the suite expects to find it.
+		await requestUtils.activatePlugin( 'onesearch' );
+	} );
 
-		await expect( activateLink ).toBeVisible( { timeout: 10000 } );
+	test( 'registers the OneSearch admin menu on activation', async ( {
+		admin,
+		oneSearch,
+		page,
+	} ) => {
+		await oneSearch.setUpGoverningSite();
+		await admin.visitAdminPage( ADMIN_PAGE.plugins );
+
+		await expect(
+			page
+				.locator( '#adminmenu' )
+				.getByRole( 'link', { name: 'OneSearch' } )
+				.first()
+		).toBeVisible();
 	} );
 } );
