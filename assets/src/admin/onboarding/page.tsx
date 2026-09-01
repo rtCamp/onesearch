@@ -8,14 +8,7 @@ import { useState, useEffect } from 'react';
  */
 import apiFetch from '@wordpress/api-fetch';
 import { __ } from '@wordpress/i18n';
-import {
-	Card,
-	CardHeader,
-	CardBody,
-	Notice,
-	Button,
-	SelectControl,
-} from '@wordpress/components';
+import { Modal, Notice, Button, SelectControl } from '@wordpress/components';
 
 /**
  * Internal dependencies
@@ -132,7 +125,23 @@ const OnboardingScreen = () => {
 	};
 
 	return (
-		<Card>
+		/**
+		 * A real dialog, not a div that merely looks like one: `Modal` supplies
+		 * `role="dialog"`, names it from `title`, moves focus in, constrains
+		 * tabbing to it and restores focus on close.
+		 *
+		 * Choosing a site type is required before the plugin can do anything, so
+		 * every dismissal route is closed off and `onRequestClose` has nothing
+		 * to do.
+		 */
+		<Modal
+			title={ __( 'OneSearch', 'onesearch' ) }
+			onRequestClose={ () => {} }
+			isDismissible={ false }
+			shouldCloseOnEsc={ false }
+			shouldCloseOnClickOutside={ false }
+			className="onesearch-onboarding-modal"
+		>
 			{ !! notice?.message && (
 				<Notice
 					status={ notice?.type ?? 'success' }
@@ -143,11 +152,7 @@ const OnboardingScreen = () => {
 				</Notice>
 			) }
 
-			<CardHeader>
-				<h2>{ __( 'OneSearch', 'onesearch' ) }</h2>
-			</CardHeader>
-
-			<CardBody className="onesearch-onboarding-page">
+			<div className="onesearch-onboarding-page">
 				<SiteTypeSelector
 					value={ siteType }
 					setSiteType={ setSiteType }
@@ -161,8 +166,8 @@ const OnboardingScreen = () => {
 				>
 					{ __( 'Select Current Site Type', 'onesearch' ) }
 				</Button>
-			</CardBody>
-		</Card>
+			</div>
+		</Modal>
 	);
 };
 

@@ -4,11 +4,10 @@
 import { ADMIN_PAGE, OPTION, SITE_TYPE, expect, test } from '../scaffold';
 
 /**
- * The onboarding screen renders into a container the plugin prints on every
- * admin screen until a site type is stored. The container carries no role of its
- * own, so it is addressed by id and everything inside it by role.
+ * The onboarding screen is a real dialog, named by its own heading, so it is
+ * addressed the way a screen reader would find it.
  */
-const ONBOARDING = '#onesearch-site-selection-modal';
+const ONBOARDING = { role: 'dialog', name: 'OneSearch' } as const;
 
 test.describe( 'onboarding', () => {
 	test( 'prompts for a site type on first run', async ( {
@@ -22,7 +21,9 @@ test.describe( 'onboarding', () => {
 
 		await admin.visitAdminPage( ADMIN_PAGE.plugins );
 
-		const onboarding = page.locator( ONBOARDING );
+		const onboarding = page.getByRole( ONBOARDING.role, {
+			name: ONBOARDING.name,
+		} );
 
 		await expect(
 			onboarding.getByRole( 'heading', { name: 'OneSearch' } )
@@ -44,7 +45,9 @@ test.describe( 'onboarding', () => {
 	} ) => {
 		await admin.visitAdminPage( ADMIN_PAGE.plugins );
 
-		const onboarding = page.locator( ONBOARDING );
+		const onboarding = page.getByRole( ONBOARDING.role, {
+			name: ONBOARDING.name,
+		} );
 
 		await onboarding
 			.getByRole( 'combobox', { name: 'Site Type' } )
@@ -76,7 +79,9 @@ test.describe( 'onboarding', () => {
 	} ) => {
 		await admin.visitAdminPage( ADMIN_PAGE.plugins );
 
-		const onboarding = page.locator( ONBOARDING );
+		const onboarding = page.getByRole( ONBOARDING.role, {
+			name: ONBOARDING.name,
+		} );
 
 		await onboarding
 			.getByRole( 'combobox', { name: 'Site Type' } )
@@ -110,6 +115,8 @@ test.describe( 'onboarding', () => {
 
 		await admin.visitAdminPage( ADMIN_PAGE.plugins );
 
-		await expect( page.locator( ONBOARDING ) ).toHaveCount( 0 );
+		await expect(
+			page.getByRole( ONBOARDING.role, { name: ONBOARDING.name } )
+		).toHaveCount( 0 );
 	} );
 } );

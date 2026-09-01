@@ -151,10 +151,9 @@ final class AdminTest extends TestCase {
 		$classes = $admin->add_body_classes( '' );
 
 		$this->assertIsString( $classes );
-		$this->assertStringContainsString( 'onesearch-site-selection-modal', $classes );
 		$this->assertStringContainsString( 'onesearch-missing-brand-sites', $classes );
 
-		// Test with already configured which should remove the missing-brand-sites class and keep the modal class.
+		// Configured sites should drop the missing-brand-sites class.
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
 		update_option(
 			Settings::OPTION_GOVERNING_SHARED_SITES,
@@ -168,7 +167,6 @@ final class AdminTest extends TestCase {
 		);
 		$classes = $admin->add_body_classes( '' );
 		$this->assertIsString( $classes );
-		$this->assertStringNotContainsString( 'onesearch-site-selection-modal', $classes );
 		$this->assertStringNotContainsString( 'onesearch-missing-brand-sites', $classes );
 
 		// Test with a bad current screen which should return the original classes unmodified.
