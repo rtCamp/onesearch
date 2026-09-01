@@ -125,7 +125,7 @@ final class WatcherTest extends TestCase {
 	/**
 	 * Skips reindexing when new status is not an allowed status (e.g., trashed).
 	 *
-	 * Injects a fake Algolia HTTP client to intercept SDK-level requests (the SDK
+	 * Injects a mock Algolia HTTP client to intercept SDK-level requests (the SDK
 	 * does not use wp_remote_*, so pre_http_request cannot be used here). After
 	 * transitioning to 'trash', only the deleteBy call should have been made — no
 	 * /batch (saveObjects) request should appear.

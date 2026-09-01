@@ -14,6 +14,9 @@ import SiteIndexableEntities from '@/components/SiteIndexableEntities';
 const currentSiteUrl = 'https://governing.example.com/';
 const brandSiteUrl = 'https://brand.example.com/';
 
+// The chips control is named after its site, so several can coexist on the screen.
+const governingEntities = 'Entities to index for Governing Site';
+
 const okJson = ( data: unknown ) =>
 	( {
 		ok: true,
@@ -128,7 +131,7 @@ describe( 'SiteIndexableEntities', () => {
 
 		await screen.findByText( 'Select Entities to Index' );
 		fireEvent.click(
-			screen.getByRole( 'button', { name: 'Select entities…' } )
+			screen.getByRole( 'button', { name: governingEntities } )
 		);
 		fireEvent.click( screen.getByLabelText( 'Posts' ) );
 		fireEvent.click(
@@ -207,7 +210,7 @@ describe( 'SiteIndexableEntities', () => {
 
 		await screen.findByText( 'Select Entities to Index' );
 		fireEvent.click(
-			screen.getByRole( 'button', { name: 'Select entities…' } )
+			screen.getByRole( 'button', { name: governingEntities } )
 		);
 		fireEvent.click( screen.getByLabelText( 'Posts' ) );
 		fireEvent.click(
@@ -261,7 +264,7 @@ describe( 'SiteIndexableEntities', () => {
 		await screen.findByText( 'Select Entities to Index' );
 
 		fireEvent.click(
-			screen.getByRole( 'button', { name: 'Select entities…' } )
+			screen.getByRole( 'button', { name: governingEntities } )
 		);
 		fireEvent.click( screen.getByLabelText( 'Posts' ) );
 		fireEvent.click(

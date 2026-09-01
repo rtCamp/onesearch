@@ -32,7 +32,7 @@ describe( 'MultiSelectChips', () => {
 
 		await act( async () => {
 			fireEvent.click(
-				screen.getByRole( 'button', { name: 'Select…' } )
+				screen.getByRole( 'button', { name: 'Entities' } )
 			);
 		} );
 
@@ -109,7 +109,7 @@ describe( 'MultiSelectChips', () => {
 
 		await act( async () => {
 			fireEvent.click(
-				screen.getByRole( 'button', { name: 'Select…' } )
+				screen.getByRole( 'button', { name: 'Entities' } )
 			);
 		} );
 		expect( screen.getByRole( 'listbox' ) ).toBeInTheDocument();
@@ -128,7 +128,7 @@ describe( 'MultiSelectChips', () => {
 		expect( screen.queryByRole( 'listbox' ) ).not.toBeInTheDocument();
 		await act( async () => {
 			fireEvent.click(
-				screen.getByRole( 'button', { name: 'Select…' } )
+				screen.getByRole( 'button', { name: 'Entities' } )
 			);
 		} );
 		expect( screen.queryByRole( 'listbox' ) ).not.toBeInTheDocument();

@@ -123,10 +123,16 @@ Code contributions, bug reports, and feature requests are welcome! The following
 │   │   └── php-coverage.xml # PHPUnit code coverage report (XML).
 │   │   # Artifacts used for testing.
 │   ├── _data/
+│   │   ├── mu-plugins/
+│   │   │   └── onesearch-e2e-helper.php # Test-only endpoints used to seed and clear plugin state.
 │   │   └── plugins/
 │   │       └── localhost-helper.php # Plugin used to allow docker containers to connect to each other.
 │   │   # Playwright end-to-end tests.
 │   ├── e2e/
+│   │   ├── onboarding/       # Site type selection.
+│   │   ├── scaffold/         # Shared fixtures, helpers and constants.
+│   │   ├── search/           # Indices and Search screen.
+│   │   └── settings/         # Settings screen.
 │   │   # Jest unit tests.
 │   ├── js/
 │   │   └── tsconfig.json     # Test TypeScript config.
@@ -163,6 +169,7 @@ Code contributions, bug reports, and feature requests are welcome! The following
 ├── .wp-env.json                  # wp-env configuration (governing site).
 ├── .wp-env.child.json            # wp-env configuration (brand site).
 ├── .wp-env.test.json             # wp-env configuration (test site).
+├── .wp-env.test-child.json       # wp-env configuration (test brand site, for E2E).
 ├── blueprint.json                # WordPress Playground blueprint configuration.
 ├── babel.config.js               # Babel configuration.
 ├── composer.json                 # PHP dependencies.
@@ -274,6 +281,7 @@ You should now have a fully functional local development environment with the pl
 - `npm run wp-env start`: Start the local development environment (governing site on port 8888).
 - `npm run wp-env:child start`: Start the local development environment (brand site on port 8890).
 - `npm run wp-env:test start`: Start the local test environment (on port 8889).
+- `npm run wp-env:test-child start`: Start the E2E brand site environment (on port 8891).
 - `npm run wp-env stop`: Stop the local development environment.
 - `npm run wp-env run cli -- --env-cwd=wp-content/plugins/onesearch {YOUR_CMD_HERE}`: Run WP-CLI commands in the local environment.
 - `npm run wp-env:test run cli -- --env-cwd=wp-content/plugins/onesearch {YOUR_CMD_HERE}`: Run Composer/PHP tooling in the tests container.
@@ -469,10 +477,147 @@ End-to-end tests using Playwright can be run with the following command:
 npm run test:e2e
 ```
 
+The suite drives two WordPress installs, both started for you if they are not
+already running:
+
+| Install | Port   | Config                    | Role                |
+| ------- | ------ | ------------------------- | ------------------- |
+| Test    | `8889` | `.wp-env.test.json`       | The governing site. |
+| Brand   | `8891` | `.wp-env.test-child.json` | A real brand site.  |
+
+```bash
+npm run wp-env:test start
+npm run wp-env:test-child start
+```
+
+On the very first `start` of an environment, Docker can fail to mount the
+single-file `localhost-helper.php` plugin before WordPress has been laid down.
+Running `start` a second time succeeds; CI wraps both `start` steps in a retry
+for the same reason.
+
 To run Playwright tests with UI mode enabled (which opens the browser and shows the test execution), use:
 
 ```bash
 npm run test:e2e -- --ui
+```
+
+A single file or a single test:
+
+```bash
+npm run test:e2e -- tests/e2e/settings/brand-sites.spec.ts
+npm run test:e2e -- -g 'deletes a brand site'
+```
+
+Reports, traces and screenshots for failed runs are written to `tests/_output/e2e/`.
+Open a trace with `npx playwright show-trace <path-to-trace.zip>`.
+
+#### How the suite is set up
+
+Both installs are shared across the whole suite and specs run serially, so each
+one seeds the state it needs rather than relying on what ran before it. Import
+from `tests/e2e/scaffold` instead of `@wordpress/e2e-test-utils-playwright`
+directly. The `test` exported there adds two fixtures, each of which activates
+the plugin and clears every OneSearch option before and after the test:
+
+- `oneSearch` — the governing site on `8889`.
+- `brandSite` — the brand site on `8891`. Driven only through REST; specs never
+  open a browser against it.
+
+Because both sides of the handshake have to agree on an API key, `connectSites()`
+seeds them together:
+
+```ts
+/**
+ * Internal dependencies
+ */
+import { ADMIN_PAGE, connectSites, expect, test } from '../scaffold';
+
+test( 'does something', async ( { admin, brandSite, oneSearch, page } ) => {
+  await connectSites( oneSearch, brandSite, { algolia: true } );
+  await admin.visitAdminPage( ADMIN_PAGE.indices );
+  // …
+} );
+```
+
+Pass `bootstrap: true` to leave the brand site unconnected, so a health check
+has to record the governing site itself, or `brandApiKey` to give the brand site
+a key the governing site does not hold.
+
+State is seeded through `tests/_data/mu-plugins/onesearch-e2e-helper.php`, an
+mu-plugin mapped into both test environments. It exposes
+`onesearch-e2e/v1/state` for reading, seeding and clearing the plugin's options,
+which is the only way to restore an unset site type — the option is registered
+with an enum that rejects an empty value. It writes options with the plugin's
+own `update_option_*` listeners detached, so seeding never triggers the Algolia
+calls a real settings change would, and it encrypts API keys the way the plugin
+does, since a plaintext key reads back empty and fails every token comparison.
+
+#### What runs for real, and what does not
+
+Every hop between the two installs is real. The governing site's REST
+controllers, the brand site's permission checks, the token comparison, and the
+`parent_site_url` write a health check performs are all exercised as written:
+
+| Hop                                             | Runs against              |
+| ----------------------------------------------- | ------------------------- |
+| Governing site → brand site (`/all-post-types`) | The brand site on `8891`. |
+| Browser → brand site (health check)             | The brand site on `8891`. |
+
+`tests/_data/plugins/localhost-helper.php` is what makes the server-side hop
+work: it relaxes `reject_unsafe_urls` for `onesearch/v1` URLs and rewrites
+`localhost` to `host.docker.internal`, preserving the original `Host` header so
+the brand site still resolves its own site URL.
+
+Only Algolia is mocked, because nothing in CI can reach it — and it is mocked
+inside PHP, at the SDK's own `Algolia::setHttpClient()` seam, not in front of
+the plugin's endpoints. The routes that use Algolia therefore run for real:
+their permission callbacks, required-arg validation, the encrypted option
+write, and the mapping from an SDK failure to an HTTP status all execute. Only
+the outbound call is answered from a canned payload.
+
+`oneSearch.setAlgoliaMode()` chooses what that payload says:
+
+| Mode           | Algolia behaves as though…                          | Exercises                   |
+| -------------- | --------------------------------------------------- | --------------------------- |
+| `ok` (default) | the key can write and indexing succeeds             | the success path            |
+| `invalid_key`  | the key exists but lacks `addObject`/`deleteObject` | credential rejection, 400   |
+| `server_error` | Algolia answers 500                                 | the re-index failure path   |
+| `live`         | no mock at all                                      | the opt-in smoke suite only |
+
+Both suites install the **same** double —
+`OneSearch\Tests\Support\Mock_Algolia_Http_Client` — so Algolia's response
+shapes are defined in one file. PHPUnit reaches it through
+`TestCase::mock_algolia_http_client()`, which additionally records the request
+paths and can supply a body per path; the Playwright helper passes a mode
+resolver instead. The Algolia SDK ships no test double of its own, which is why
+one exists here at all.
+
+It is autoloadable at WordPress runtime because Composer maps `OneSearch\Tests\`
+in its `autoload` block, and it never ships: `.gitattributes` marks `/tests/` as
+`export-ignore`.
+
+#### The optional live Algolia suite
+
+`tests/e2e-smoke/` holds the one suite that talks to Algolia for real. It has
+its own config and `testDir` so the default run cannot pick it up, and it skips
+unless credentials are present:
+
+```bash
+ALGOLIA_APP_ID=… ALGOLIA_WRITE_KEY=… npm run test:e2e:smoke
+```
+
+It is deliberately **not** part of pull-request CI: it needs paid credentials,
+writes to a shared mutable index, and goes red whenever Algolia does. Run it
+before a release, or when changing anything about credential handling.
+
+When asserting on a notice, use the `notices()` helper rather than
+`page.getByText()`: WordPress mirrors notice text into an `aria-live` region,
+so matching on text alone resolves to two elements.
+
+```ts
+await expect( notices( page ) ).toContainText(
+  'Brand Site saved successfully.'
+);
 ```
 
 ### GitHub Workflows

@@ -19,6 +19,7 @@
 /phpstan.neon.dist export-ignore
 /phpunit.xml.dist export-ignore
 /playwright.config.ts export-ignore
+/playwright.smoke.config.ts export-ignore
 /release-please-config.json export-ignore
 /tsconfig.base.json export-ignore
 /tsconfig.json export-ignore

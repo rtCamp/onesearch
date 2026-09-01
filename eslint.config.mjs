@@ -65,6 +65,8 @@ export default [
 					devDependencies: [
 						'**/*.@(spec|test).@(j|t)s?(x)',
 						'**/@(webpack|jest|babel|playwright).config.@(j|t)s',
+						// Variants such as `playwright.smoke.config.ts`.
+						'**/@(webpack|jest|babel|playwright).*.config.@(j|t)s',
 						'**/scripts/**',
 						'**/tests/**',
 					],
@@ -165,6 +167,9 @@ export default [
 		files: [ 'tests/e2e/**/*.{ts,tsx}' ],
 		rules: {
 			'jsdoc/no-undefined-types': 'off',
+
+			// Playwright fixtures take a `use()` callback, which is not a React hook.
+			'react-hooks/rules-of-hooks': 'off',
 		},
 	},
 ];

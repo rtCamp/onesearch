@@ -170,10 +170,7 @@ final class Admin implements Registrable {
 		}
 
 		// Cast to string in case it's null.
-		$classes = $this->add_body_class_for_modal( (string) $classes );
-		$classes = $this->add_body_class_for_missing_sites( (string) $classes );
-
-		return $classes;
+		return $this->add_body_class_for_missing_sites( (string) $classes );
 	}
 
 	/**
@@ -196,21 +193,6 @@ final class Admin implements Registrable {
 
 		wp_enqueue_script( Assets::ONBOARDING_SCRIPT_HANDLE );
 		wp_enqueue_style( Assets::ONBOARDING_SCRIPT_HANDLE );
-	}
-
-	/**
-	 * Add body class if the modal is going to be shown.
-	 *
-	 * @param string $classes        Existing body classes.
-	 */
-	private function add_body_class_for_modal( string $classes ): string {
-		if ( ! $this->should_display_site_selection_modal() ) {
-			return $classes;
-		}
-
-		// Add onesearch-site-selection-modal class to body.
-		$classes .= ' onesearch-site-selection-modal ';
-		return $classes;
 	}
 
 	/**

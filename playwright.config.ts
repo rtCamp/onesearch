@@ -22,6 +22,26 @@ const config = defineConfig( {
 	...baseConfig,
 	testDir: './tests/e2e',
 	outputDir: './tests/_output/e2e',
+	webServer: [
+		{
+			// Target the dedicated test environment, not the development one the upstream config starts.
+			command: 'npm run wp-env:test start',
+			port: Number(
+				new URL(
+					process.env[ 'WP_BASE_URL' ] || 'http://localhost:8889'
+				).port
+			),
+			timeout: 120_000,
+			reuseExistingServer: true,
+		},
+		{
+			// The brand site half of the pair, so cross-site requests are made for real.
+			command: 'npm run wp-env:test-child start',
+			port: 8891,
+			timeout: 120_000,
+			reuseExistingServer: true,
+		},
+	],
 } );
 
 export default config;

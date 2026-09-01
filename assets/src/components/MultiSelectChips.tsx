@@ -18,6 +18,12 @@ import {
 
 interface MultiSelectChipsProps {
 	label?: string;
+
+	/**
+	 * Accessible name for the control, for when several appear on one screen
+	 * and the visible placeholder is the same for all of them.
+	 */
+	ariaLabel?: string;
 	placeholder?: string;
 	options: Array< Record< string, string | number > >;
 	value?: string[];
@@ -29,6 +35,7 @@ interface MultiSelectChipsProps {
 
 function MultiSelectChips( {
 	label,
+	ariaLabel,
 	placeholder = __( 'Select…', 'onesearch' ),
 	options = [],
 	value = [],
@@ -117,6 +124,7 @@ function MultiSelectChips( {
 			<div
 				role="button"
 				tabIndex={ disabled ? -1 : 0 }
+				aria-label={ ariaLabel || label || placeholder }
 				className="msc-control"
 				onClick={ handleToggleOpen }
 				onKeyDown={ ( e: KeyboardEvent< HTMLDivElement > ) => {

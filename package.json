@@ -43,7 +43,9 @@
 		"wp-env": "wp-env",
 		"wp-env:cli": "wp-env run cli --env-cwd=wp-content/plugins/$(basename \"$(pwd)\")/",
 		"wp-env:child": "wp-env --config=.wp-env.child.json",
-		"wp-env:test": "wp-env --config=.wp-env.test.json"
+		"wp-env:test": "wp-env --config=.wp-env.test.json",
+		"wp-env:test-child": "wp-env --config=.wp-env.test-child.json",
+		"test:e2e:smoke": "wp-scripts test-playwright --config=playwright.smoke.config.ts"
 	},
 	"dependencies": {
 		"@wordpress/api-fetch": "^7.48.0",

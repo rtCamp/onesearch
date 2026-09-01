@@ -79,6 +79,11 @@ jobs:
             e2e:
               - '.github/workflows/reusable-e2e.yml'
               - 'tests/e2e/**/*'
+              - 'tests/_data/**/*'
+              - 'playwright.config.ts'
+              - 'assets/src/**/*'
+              - '.wp-env.test.json'
+              - '.wp-env.test-child.json'
             jest:
               - '.github/workflows/reusable-jest.yml'
               - 'assets/src/**/__tests__/**/*'
