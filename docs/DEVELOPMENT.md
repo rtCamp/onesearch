@@ -568,17 +568,47 @@ work: it relaxes `reject_unsafe_urls` for `onesearch/v1` URLs and rewrites
 `localhost` to `host.docker.internal`, preserving the original `Host` header so
 the brand site still resolves its own site URL.
 
-Only Algolia is stubbed, because nothing in CI can reach it:
+Only Algolia is mocked, because nothing in CI can reach it — and it is mocked
+inside PHP, at the SDK's own `Algolia::setHttpClient()` seam, not in front of
+the plugin's endpoints. The routes that use Algolia therefore run for real:
+their permission callbacks, required-arg validation, the encrypted option
+write, and the mapping from an SDK failure to an HTTP status all execute. Only
+the outbound call is answered from a canned payload.
 
-| Hop                                     | Stubbed by                    | Notes                                                    |
-| --------------------------------------- | ----------------------------- | -------------------------------------------------------- |
-| Browser → `/algolia-credentials` (POST) | `oneSearch.stubAlgoliaSave()` | The endpoint validates the key against Algolia from PHP. |
-| Browser → `/re-index`                   | `oneSearch.stubReindex()`     | Indexing writes to Algolia.                              |
+`oneSearch.setAlgoliaMode()` chooses what that payload says:
 
-So credential validation and actual indexing are **not** covered end to end —
-they are covered as UI contracts only. Both are integration questions about the
-vendored Algolia client rather than about the browser, and belong in a PHPUnit
-test run against a real Algolia app, not here.
+| Mode           | Algolia behaves as though…                          | Exercises                   |
+| -------------- | --------------------------------------------------- | --------------------------- |
+| `ok` (default) | the key can write and indexing succeeds             | the success path            |
+| `invalid_key`  | the key exists but lacks `addObject`/`deleteObject` | credential rejection, 400   |
+| `server_error` | Algolia answers 500                                 | the re-index failure path   |
+| `live`         | no mock at all                                      | the opt-in smoke suite only |
+
+Both suites install the **same** double —
+`OneSearch\Tests\Support\Mock_Algolia_Http_Client` — so Algolia's response
+shapes are defined in one file. PHPUnit reaches it through
+`TestCase::mock_algolia_http_client()`, which additionally records the request
+paths and can supply a body per path; the Playwright helper passes a mode
+resolver instead. The Algolia SDK ships no test double of its own, which is why
+one exists here at all.
+
+It is autoloadable at WordPress runtime because Composer maps `OneSearch\Tests\`
+in its `autoload` block, and it never ships: `.gitattributes` marks `/tests/` as
+`export-ignore`.
+
+#### The optional live Algolia suite
+
+`tests/e2e-smoke/` holds the one suite that talks to Algolia for real. It has
+its own config and `testDir` so the default run cannot pick it up, and it skips
+unless credentials are present:
+
+```bash
+ALGOLIA_APP_ID=… ALGOLIA_WRITE_KEY=… npm run test:e2e:smoke
+```
+
+It is deliberately **not** part of pull-request CI: it needs paid credentials,
+writes to a shared mutable index, and goes red whenever Algolia does. Run it
+before a release, or when changing anything about credential handling.
 
 When asserting on a notice, use the `notices()` helper rather than
 `page.getByText()`: WordPress mirrors notice text into an `aria-live` region,

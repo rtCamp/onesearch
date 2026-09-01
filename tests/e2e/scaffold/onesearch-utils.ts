@@ -32,12 +32,20 @@ type SeedOptions = Partial< Record< ManagedOption, unknown > >;
 
 interface HelperState {
 	options: Record< string, unknown >;
-
-	/**
-	 * The site's own API key, decrypted. Empty until one has been generated.
-	 */
-	api_key: string;
+	algolia_mode: AlgoliaMode;
 }
+
+/**
+ * How the mock Algolia transport should answer.
+ *
+ * Algolia is the only boundary the suite mocks, and it is mocked inside PHP at
+ * the SDK's own `setHttpClient()` seam. The plugin's REST routes therefore run
+ * for real — permission checks, validation, option writes and the mapping from
+ * an SDK failure to an HTTP status all execute.
+ *
+ * `live` removes the mock entirely, and is only used by the opt-in smoke suite.
+ */
+export type AlgoliaMode = 'ok' | 'invalid_key' | 'server_error' | 'live';
 
 const HELPER_ENDPOINT = 'onesearch-e2e/v1/state';
 
@@ -48,22 +56,11 @@ const HELPER_ENDPOINT = 'onesearch-e2e/v1/state';
  * brand site on 8891 — so this is instantiated once per site. State is seeded
  * through the E2E helper mu-plugin rather than through the UI, so each spec
  * starts from a known install without paying for the setup flow.
- *
- * `page` is only needed for the browser-side stubs, which apply to the
- * governing site.
  */
 export class OneSearchUtils {
-	private readonly page: Page | undefined;
 	private readonly requestUtils: RequestUtils;
 
-	constructor( {
-		page,
-		requestUtils,
-	}: {
-		page?: Page;
-		requestUtils: RequestUtils;
-	} ) {
-		this.page = page;
+	constructor( { requestUtils }: { requestUtils: RequestUtils } ) {
 		this.requestUtils = requestUtils;
 	}
 
@@ -82,15 +79,36 @@ export class OneSearchUtils {
 	 *
 	 * Option values are keyed by option name; `null` deletes the option.
 	 *
-	 * @param state         What to seed.
-	 * @param state.options Option values, keyed by option name.
+	 * @param state             What to seed.
+	 * @param state.options     Option values, keyed by option name.
+	 * @param state.algoliaMode How the mock Algolia transport should answer.
 	 */
-	async setState( state: { options?: SeedOptions } ): Promise< void > {
+	async setState( state: {
+		options?: SeedOptions;
+		algoliaMode?: AlgoliaMode;
+	} ): Promise< void > {
+		const data: { options: SeedOptions; algolia_mode?: AlgoliaMode } = {
+			options: state.options ?? {},
+		};
+
+		if ( state.algoliaMode ) {
+			data.algolia_mode = state.algoliaMode;
+		}
+
 		await this.requestUtils.rest< HelperState >( {
 			path: HELPER_ENDPOINT,
 			method: 'POST',
-			data: { options: state.options ?? {} },
+			data,
 		} );
+	}
+
+	/**
+	 * Choose how Algolia answers for the rest of the test.
+	 *
+	 * @param mode The outcome the mock transport should produce.
+	 */
+	async setAlgoliaMode( mode: AlgoliaMode ): Promise< void > {
+		await this.setState( { algoliaMode: mode } );
 	}
 
 	/**
@@ -162,82 +180,6 @@ export class OneSearchUtils {
 		}
 
 		await this.setState( { options } );
-	}
-
-	/**
-	 * Answer the Algolia credential save.
-	 *
-	 * The real endpoint validates the key against Algolia over the network, so
-	 * the browser-side call is stubbed and only the UI contract is asserted.
-	 *
-	 * @param success Whether the save should succeed.
-	 */
-	async stubAlgoliaSave( success = true ): Promise< void > {
-		// `apiFetch` appends `?_locale=user`, so match on the path.
-		await this.requirePage().route(
-			( url ) =>
-				url.pathname.endsWith( '/onesearch/v1/algolia-credentials' ),
-			async ( route ) => {
-				if ( route.request().method() !== 'POST' ) {
-					await route.fallback();
-					return;
-				}
-
-				await route.fulfill( {
-					status: success ? 200 : 400,
-					contentType: 'application/json',
-					body: JSON.stringify(
-						success
-							? {
-									success: true,
-									message:
-										'Algolia credentials updated successfully.',
-							  }
-							: {
-									code: 'onesearch_algolia_credentials_invalid',
-									message:
-										'The provided Algolia credentials are invalid or lack necessary permissions.',
-									data: { status: 400 },
-							  }
-					),
-				} );
-			}
-		);
-	}
-
-	/**
-	 * Answer a re-index request, which would otherwise reach Algolia.
-	 *
-	 * @param success Whether the re-index should report success.
-	 * @param message The message the UI should surface.
-	 */
-	async stubReindex(
-		success = true,
-		message = 'Re-indexing complete.'
-	): Promise< void > {
-		await this.requirePage().route(
-			( url ) => url.pathname.endsWith( '/onesearch/v1/re-index' ),
-			async ( route ) => {
-				await route.fulfill( {
-					status: 200,
-					contentType: 'application/json',
-					body: JSON.stringify( { success, message } ),
-				} );
-			}
-		);
-	}
-
-	/**
-	 * The page, for the stubs that need one.
-	 */
-	private requirePage(): Page {
-		if ( ! this.page ) {
-			throw new Error(
-				'This helper stubs browser requests and needs a `page`. The brand site helper is seeded through REST instead.'
-			);
-		}
-
-		return this.page;
 	}
 }
 

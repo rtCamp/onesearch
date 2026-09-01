@@ -81,6 +81,7 @@ jobs:
               - 'tests/e2e/**/*'
               - 'tests/_data/**/*'
               - 'playwright.config.ts'
+              - 'assets/src/**/*'
               - '.wp-env.test.json'
               - '.wp-env.test-child.json'
             jest:

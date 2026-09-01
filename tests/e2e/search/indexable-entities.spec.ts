@@ -16,8 +16,6 @@ import {
 test.describe( 'indexable entities', () => {
 	test.beforeEach( async ( { brandSite, oneSearch } ) => {
 		await connectSites( oneSearch, brandSite, { algolia: true } );
-		// Re-indexing reaches Algolia, which CI cannot talk to.
-		await oneSearch.stubReindex();
 	} );
 
 	test( 'lists the entities of the governing site and every brand site', async ( {
@@ -26,23 +24,25 @@ test.describe( 'indexable entities', () => {
 	} ) => {
 		await admin.visitAdminPage( ADMIN_PAGE.indices );
 
-		const governing = page
-			.locator( '.onesearch-entity-site' )
-			.filter( { hasText: 'Governing Site' } );
-		await expect(
-			governing.locator( '.onesearch-entity-site-url' )
-		).toHaveText( GOVERNING_SITE_URL );
+		const governing = page.getByRole( 'group', {
+			name: 'Indexable entities for Governing Site',
+		} );
+		await expect( governing ).toContainText( GOVERNING_SITE_URL );
 
-		const brand = page
-			.locator( '.onesearch-entity-site' )
-			.filter( { hasText: BRAND_SITE.name } );
+		const brand = page.getByRole( 'group', {
+			name: `Indexable entities for ${ BRAND_SITE.name }`,
+		} );
 		await expect( brand ).toBeVisible();
 
 		// Every public post type the brand site actually reports, Media included.
 		// Asserting the whole set is what proves the list came over the wire
 		// rather than from an assumption about what a brand site holds.
-		await brand.locator( '.msc-control' ).click();
-		const menu = page.locator( '.msc-menu' );
+		await brand
+			.getByRole( 'button', {
+				name: `Entities to index for ${ BRAND_SITE.name }`,
+			} )
+			.click();
+		const menu = page.getByRole( 'listbox' );
 
 		for ( const postType of BRAND_POST_TYPES ) {
 			await expect(
@@ -62,27 +62,27 @@ test.describe( 'indexable entities', () => {
 	} ) => {
 		await admin.visitAdminPage( ADMIN_PAGE.indices );
 
-		const governing = page
-			.locator( '.onesearch-entity-site' )
-			.filter( { hasText: 'Governing Site' } );
-		const chips = governing.locator( '.msc-control' );
+		const governing = page.getByRole( 'group', {
+			name: 'Indexable entities for Governing Site',
+		} );
+		const chips = governing.getByRole( 'button', {
+			name: 'Entities to index for Governing Site',
+		} );
 
 		await chips.click();
 		await page
-			.locator( '.msc-menu' )
+			.getByRole( 'listbox' )
 			.getByRole( 'checkbox', { name: 'Posts', exact: true } )
 			.check();
 		await chips.click();
 
-		await expect( governing.locator( '.msc-chip-label' ) ).toHaveText(
-			'Posts'
-		);
+		await expect( chips ).toContainText( 'Posts' );
 
 		await page.getByRole( 'button', { name: 'Save Changes' } ).click();
 
 		// Saving triggers a re-index of what was just saved.
 		await expect( notices( page ) ).toContainText(
-			'Re-indexing complete.'
+			'Re-indexing scheduled successfully.'
 		);
 
 		expect(
@@ -94,9 +94,12 @@ test.describe( 'indexable entities', () => {
 		await admin.visitAdminPage( ADMIN_PAGE.indices );
 		await expect(
 			page
-				.locator( '.onesearch-entity-site' )
-				.filter( { hasText: 'Governing Site' } )
-				.locator( '.msc-chip-label' )
+				.getByRole( 'group', {
+					name: 'Indexable entities for Governing Site',
+				} )
+				.getByRole( 'button', {
+					name: 'Entities to index for Governing Site',
+				} )
 		).toHaveText( 'Posts' );
 	} );
 
@@ -142,11 +145,15 @@ test.describe( 'indexable entities', () => {
 			.click();
 
 		await expect( notices( page ) ).toContainText(
-			'Re-indexing complete.'
+			'Re-indexing scheduled successfully.'
 		);
 	} );
 
-	test( 'reports a failed re-index', async ( { admin, oneSearch, page } ) => {
+	test( 'reports a re-index that Algolia rejects', async ( {
+		admin,
+		oneSearch,
+		page,
+	} ) => {
 		await oneSearch.setState( {
 			options: {
 				[ OPTION.indexableEntities ]: {
@@ -154,7 +161,8 @@ test.describe( 'indexable entities', () => {
 				},
 			},
 		} );
-		await oneSearch.stubReindex( false, 'Re-index failed.' );
+		// Algolia answers 500, so the endpoint's own failure path runs.
+		await oneSearch.setAlgoliaMode( 'server_error' );
 		await admin.visitAdminPage( ADMIN_PAGE.indices );
 
 		await page
@@ -165,6 +173,8 @@ test.describe( 'indexable entities', () => {
 			.getByRole( 'button', { name: 'Re-index', exact: true } )
 			.click();
 
-		await expect( notices( page ) ).toContainText( 'Re-index failed.' );
+		await expect( notices( page ) ).toContainText(
+			'Re-indexing was unsuccessful. Please try again later.'
+		);
 	} );
 } );

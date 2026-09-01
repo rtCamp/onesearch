@@ -14,7 +14,9 @@ declare( strict_types = 1 );
 namespace OneSearch\E2E_Helper;
 
 use OneSearch\Encryptor;
+use OneSearch\Modules\Rest\Governing_Data_Handler;
 use OneSearch\Modules\Settings\Settings;
+use OneSearch\Tests\Support\Mock_Algolia_Http_Client;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -34,10 +36,70 @@ const MANAGED_OPTIONS = [
 	'onesearch_consumer_api_key',
 	'onesearch_indexable_entities',
 	'onesearch_parent_site_url',
+	'onesearch_proxy_attachment_id',
 	'onesearch_shared_sites',
 	'onesearch_site_type',
 	'onesearch_sites_search_settings',
 ];
+
+/**
+ * Transients the plugin caches state in, cleared alongside the options.
+ *
+ * The brand config is held for a week, so a value cached by one spec would
+ * otherwise outlive not just the next spec but the whole run. Read from the
+ * plugin's own constant so a rename cannot silently stop the reset working.
+ *
+ * @return list<string>
+ */
+function managed_transients(): array {
+	return [ Governing_Data_Handler::TRANSIENT_KEY ];
+}
+
+/**
+ * How the mock Algolia transport should behave, for the current request.
+ *
+ * Set through the state endpoint so a spec can choose an outcome without
+ * touching the plugin's own routes.
+ */
+const ALGOLIA_MODE_OPTION = 'onesearch_e2e_algolia_mode';
+
+/**
+ * The mode the current request should use.
+ */
+function algolia_mode(): string {
+	return (string) get_option( ALGOLIA_MODE_OPTION, Mock_Algolia_Http_Client::MODE_OK );
+}
+
+/**
+ * Replace the Algolia SDK's transport with the shared test double.
+ *
+ * The double lives in `OneSearch\Tests\Support\Mock_Algolia_Http_Client` and
+ * is shared with PHPUnit, so Algolia's response shapes are defined once. It is
+ * installed at the SDK's own `setHttpClient()` seam, which leaves the plugin's
+ * REST routes — permission checks, validation, option writes, error mapping —
+ * running for real.
+ */
+add_action(
+	'plugins_loaded',
+	static function (): void {
+		if ( ! class_exists( Mock_Algolia_Http_Client::class ) ) {
+			return;
+		}
+
+		// The smoke suite opts out so it can exercise the real service.
+		if ( Mock_Algolia_Http_Client::MODE_LIVE === algolia_mode() ) {
+			return;
+		}
+
+		// Held by reference for the client's lifetime; the suite does not read it.
+		$recorded_paths = [];
+
+		\OneSearch\Vendor\Algolia\AlgoliaSearch\Algolia::setHttpClient(
+			new Mock_Algolia_Http_Client( $recorded_paths, null, null, __NAMESPACE__ . '\\algolia_mode' )
+		);
+	},
+	PHP_INT_MAX
+);
 
 /**
  * Ensure pretty permalinks.
@@ -106,31 +168,10 @@ function get_state(): \WP_REST_Response {
 
 	return new \WP_REST_Response(
 		[
-			'success' => true,
-			'options' => $options,
-			'api_key' => read_api_key(),
+			'options'      => $options,
+			'algolia_mode' => algolia_mode(),
 		]
 	);
-}
-
-/**
- * Decrypt the brand site's own API key, or an empty string when it has none.
- *
- * The governing site has to be seeded with the same key the brand site holds,
- * and the stored value is ciphertext. Unlike `Settings::get_api_key()` this
- * never generates a missing key, so a spec can assert that visiting the
- * connection screen is what creates one.
- */
-function read_api_key(): string {
-	$stored = get_option( 'onesearch_consumer_api_key', '' );
-
-	if ( ! is_string( $stored ) || '' === $stored || ! class_exists( Encryptor::class ) ) {
-		return '';
-	}
-
-	$decrypted = Encryptor::decrypt( $stored );
-
-	return is_string( $decrypted ) ? $decrypted : '';
 }
 
 /**
@@ -171,11 +212,25 @@ function set_state( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
 		write_option( (string) $option, $value );
 	}
 
+	if ( array_key_exists( 'algolia_mode', $params ) ) {
+		$mode = (string) $params['algolia_mode'];
+
+		if ( ! in_array( $mode, Mock_Algolia_Http_Client::MODES, true ) ) {
+			return new \WP_Error(
+				'onesearch_e2e_unknown_algolia_mode',
+				sprintf( 'Unknown Algolia mode: %s.', $mode ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		update_option( ALGOLIA_MODE_OPTION, $mode, false );
+	}
+
 	return get_state();
 }
 
 /**
- * Delete every managed option.
+ * Delete every managed option and transient.
  */
 function reset_state(): \WP_REST_Response {
 	detach_option_listeners();
@@ -183,6 +238,12 @@ function reset_state(): \WP_REST_Response {
 	foreach ( MANAGED_OPTIONS as $option ) {
 		delete_option( $option );
 	}
+
+	foreach ( managed_transients() as $transient ) {
+		delete_transient( $transient );
+	}
+
+	delete_option( ALGOLIA_MODE_OPTION );
 
 	return get_state();
 }
@@ -193,10 +254,13 @@ function reset_state(): \WP_REST_Response {
  * API keys are stored encrypted on both sides of the handshake, so seeding one
  * has to encrypt too: brand sites go through the plugin's own setter, and the
  * brand site's own key goes through the encryptor directly. A plaintext key
- * reads back as an empty string and every token comparison then fails.
+ * reads back as an empty string and every token comparison then fails, so a
+ * failed encryption throws rather than quietly storing something unusable.
  *
  * @param string $option The option name.
  * @param mixed  $value  The value to store, or `null` to delete.
+ *
+ * @throws \RuntimeException When a value that must be encrypted cannot be.
  */
 function write_option( string $option, $value ): void {
 	if ( null === $value ) {
@@ -204,18 +268,23 @@ function write_option( string $option, $value ): void {
 		return;
 	}
 
-	if ( 'onesearch_shared_sites' === $option && is_array( $value ) && class_exists( Settings::class ) ) {
+	if ( 'onesearch_shared_sites' === $option && is_array( $value ) ) {
+		// The return value is not checked: `update_option()` reports false for an
+		// unchanged value as well as for a failure, so seeding an empty list over
+		// an empty list is indistinguishable from a write that did not happen.
 		Settings::set_shared_sites( $value );
 		return;
 	}
 
-	if ( 'onesearch_consumer_api_key' === $option && is_string( $value ) && class_exists( Encryptor::class ) ) {
+	if ( 'onesearch_consumer_api_key' === $option && is_string( $value ) ) {
 		$encrypted = Encryptor::encrypt( $value );
 
-		if ( is_string( $encrypted ) ) {
-			update_option( $option, $encrypted, false );
-			return;
+		if ( ! is_string( $encrypted ) ) {
+			throw new \RuntimeException( 'Could not encrypt the seeded API key.' );
 		}
+
+		update_option( $option, $encrypted, false );
+		return;
 	}
 
 	update_option( $option, $value );
