@@ -43,8 +43,7 @@ test.describe( 'brand site fan-out', () => {
 		oneSearch,
 		page,
 	} ) => {
-		// The brand site is reachable, but expects a different key, so its
-		// permission check turns the fan-out away.
+		// The brand site is reachable but expects a different key, so its permission check turns the fan-out away.
 		await connectSites( oneSearch, brandSite, {
 			brandApiKey: 'a-different-key-entirely',
 			algolia: true,
