@@ -524,6 +524,12 @@ const SiteSearchSettings = ( {
 						return (
 							<div
 								key={ url }
+								role="group"
+								aria-label={ sprintf(
+									/* translators: %s: site name */
+									__( 'Search settings for %s', 'onesearch' ),
+									site.name
+								) }
 								className={ `onesearch-site-card ${
 									site.isGoverning
 										? 'onesearch-site-governing'

@@ -12,6 +12,12 @@ import { useState, useRef, useEffect } from 'react';
 
 interface MultiSelectChipsProps {
 	label?: string;
+
+	/**
+	 * Accessible name for the control, for when several appear on one screen
+	 * and the visible placeholder is the same for all of them.
+	 */
+	ariaLabel?: string;
 	placeholder?: string;
 	options: Array< Record< string, string | number > >;
 	value?: string[];
@@ -23,6 +29,7 @@ interface MultiSelectChipsProps {
 
 function MultiSelectChips( {
 	label,
+	ariaLabel,
 	placeholder = __( 'Select…', 'onesearch' ),
 	options = [],
 	value = [],
@@ -110,6 +117,7 @@ function MultiSelectChips( {
 			{ label && <span className="msc-label">{ label }</span> }
 			<button
 				type="button"
+				aria-label={ ariaLabel || label || placeholder }
 				className="msc-control"
 				onClick={ handleToggleOpen }
 				disabled={ disabled }
