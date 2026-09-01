@@ -45,6 +45,7 @@ module.exports = {
 		'/vendor/',
 		'/vendor-prefixed/',
 		'/tests/e2e/',
+		'/tests/e2e-smoke/',
 		'/tests/phpunit/',
 	],
 
