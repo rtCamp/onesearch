@@ -48,10 +48,8 @@ const MANAGED_OPTIONS = [
  * The brand config is held for a week, so one spec's value would outlive the
  * whole run. Read from the plugin's constant so a rename cannot break the reset.
  *
- * The activation spec leaves OneSearch deactivated for part of its run, and a
- * fixture tearing down at that moment cannot load the class. Skipping the
- * transient is safe: nothing wrote it while the plugin was inactive, and the
- * next spec's setup resets with the plugin active again.
+ * Returns nothing while the plugin is deactivated — the activation spec has such
+ * a window, and nothing can have written the transient during it.
  *
  * @return list<string>
  */
@@ -225,7 +223,8 @@ function set_state( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
 		);
 	}
 
-$mode = null;
+	$mode = null;
+
 	if ( array_key_exists( 'algolia_mode', $params ) ) {
 		$mode = (string) $params['algolia_mode'];
 
@@ -275,9 +274,8 @@ function reset_state(): \WP_REST_Response {
  *
  * Secrets are stored encrypted, so seeding one has to encrypt too. Writing
  * plaintext would not fail loudly — `Encryptor::decrypt()` returns anything it
- * cannot base64-decode unchanged — it would quietly stop the suite from
- * exercising encryption at all. A failed encryption throws rather than storing
- * something unusable.
+ * cannot base64-decode unchanged — so the suite would silently stop exercising
+ * encryption. A failed encryption throws instead.
  *
  * @param string $option The option name.
  * @param mixed  $value  The value to store, or `null` to delete.
