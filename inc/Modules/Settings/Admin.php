@@ -128,7 +128,13 @@ final class Admin implements Registrable {
 
 		?>
 		<div class="wrap">
-			<div id="onesearch-site-selection-modal" class="onesearch-modal"></div>
+			<div
+				id="onesearch-site-selection-modal"
+				class="onesearch-modal"
+				role="dialog"
+				aria-modal="true"
+				aria-label="<?php esc_attr_e( 'OneSearch setup', 'onesearch' ); ?>"
+			></div>
 		</div>
 		<?php
 	}

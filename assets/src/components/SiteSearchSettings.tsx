@@ -10,8 +10,9 @@ import {
 	Notice,
 	Spinner,
 	ToggleControl,
+	VisuallyHidden,
 } from '@wordpress/components';
-import { __ } from '@wordpress/i18n';
+import { __, sprintf } from '@wordpress/i18n';
 
 /**
  * External dependencies
@@ -501,6 +502,12 @@ const SiteSearchSettings = ( {
 						return (
 							<div
 								key={ url }
+								role="group"
+								aria-label={ sprintf(
+									/* translators: %s: site name */
+									__( 'Search settings for %s', 'onesearch' ),
+									site.name
+								) }
 								className={ `onesearch-site-card ${
 									site.isGoverning
 										? 'onesearch-site-governing'
@@ -543,7 +550,18 @@ const SiteSearchSettings = ( {
 
 									<div className="onesearch-site-toggle">
 										<ToggleControl
-											label=""
+											label={
+												<VisuallyHidden>
+													{ sprintf(
+														/* translators: %s: site name */
+														__(
+															'Enable Algolia search for %s',
+															'onesearch'
+														),
+														site.name
+													) }
+												</VisuallyHidden>
+											}
 											checked={
 												siteSettings.algolia_enabled
 											}
