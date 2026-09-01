@@ -15,6 +15,7 @@ namespace OneSearch\E2E_Helper;
 
 use OneSearch\Encryptor;
 use OneSearch\Modules\Rest\Governing_Data_Handler;
+use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\Support\Mock_Algolia_Http_Client;
 
@@ -47,9 +48,18 @@ const MANAGED_OPTIONS = [
  * The brand config is held for a week, so one spec's value would outlive the
  * whole run. Read from the plugin's constant so a rename cannot break the reset.
  *
+ * The activation spec leaves OneSearch deactivated for part of its run, and a
+ * fixture tearing down at that moment cannot load the class. Skipping the
+ * transient is safe: nothing wrote it while the plugin was inactive, and the
+ * next spec's setup resets with the plugin active again.
+ *
  * @return list<string>
  */
 function managed_transients(): array {
+	if ( ! class_exists( Governing_Data_Handler::class ) ) {
+		return [];
+	}
+
 	return [ Governing_Data_Handler::TRANSIENT_KEY ];
 }
 
@@ -60,9 +70,28 @@ const ALGOLIA_MODE_OPTION = 'onesearch_e2e_algolia_mode';
 
 /**
  * The mode the current request should use.
+ *
+ * The double is autoloaded by the plugin, so it is out of reach while the plugin
+ * is deactivated — see `managed_transients()`. Read the stored value first so a
+ * reset in that window answers instead of fataling on a class constant.
  */
 function algolia_mode(): string {
-	return (string) get_option( ALGOLIA_MODE_OPTION, Mock_Algolia_Http_Client::MODE_OK );
+	$stored = get_option( ALGOLIA_MODE_OPTION, '' );
+
+	if ( is_string( $stored ) && '' !== $stored ) {
+		return $stored;
+	}
+
+	return class_exists( Mock_Algolia_Http_Client::class ) ? Mock_Algolia_Http_Client::MODE_OK : '';
+}
+
+/**
+ * The modes the state endpoint accepts.
+ *
+ * @return list<string>
+ */
+function algolia_modes(): array {
+	return class_exists( Mock_Algolia_Http_Client::class ) ? Mock_Algolia_Http_Client::MODES : [];
 }
 
 /**
@@ -205,7 +234,7 @@ function set_state( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
 	if ( array_key_exists( 'algolia_mode', $params ) ) {
 		$mode = (string) $params['algolia_mode'];
 
-		if ( ! in_array( $mode, Mock_Algolia_Http_Client::MODES, true ) ) {
+		if ( ! in_array( $mode, algolia_modes(), true ) ) {
 			return new \WP_Error(
 				'onesearch_e2e_unknown_algolia_mode',
 				sprintf( 'Unknown Algolia mode: %s.', $mode ),
@@ -241,9 +270,11 @@ function reset_state(): \WP_REST_Response {
 /**
  * Write a single option, deleting it when the value is `null`.
  *
- * API keys are stored encrypted, so seeding one has to encrypt too — a plaintext
- * key reads back empty and every token comparison then fails. A failed
- * encryption throws rather than quietly storing something unusable.
+ * Secrets are stored encrypted, so seeding one has to encrypt too. Writing
+ * plaintext would not fail loudly — `Encryptor::decrypt()` returns anything it
+ * cannot base64-decode unchanged — it would quietly stop the suite from
+ * exercising encryption at all. A failed encryption throws rather than storing
+ * something unusable.
  *
  * @param string $option The option name.
  * @param mixed  $value  The value to store, or `null` to delete.
@@ -259,6 +290,17 @@ function write_option( string $option, $value ): void {
 	if ( 'onesearch_shared_sites' === $option && is_array( $value ) ) {
 		// `update_option()` reports false for an unchanged value, so the result cannot tell a no-op from a failure.
 		Settings::set_shared_sites( $value );
+		return;
+	}
+
+	if ( 'onesearch_algolia_credentials' === $option && is_array( $value ) ) {
+		// The setter encrypts the write key, so the plugin's own reader is what decrypts it again.
+		Search_Settings::set_algolia_credentials( $value );
+
+		if ( ! empty( $value['write_key'] ) && empty( Search_Settings::get_algolia_credentials()['write_key'] ) ) {
+			throw new \RuntimeException( 'Could not encrypt the seeded Algolia write key.' );
+		}
+
 		return;
 	}
 

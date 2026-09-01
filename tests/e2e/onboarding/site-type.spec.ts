@@ -3,6 +3,13 @@
  */
 import { ADMIN_PAGE, OPTION, SITE_TYPE, expect, test } from '../scaffold';
 
+/**
+ * The onboarding screen renders into a container the plugin prints on every
+ * admin screen until a site type is stored. The container carries no role of its
+ * own, so it is addressed by id and everything inside it by role.
+ */
+const ONBOARDING = '#onesearch-site-selection-modal';
+
 test.describe( 'onboarding', () => {
 	test( 'prompts for a site type on first run', async ( {
 		admin,
@@ -15,16 +22,18 @@ test.describe( 'onboarding', () => {
 
 		await admin.visitAdminPage( ADMIN_PAGE.plugins );
 
-		const modal = page.getByRole( 'dialog', { name: 'OneSearch setup' } );
+		const onboarding = page.locator( ONBOARDING );
 
 		await expect(
-			modal.getByRole( 'heading', { name: 'OneSearch' } )
+			onboarding.getByRole( 'heading', { name: 'OneSearch' } )
 		).toBeVisible();
 		await expect(
-			modal.getByRole( 'combobox', { name: 'Site Type' } )
+			onboarding.getByRole( 'combobox', { name: 'Site Type' } )
 		).toHaveValue( '' );
 		await expect(
-			modal.getByRole( 'button', { name: 'Select Current Site Type' } )
+			onboarding.getByRole( 'button', {
+				name: 'Select Current Site Type',
+			} )
 		).toBeDisabled();
 	} );
 
@@ -35,12 +44,12 @@ test.describe( 'onboarding', () => {
 	} ) => {
 		await admin.visitAdminPage( ADMIN_PAGE.plugins );
 
-		const modal = page.getByRole( 'dialog', { name: 'OneSearch setup' } );
+		const onboarding = page.locator( ONBOARDING );
 
-		await modal
+		await onboarding
 			.getByRole( 'combobox', { name: 'Site Type' } )
 			.selectOption( SITE_TYPE.governing );
-		await modal
+		await onboarding
 			.getByRole( 'button', { name: 'Select Current Site Type' } )
 			.click();
 
@@ -67,12 +76,12 @@ test.describe( 'onboarding', () => {
 	} ) => {
 		await admin.visitAdminPage( ADMIN_PAGE.plugins );
 
-		const modal = page.getByRole( 'dialog', { name: 'OneSearch setup' } );
+		const onboarding = page.locator( ONBOARDING );
 
-		await modal
+		await onboarding
 			.getByRole( 'combobox', { name: 'Site Type' } )
 			.selectOption( SITE_TYPE.brand );
-		await modal
+		await onboarding
 			.getByRole( 'button', { name: 'Select Current Site Type' } )
 			.click();
 
@@ -101,11 +110,6 @@ test.describe( 'onboarding', () => {
 
 		await admin.visitAdminPage( ADMIN_PAGE.plugins );
 
-		await expect(
-			page.getByRole( 'dialog', { name: 'OneSearch setup' } )
-		).toHaveCount( 0 );
-		await expect(
-			page.getByRole( 'dialog', { name: 'OneSearch setup' } )
-		).toBeHidden();
+		await expect( page.locator( ONBOARDING ) ).toHaveCount( 0 );
 	} );
 } );

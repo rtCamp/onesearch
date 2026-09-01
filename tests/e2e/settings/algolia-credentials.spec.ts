@@ -112,6 +112,19 @@ test.describe( 'Algolia credentials', () => {
 		page,
 	} ) => {
 		await oneSearch.setUpGoverningSite( { algolia: true } );
+
+		/**
+		 * Seeding runs through the production setter, so the key sits in the
+		 * database the way a real save leaves it: encrypted. The field below
+		 * showing the plaintext again is the plugin decrypting it, not the
+		 * fixture handing back what it was given.
+		 */
+		const stored = ( await oneSearch.getState() ).options[
+			OPTION.algoliaCredentials
+		] as { app_id: string; write_key: string };
+		expect( stored.app_id ).toBe( ALGOLIA_CREDENTIALS.app_id );
+		expect( stored.write_key ).not.toBe( ALGOLIA_CREDENTIALS.write_key );
+
 		await admin.visitAdminPage( ADMIN_PAGE.settings );
 
 		await expect(
