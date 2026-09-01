@@ -225,12 +225,7 @@ function set_state( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
 		);
 	}
 
-	detach_option_listeners();
-
-	foreach ( $options as $option => $value ) {
-		write_option( (string) $option, $value );
-	}
-
+$mode = null;
 	if ( array_key_exists( 'algolia_mode', $params ) ) {
 		$mode = (string) $params['algolia_mode'];
 
@@ -241,7 +236,15 @@ function set_state( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
 				[ 'status' => 400 ]
 			);
 		}
+	}
 
+	detach_option_listeners();
+
+	foreach ( $options as $option => $value ) {
+		write_option( (string) $option, $value );
+	}
+
+	if ( null !== $mode ) {
 		update_option( ALGOLIA_MODE_OPTION, $mode, false );
 	}
 
