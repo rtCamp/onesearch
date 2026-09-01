@@ -28,9 +28,9 @@ test.describe( 'brand site fan-out', () => {
 		} );
 		await admin.visitAdminPage( ADMIN_PAGE.indices );
 
-		const brand = page
-			.locator( '.onesearch-entity-site' )
-			.filter( { hasText: UNREACHABLE_BRAND.name } );
+		const brand = page.getByRole( 'group', {
+			name: `Indexable entities for ${ UNREACHABLE_BRAND.name }`,
+		} );
 
 		await expect( brand ).toContainText(
 			'No entities to select. Please check site configuration'
@@ -51,9 +51,9 @@ test.describe( 'brand site fan-out', () => {
 		} );
 		await admin.visitAdminPage( ADMIN_PAGE.indices );
 
-		const brand = page
-			.locator( '.onesearch-entity-site' )
-			.filter( { hasText: BRAND_SITE.name } );
+		const brand = page.getByRole( 'group', {
+			name: `Indexable entities for ${ BRAND_SITE.name }`,
+		} );
 
 		await expect( brand ).toContainText(
 			'No entities to select. Please check site configuration'
@@ -69,11 +69,15 @@ test.describe( 'brand site fan-out', () => {
 		await connectSites( oneSearch, brandSite, { algolia: true } );
 		await admin.visitAdminPage( ADMIN_PAGE.indices );
 
-		const brand = page
-			.locator( '.onesearch-entity-site' )
-			.filter( { hasText: BRAND_SITE.name } );
+		const brand = page.getByRole( 'group', {
+			name: `Indexable entities for ${ BRAND_SITE.name }`,
+		} );
 
-		await expect( brand.locator( '.msc-control' ) ).toBeVisible();
+		await expect(
+			brand.getByRole( 'button', {
+				name: `Entities to index for ${ BRAND_SITE.name }`,
+			} )
+		).toBeVisible();
 		await expect( brand ).not.toContainText(
 			'No entities to select. Please check site configuration'
 		);

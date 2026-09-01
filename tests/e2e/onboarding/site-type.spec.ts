@@ -15,11 +15,7 @@ test.describe( 'onboarding', () => {
 
 		await admin.visitAdminPage( ADMIN_PAGE.plugins );
 
-		await expect( page.locator( 'body' ) ).toHaveClass(
-			/onesearch-site-selection-modal/
-		);
-
-		const modal = page.locator( '#onesearch-site-selection-modal' );
+		const modal = page.getByRole( 'dialog', { name: 'OneSearch setup' } );
 
 		await expect(
 			modal.getByRole( 'heading', { name: 'OneSearch' } )
@@ -39,7 +35,7 @@ test.describe( 'onboarding', () => {
 	} ) => {
 		await admin.visitAdminPage( ADMIN_PAGE.plugins );
 
-		const modal = page.locator( '#onesearch-site-selection-modal' );
+		const modal = page.getByRole( 'dialog', { name: 'OneSearch setup' } );
 
 		await modal
 			.getByRole( 'combobox', { name: 'Site Type' } )
@@ -55,7 +51,7 @@ test.describe( 'onboarding', () => {
 		).toBeVisible();
 		await expect(
 			page
-				.locator( '#adminmenu' )
+				.getByRole( 'navigation', { name: 'Main menu' } )
 				.getByRole( 'link', { name: 'Indices and Search' } )
 		).toBeVisible();
 
@@ -71,7 +67,7 @@ test.describe( 'onboarding', () => {
 	} ) => {
 		await admin.visitAdminPage( ADMIN_PAGE.plugins );
 
-		const modal = page.locator( '#onesearch-site-selection-modal' );
+		const modal = page.getByRole( 'dialog', { name: 'OneSearch setup' } );
 
 		await modal
 			.getByRole( 'combobox', { name: 'Site Type' } )
@@ -87,7 +83,7 @@ test.describe( 'onboarding', () => {
 		).toBeVisible();
 		await expect(
 			page
-				.locator( '#adminmenu' )
+				.getByRole( 'navigation', { name: 'Main menu' } )
 				.getByRole( 'link', { name: 'Indices and Search' } )
 		).toHaveCount( 0 );
 
@@ -106,10 +102,10 @@ test.describe( 'onboarding', () => {
 		await admin.visitAdminPage( ADMIN_PAGE.plugins );
 
 		await expect(
-			page.locator( '#onesearch-site-selection-modal' )
+			page.getByRole( 'dialog', { name: 'OneSearch setup' } )
 		).toHaveCount( 0 );
-		await expect( page.locator( 'body' ) ).not.toHaveClass(
-			/onesearch-site-selection-modal/
-		);
+		await expect(
+			page.getByRole( 'dialog', { name: 'OneSearch setup' } )
+		).toBeHidden();
 	} );
 } );

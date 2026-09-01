@@ -9,6 +9,7 @@ export const OPTION = {
 	consumerApiKey: 'onesearch_consumer_api_key',
 	indexableEntities: 'onesearch_indexable_entities',
 	parentSiteUrl: 'onesearch_parent_site_url',
+	proxyAttachmentId: 'onesearch_proxy_attachment_id',
 	sharedSites: 'onesearch_shared_sites',
 	searchSettings: 'onesearch_sites_search_settings',
 	siteType: 'onesearch_site_type',

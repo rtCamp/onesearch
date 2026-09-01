@@ -53,10 +53,22 @@ const test = base.extend<
 	{ oneSearch: OneSearchUtils; brandSite: OneSearchUtils },
 	{ brandRequestUtils: RequestUtils }
 >( {
-	oneSearch: async ( { page, requestUtils }, use ) => {
+	oneSearch: async ( { requestUtils }, use ) => {
 		await requestUtils.activatePlugin( 'onesearch' );
 
-		const oneSearch = new OneSearchUtils( { page, requestUtils } );
+		/**
+		 * The governing site's fan-out uses `wp_safe_remote_get()`, which
+		 * refuses a `localhost` URL unless this helper relaxes
+		 * `reject_unsafe_urls`. Without it the request never leaves the
+		 * container and the brand site simply appears to have no entities —
+		 * a failure that reads as a missing element, not a missing plugin. So
+		 * assert the dependency here instead of assuming the install has it.
+		 *
+		 * The slug is derived from the plugin's Name header, not its filename.
+		 */
+		await requestUtils.activatePlugin( 'onesearch-localhost-helper' );
+
+		const oneSearch = new OneSearchUtils( { requestUtils } );
 		await oneSearch.resetState();
 
 		await use( oneSearch );
@@ -74,7 +86,6 @@ const test = base.extend<
 	brandSite: async ( { brandRequestUtils }, use ) => {
 		await brandRequestUtils.activatePlugin( 'onesearch' );
 
-		// No `page`: the brand site is only ever driven through REST.
 		const brandSite = new OneSearchUtils( {
 			requestUtils: brandRequestUtils,
 		} );

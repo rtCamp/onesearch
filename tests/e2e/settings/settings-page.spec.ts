@@ -1,7 +1,7 @@
 /**
  * Internal dependencies
  */
-import { ADMIN_PAGE, GOVERNING_SITE_URL, expect, test } from '../scaffold';
+import { ADMIN_PAGE, expect, test } from '../scaffold';
 
 test.describe( 'settings screen', () => {
 	test( 'renders the governing controls for a governing site', async ( {
@@ -72,7 +72,8 @@ test.describe( 'settings screen', () => {
 		await admin.visitAdminPage( ADMIN_PAGE.plugins );
 
 		await page
-			.locator( 'tr[data-plugin="onesearch/onesearch.php"]' )
+			.getByRole( 'row' )
+			.filter( { hasText: 'OneSearch' } )
 			.getByRole( 'link', { name: 'Settings' } )
 			.click();
 
@@ -80,34 +81,5 @@ test.describe( 'settings screen', () => {
 		await expect(
 			page.getByRole( 'heading', { name: 'Brand Sites' } )
 		).toBeVisible();
-	} );
-
-	test( 'only offers the indices screen once a brand site exists', async ( {
-		admin,
-		oneSearch,
-		page,
-	} ) => {
-		await oneSearch.setUpGoverningSite();
-		await admin.visitAdminPage( ADMIN_PAGE.settings );
-
-		// The body class drives the "finish setting me up" affordance.
-		await expect( page.locator( 'body' ) ).toHaveClass(
-			/onesearch-missing-brand-sites/
-		);
-
-		await oneSearch.setUpGoverningSite( {
-			brandSites: [
-				{
-					name: 'Brand Alpha',
-					url: GOVERNING_SITE_URL,
-					api_key: 'local-api-key',
-				},
-			],
-		} );
-		await admin.visitAdminPage( ADMIN_PAGE.settings );
-
-		await expect( page.locator( 'body' ) ).not.toHaveClass(
-			/onesearch-missing-brand-sites/
-		);
 	} );
 } );

@@ -1,4 +1,9 @@
 /**
+ * External dependencies
+ */
+import type { Locator } from '@playwright/test';
+
+/**
  * Internal dependencies
  */
 import {
@@ -12,6 +17,21 @@ import {
 	test,
 } from '../scaffold';
 
+/**
+ * The Algolia switch inside a site's card.
+ *
+ * A card also contains a searchable-sites checkbox, so the switch is addressed
+ * by its accessible name rather than by being the only checkbox present.
+ *
+ * @param scope    The site's group.
+ * @param siteName The site's name.
+ */
+function algoliaToggle( scope: Locator, siteName: string ): Locator {
+	return scope.getByRole( 'checkbox', {
+		name: `Enable Algolia search for ${ siteName }`,
+	} );
+}
+
 test.describe( 'site search configuration', () => {
 	test.beforeEach( async ( { brandSite, oneSearch } ) => {
 		await connectSites( oneSearch, brandSite, { algolia: true } );
@@ -23,9 +43,9 @@ test.describe( 'site search configuration', () => {
 	} ) => {
 		await admin.visitAdminPage( ADMIN_PAGE.indices );
 
-		const governing = page
-			.locator( '.onesearch-site-card' )
-			.filter( { hasText: 'Governing Site' } );
+		const governing = page.getByRole( 'group', {
+			name: 'Search settings for Governing Site',
+		} );
 
 		await expect(
 			governing.getByText(
@@ -33,7 +53,7 @@ test.describe( 'site search configuration', () => {
 			)
 		).toBeVisible();
 		await expect(
-			governing.locator( '.onesearch-site-toggle input' )
+			algoliaToggle( governing, 'Governing Site' )
 		).toBeDisabled();
 		await expect(
 			page.getByRole( 'button', { name: 'Enable All' } )
@@ -54,15 +74,15 @@ test.describe( 'site search configuration', () => {
 		} );
 		await admin.visitAdminPage( ADMIN_PAGE.indices );
 
-		const governing = page
-			.locator( '.onesearch-site-card' )
-			.filter( { hasText: 'Governing Site' } );
+		const governing = page.getByRole( 'group', {
+			name: 'Search settings for Governing Site',
+		} );
 
 		await expect(
 			governing.getByText( 'Using default WordPress search' )
 		).toBeVisible();
 
-		await governing.locator( '.onesearch-site-toggle input' ).check();
+		await algoliaToggle( governing, 'Governing Site' ).check();
 
 		await expect(
 			governing.getByText( 'Algolia search enabled' )
@@ -110,12 +130,12 @@ test.describe( 'site search configuration', () => {
 		} );
 		await admin.visitAdminPage( ADMIN_PAGE.indices );
 
-		const governing = page
-			.locator( '.onesearch-site-card' )
-			.filter( { hasText: 'Governing Site' } );
+		const governing = page.getByRole( 'group', {
+			name: 'Search settings for Governing Site',
+		} );
 
 		await expect(
-			governing.locator( '.onesearch-site-toggle input' )
+			algoliaToggle( governing, 'Governing Site' )
 		).toBeChecked();
 		await expect(
 			page.getByRole( 'button', { name: 'Save Settings' } )
@@ -139,7 +159,9 @@ test.describe( 'site search configuration', () => {
 		} );
 		await admin.visitAdminPage( ADMIN_PAGE.indices );
 
-		const toggles = page.locator( '.onesearch-site-toggle input' );
+		const toggles = page.getByRole( 'checkbox', {
+			name: /^Enable Algolia search for /,
+		} );
 		await expect( toggles ).toHaveCount( 2 );
 
 		await page.getByRole( 'button', { name: 'Enable All' } ).click();
@@ -173,9 +195,9 @@ test.describe( 'site search configuration', () => {
 		} );
 		await admin.visitAdminPage( ADMIN_PAGE.indices );
 
-		const governing = page
-			.locator( '.onesearch-site-card' )
-			.filter( { hasText: 'Governing Site' } );
+		const governing = page.getByRole( 'group', {
+			name: 'Search settings for Governing Site',
+		} );
 		const self = governing.locator(
 			'.onesearch-searchable-item.onesearch-current-site input'
 		);
