@@ -11,10 +11,9 @@ const EDITOR = {
 };
 
 /**
- * The privileged endpoints are covered exhaustively in PHPUnit. What only a
- * browser can show is that a signed-in user without `manage_options` is refused
- * by the running site — cookie auth, nonce and capability check together —
- * rather than by a synthetic request in the same process.
+ * PHPUnit covers the endpoints exhaustively. Only a browser can show that the
+ * running site refuses a signed-in user without `manage_options` — cookie auth,
+ * nonce and capability check together, not a synthetic in-process request.
  */
 test.describe( 'REST authorization from the browser', () => {
 	test.use( { storageState: { cookies: [], origins: [] } } );
@@ -45,10 +44,9 @@ test.describe( 'REST authorization from the browser', () => {
 		await page.waitForURL( /wp-admin/ );
 
 		/**
-		 * Posted from the editor's own session, with the REST nonce that
-		 * session is entitled to. Cookie auth only applies to a REST request
-		 * carrying a nonce — without one the caller is anonymous and answers
-		 * 401, which would not prove anything about capabilities.
+		 * Cookie auth only applies to a REST request carrying a nonce; without
+		 * one the caller is anonymous and answers 401, proving nothing about
+		 * capabilities. So use the nonce this session is entitled to.
 		 */
 		const status = await page.evaluate( async ( brandSite ) => {
 			const nonce = await (

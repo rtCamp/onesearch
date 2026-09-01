@@ -7,15 +7,12 @@ const APP_ID = process.env[ 'ALGOLIA_APP_ID' ] ?? '';
 const WRITE_KEY = process.env[ 'ALGOLIA_WRITE_KEY' ] ?? '';
 
 /**
- * The one test that talks to Algolia for real.
+ * The one suite that talks to Algolia for real.
  *
- * The main suite mocks Algolia's transport, which proves the plugin handles the
- * shapes it expects but not that those shapes are still what Algolia sends. This
- * closes that gap, and is deliberately kept out of the default run: it needs
- * paid credentials, it writes to a shared mutable index, and it fails whenever
- * Algolia does. Nothing here should ever gate a pull request.
- *
- * Run it with credentials in the environment:
+ * The mocked suite proves the plugin handles the shapes it expects, not that
+ * those are still the shapes Algolia sends. Kept out of the default run and out
+ * of CI: it needs paid credentials, writes to a shared index, and fails whenever
+ * Algolia does.
  *
  *     ALGOLIA_APP_ID=… ALGOLIA_WRITE_KEY=… npm run test:e2e:smoke
  */
