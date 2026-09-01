@@ -38,12 +38,8 @@ interface HelperState {
 /**
  * How the mock Algolia transport should answer.
  *
- * Algolia is the only boundary the suite mocks, and it is mocked inside PHP at
- * the SDK's own `setHttpClient()` seam. The plugin's REST routes therefore run
- * for real — permission checks, validation, option writes and the mapping from
- * an SDK failure to an HTTP status all execute.
- *
- * `live` removes the mock entirely, and is only used by the opt-in smoke suite.
+ * Mocked inside PHP at the SDK's own `setHttpClient()` seam, so the plugin's own
+ * REST routes still run for real. `live` drops the mock, for the smoke suite.
  */
 export type AlgoliaMode = 'ok' | 'invalid_key' | 'server_error' | 'live';
 
@@ -52,10 +48,9 @@ const HELPER_ENDPOINT = 'onesearch-e2e/v1/state';
 /**
  * Test helpers for driving one site's OneSearch state.
  *
- * The suite runs two WordPress installs — the governing site on 8889 and a real
- * brand site on 8891 — so this is instantiated once per site. State is seeded
- * through the E2E helper mu-plugin rather than through the UI, so each spec
- * starts from a known install without paying for the setup flow.
+ * Instantiated once per install — governing on 8889, brand on 8891. State is
+ * seeded through the E2E helper mu-plugin rather than the UI, so each spec
+ * starts from a known install.
  */
 export class OneSearchUtils {
 	private readonly requestUtils: RequestUtils;
@@ -75,9 +70,7 @@ export class OneSearchUtils {
 	}
 
 	/**
-	 * Seed options.
-	 *
-	 * Option values are keyed by option name; `null` deletes the option.
+	 * Seed options. A `null` value deletes the option.
 	 *
 	 * @param state             What to seed.
 	 * @param state.options     Option values, keyed by option name.
@@ -121,11 +114,10 @@ export class OneSearchUtils {
 	}
 
 	/**
-	 * Put the site into the governing role, optionally with brand sites and credentials.
+	 * Put the site into the governing role.
 	 *
-	 * Brand sites are stored exactly as a real save stores them, API key
-	 * included, so requests to them are made for real. A brand site that should
-	 * answer has to be seeded with the matching key through `setUpBrandSite()`.
+	 * Brand sites are stored the way a real save stores them, API key included,
+	 * so requests to them are real. Seed the matching key with `setUpBrandSite()`.
 	 *
 	 * @param seed            What to seed alongside the site type.
 	 * @param seed.brandSites Brand sites to register.
@@ -149,13 +141,9 @@ export class OneSearchUtils {
 	/**
 	 * Put the site into the brand role.
 	 *
-	 * The API key is stored encrypted, the way the plugin stores it, so the
-	 * governing site can be seeded with the same plaintext key and the token
-	 * comparison on this side will match.
-	 *
-	 * `governingSiteUrl` is what a completed health check would have recorded.
-	 * Seeding it lets a spec start from an already-connected brand site;
-	 * omitting it leaves the connection for the health check to bootstrap.
+	 * The key is stored encrypted, so the governing site can hold the same
+	 * plaintext key and the comparison here will match. Omitting
+	 * `governingSiteUrl` leaves the connection for a health check to bootstrap.
 	 *
 	 * @param seed                  What to seed alongside the site type.
 	 * @param seed.apiKey           The API key the governing site will present.
@@ -184,22 +172,17 @@ export class OneSearchUtils {
 }
 
 /**
- * Connect the governing site and the real brand site to each other.
+ * Connect the governing site and the brand site to each other.
  *
- * Both sides have to agree on the API key, so this seeds the pair together.
- * The brand site is left already connected unless `bootstrap` is set, which
- * leaves `parent_site_url` unwritten for a health check to record.
+ * Both sides must agree on the API key, so this seeds the pair together.
  *
  * @param governing        The governing site helper.
  * @param brand            The brand site helper.
  * @param seed             What to seed.
- * @param seed.brandSites  Brand sites the governing site should hold. Defaults
- *                         to the real brand site.
- * @param seed.brandApiKey The key the brand site should accept. Defaults to
- *                         the real brand site's key, so the two sides match.
+ * @param seed.brandSites  Brand sites the governing site holds. Defaults to the real one.
+ * @param seed.brandApiKey The key the brand site accepts. Defaults to matching.
  * @param seed.algolia     Whether the governing site has Algolia credentials.
- * @param seed.bootstrap   Leave the brand site unconnected, so a health check
- *                         has to record the governing site itself.
+ * @param seed.bootstrap   Leave unconnected, so a health check records the governing site.
  */
 export async function connectSites(
 	governing: OneSearchUtils,
@@ -229,8 +212,8 @@ export async function connectSites(
 /**
  * The visible notices and snackbars on the page.
  *
- * WordPress mirrors notice text into an `aria-live` region for screen readers,
- * so matching on text alone resolves to two elements.
+ * WordPress mirrors notice text into an `aria-live` region, so matching on text
+ * alone resolves to two elements.
  *
  * @param page The page under test.
  */

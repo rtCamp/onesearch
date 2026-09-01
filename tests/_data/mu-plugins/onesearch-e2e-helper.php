@@ -27,9 +27,8 @@ const REST_NAMESPACE = 'onesearch-e2e/v1';
 /**
  * The options the suite is allowed to read, seed and clear.
  *
- * Seeding `onesearch_site_type` is the reason this helper exists at all: the
- * option is registered with an enum that rejects an empty value, so the
- * onboarding state cannot be restored through `/wp/v2/settings`.
+ * `onesearch_site_type` is why this helper exists: its registered enum rejects
+ * an empty value, so `/wp/v2/settings` can never restore the unset state.
  */
 const MANAGED_OPTIONS = [
 	'onesearch_algolia_credentials',
@@ -45,9 +44,8 @@ const MANAGED_OPTIONS = [
 /**
  * Transients the plugin caches state in, cleared alongside the options.
  *
- * The brand config is held for a week, so a value cached by one spec would
- * otherwise outlive not just the next spec but the whole run. Read from the
- * plugin's own constant so a rename cannot silently stop the reset working.
+ * The brand config is held for a week, so one spec's value would outlive the
+ * whole run. Read from the plugin's constant so a rename cannot break the reset.
  *
  * @return list<string>
  */
@@ -56,10 +54,7 @@ function managed_transients(): array {
 }
 
 /**
- * How the mock Algolia transport should behave, for the current request.
- *
- * Set through the state endpoint so a spec can choose an outcome without
- * touching the plugin's own routes.
+ * How the mock Algolia transport should behave, set through the state endpoint.
  */
 const ALGOLIA_MODE_OPTION = 'onesearch_e2e_algolia_mode';
 
@@ -73,11 +68,8 @@ function algolia_mode(): string {
 /**
  * Replace the Algolia SDK's transport with the shared test double.
  *
- * The double lives in `OneSearch\Tests\Support\Mock_Algolia_Http_Client` and
- * is shared with PHPUnit, so Algolia's response shapes are defined once. It is
- * installed at the SDK's own `setHttpClient()` seam, which leaves the plugin's
- * REST routes — permission checks, validation, option writes, error mapping —
- * running for real.
+ * Shared with PHPUnit, so the response shapes are defined once. Installing it at
+ * the SDK's `setHttpClient()` seam leaves the plugin's own REST routes real.
  */
 add_action(
 	'plugins_loaded',
@@ -104,9 +96,8 @@ add_action(
 /**
  * Ensure pretty permalinks.
  *
- * The plugin's admin bundles call `home_url( '/wp-json/' )` directly, which
- * only resolves when a permalink structure is set. A fresh wp-env install has
- * none, so set one once and flush the rules.
+ * The admin bundles call `home_url( '/wp-json/' )` directly, which only resolves
+ * with a permalink structure set. A fresh wp-env install has none.
  */
 add_action(
 	'init',
@@ -175,11 +166,10 @@ function get_state(): \WP_REST_Response {
 }
 
 /**
- * Seed managed options.
+ * Seed managed options. A `null` value deletes the option.
  *
- * A `null` value deletes the option. Options are written with the plugin's
- * own `update_option_*` listeners detached, so seeding is pure data and never
- * triggers an Algolia round trip.
+ * Written with the plugin's `update_option_*` listeners detached, so seeding is
+ * pure data and never triggers an Algolia round trip.
  *
  * @param \WP_REST_Request $request Request object with a JSON body.
  */
@@ -251,11 +241,9 @@ function reset_state(): \WP_REST_Response {
 /**
  * Write a single option, deleting it when the value is `null`.
  *
- * API keys are stored encrypted on both sides of the handshake, so seeding one
- * has to encrypt too: brand sites go through the plugin's own setter, and the
- * brand site's own key goes through the encryptor directly. A plaintext key
- * reads back as an empty string and every token comparison then fails, so a
- * failed encryption throws rather than quietly storing something unusable.
+ * API keys are stored encrypted, so seeding one has to encrypt too — a plaintext
+ * key reads back empty and every token comparison then fails. A failed
+ * encryption throws rather than quietly storing something unusable.
  *
  * @param string $option The option name.
  * @param mixed  $value  The value to store, or `null` to delete.
@@ -269,9 +257,7 @@ function write_option( string $option, $value ): void {
 	}
 
 	if ( 'onesearch_shared_sites' === $option && is_array( $value ) ) {
-		// The return value is not checked: `update_option()` reports false for an
-		// unchanged value as well as for a failure, so seeding an empty list over
-		// an empty list is indistinguishable from a write that did not happen.
+		// `update_option()` reports false for an unchanged value, so the result cannot tell a no-op from a failure.
 		Settings::set_shared_sites( $value );
 		return;
 	}
@@ -291,10 +277,10 @@ function write_option( string $option, $value ): void {
 }
 
 /**
- * Detach the plugin's `update_option_*` listeners for the duration of the request.
+ * Detach the plugin's `update_option_*` listeners for this request.
  *
- * Seeding state should not fire the side effects (index deletion, cache purges)
- * that a real settings change would, since those reach out to Algolia.
+ * A real settings change purges caches and deletes indices, which reach out to
+ * Algolia. Seeding should not.
  */
 function detach_option_listeners(): void {
 	foreach ( MANAGED_OPTIONS as $option ) {

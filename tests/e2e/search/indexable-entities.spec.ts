@@ -34,9 +34,7 @@ test.describe( 'indexable entities', () => {
 		} );
 		await expect( brand ).toBeVisible();
 
-		// Every public post type the brand site actually reports, Media included.
-		// Asserting the whole set is what proves the list came over the wire
-		// rather than from an assumption about what a brand site holds.
+		// Asserting the full set, Media included, proves the list came over the wire rather than from an assumption.
 		await brand
 			.getByRole( 'button', {
 				name: `Entities to index for ${ BRAND_SITE.name }`,

@@ -20,8 +20,8 @@ import {
 /**
  * The Algolia switch inside a site's card.
  *
- * A card also contains a searchable-sites checkbox, so the switch is addressed
- * by its accessible name rather than by being the only checkbox present.
+ * A card holds a searchable-sites checkbox too, so the switch is addressed by
+ * name rather than by being the only one present.
  *
  * @param scope    The site's group.
  * @param siteName The site's name.

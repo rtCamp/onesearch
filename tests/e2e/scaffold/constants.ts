@@ -35,17 +35,14 @@ export const ADMIN_PAGE = {
 export const GOVERNING_SITE_URL = 'http://localhost:8889/';
 
 /**
- * The governing site without its trailing slash.
- *
- * `parent_site_url` is stored untrailingslashit'd, and this is also the value
- * the brand site sees in the `Origin` header.
+ * The governing site without its trailing slash: how `parent_site_url` is
+ * stored, and what the brand site sees in the `Origin` header.
  */
 export const GOVERNING_SITE_ORIGIN = 'http://localhost:8889';
 
 /**
- * The second wp-env install (`.wp-env.test-child.json`), which acts as a real
- * brand site. Both hops to it run for real: the governing site's server-side
- * fan-out and the browser-side health check.
+ * The second wp-env install (`.wp-env.test-child.json`), acting as a real brand
+ * site. Both hops to it are real: the server-side fan-out and the health check.
  */
 export const BRAND_SITE_URL = 'http://localhost:8891';
 
@@ -57,8 +54,8 @@ export const BRAND_SITE_KEY = `${ BRAND_SITE_URL }/`;
 /**
  * The real brand site, as the governing site stores it.
  *
- * `api_key` has to be seeded on both sides — see `setUpBrandSite()` — because
- * the brand site compares the incoming token against its own stored key.
+ * `api_key` must be seeded on both sides — see `setUpBrandSite()` — since the
+ * brand site compares the incoming token against its own stored key.
  */
 export const BRAND_SITE = {
 	name: 'Brand Alpha',

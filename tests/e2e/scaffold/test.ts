@@ -16,16 +16,13 @@ import { OneSearchUtils } from './onesearch-utils';
 /**
  * Build a `RequestUtils` for the brand site.
  *
- * `RequestUtils` is written for a single install: `setupRest()` discovers the
- * REST root from the module-level `WP_BASE_URL` rather than from the instance's
- * `baseURL`, so a second instance would pair the brand site's nonce with the
- * governing site's REST root. That combination fails the nonce check, and
- * `rest()` responds to a bad nonce by calling `setupRest()` again — which
- * rediscovers the same wrong root, so the call never terminates.
+ * `setupRest()` discovers the REST root from the module-level `WP_BASE_URL`, not
+ * the instance's `baseURL`, so a second instance pairs the brand site's nonce
+ * with the governing site's root. `rest()` answers a bad nonce by calling
+ * `setupRest()` again, rediscovers the same wrong root, and never terminates.
  *
- * Logging in and setting the REST state here keeps `setupRest()` out of it.
- * Nothing is persisted to disk for the same reason: a stored state would carry
- * the wrong root into the next run.
+ * Setting the REST state here keeps `setupRest()` out of it. Nothing is
+ * persisted, for the same reason.
  */
 async function setUpBrandRequestUtils(): Promise< RequestUtils > {
 	const requestUtils = await RequestUtils.setup( {
@@ -57,14 +54,12 @@ const test = base.extend<
 		await requestUtils.activatePlugin( 'onesearch' );
 
 		/**
-		 * The governing site's fan-out uses `wp_safe_remote_get()`, which
-		 * refuses a `localhost` URL unless this helper relaxes
-		 * `reject_unsafe_urls`. Without it the request never leaves the
-		 * container and the brand site simply appears to have no entities —
-		 * a failure that reads as a missing element, not a missing plugin. So
-		 * assert the dependency here instead of assuming the install has it.
+		 * The fan-out uses `wp_safe_remote_get()`, which refuses a `localhost`
+		 * URL unless this helper relaxes `reject_unsafe_urls`. Without it the
+		 * brand site just looks like it has no entities — a failure that reads
+		 * as a missing element, not a missing plugin.
 		 *
-		 * The slug is derived from the plugin's Name header, not its filename.
+		 * The slug comes from the plugin's Name header, not its filename.
 		 */
 		await requestUtils.activatePlugin( 'onesearch-localhost-helper' );
 
