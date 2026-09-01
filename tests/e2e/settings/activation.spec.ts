@@ -18,31 +18,39 @@ test.describe( 'plugin activation', () => {
 		} );
 		await requestUtils.deactivatePlugin( 'onesearch' );
 
-		await admin.visitAdminPage( ADMIN_PAGE.plugins );
+		/**
+		 * Everything below runs against a deactivated install, so a failed
+		 * assertion would otherwise leave it that way — for this spec's own
+		 * teardown, for the next spec, and for a retry. Reactivate in `finally`
+		 * so a failure costs one test rather than the rest of the run.
+		 */
+		try {
+			await admin.visitAdminPage( ADMIN_PAGE.plugins );
 
-		const pluginRow = page.locator( PLUGIN_ROW );
-		await expect( pluginRow ).toBeVisible();
+			const pluginRow = page.locator( PLUGIN_ROW );
+			await expect( pluginRow ).toBeVisible();
 
-		await Promise.all( [
-			page.waitForURL( /plugins.php/ ),
-			pluginRow.getByRole( 'link', { name: 'Activate' } ).click(),
-		] );
+			await Promise.all( [
+				page.waitForURL( /plugins.php/ ),
+				pluginRow.getByRole( 'link', { name: 'Activate' } ).click(),
+			] );
 
-		await expect(
-			pluginRow.getByRole( 'link', { name: 'Deactivate' } )
-		).toBeVisible();
+			await expect(
+				pluginRow.getByRole( 'link', { name: 'Deactivate' } )
+			).toBeVisible();
 
-		await Promise.all( [
-			page.waitForURL( /plugins.php/ ),
-			pluginRow.getByRole( 'link', { name: 'Deactivate' } ).click(),
-		] );
+			await Promise.all( [
+				page.waitForURL( /plugins.php/ ),
+				pluginRow.getByRole( 'link', { name: 'Deactivate' } ).click(),
+			] );
 
-		await expect(
-			pluginRow.getByRole( 'link', { name: 'Activate' } )
-		).toBeVisible();
-
-		// Leave the install as the rest of the suite expects to find it.
-		await requestUtils.activatePlugin( 'onesearch' );
+			await expect(
+				pluginRow.getByRole( 'link', { name: 'Activate' } )
+			).toBeVisible();
+		} finally {
+			// Leave the install as the rest of the suite expects to find it.
+			await requestUtils.activatePlugin( 'onesearch' );
+		}
 	} );
 
 	test( 'registers the OneSearch admin menu on activation', async ( {
