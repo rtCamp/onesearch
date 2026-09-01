@@ -55,7 +55,7 @@ test.describe( 'plugin activation', () => {
 
 		await expect(
 			page
-				.locator( '#adminmenu' )
+				.getByRole( 'navigation', { name: 'Main menu' } )
 				.getByRole( 'link', { name: 'OneSearch' } )
 				.first()
 		).toBeVisible();

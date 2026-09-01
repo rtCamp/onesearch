@@ -42,7 +42,7 @@ test.describe( 'settings screen access', () => {
 		// The menu is registered for manage_options only.
 		await expect(
 			page
-				.locator( '#adminmenu' )
+				.getByRole( 'navigation', { name: 'Main menu' } )
 				.getByRole( 'link', { name: 'OneSearch' } )
 		).toHaveCount( 0 );
 

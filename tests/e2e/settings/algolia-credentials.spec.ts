@@ -4,15 +4,17 @@
 import {
 	ADMIN_PAGE,
 	ALGOLIA_CREDENTIALS,
+	OPTION,
 	expect,
 	notices,
 	test,
 } from '../scaffold';
 
 /**
- * The save endpoint validates the key against Algolia over the network, so the
- * browser-side call is stubbed here. What is asserted is the UI contract: which
- * controls are live, and how success and failure are reported.
+ * The save endpoint validates the key by asking Algolia for its ACL. Only that
+ * outbound call is mocked, so the endpoint itself runs: its permission check,
+ * its required-arg validation, the ACL test, the encrypted option write, and
+ * the mapping from a rejected key to a 400.
  */
 test.describe( 'Algolia credentials', () => {
 	test.beforeEach( async ( { oneSearch } ) => {
@@ -39,8 +41,11 @@ test.describe( 'Algolia credentials', () => {
 		await expect( save ).toBeEnabled();
 	} );
 
-	test( 'reports a successful save', async ( { admin, oneSearch, page } ) => {
-		await oneSearch.stubAlgoliaSave();
+	test( 'saves credentials that Algolia accepts', async ( {
+		admin,
+		oneSearch,
+		page,
+	} ) => {
 		await admin.visitAdminPage( ADMIN_PAGE.settings );
 
 		await page
@@ -59,14 +64,29 @@ test.describe( 'Algolia credentials', () => {
 		await expect(
 			page.getByRole( 'button', { name: 'Save Credentials' } )
 		).toBeDisabled();
+
+		// The endpoint really stored them, rather than the UI merely saying so.
+		const stored = ( await oneSearch.getState() ).options[
+			OPTION.algoliaCredentials
+		];
+		expect( stored ).toMatchObject( {
+			app_id: ALGOLIA_CREDENTIALS.app_id,
+		} );
+
+		// Reloading proves it came back from the database, not from component state.
+		await admin.visitAdminPage( ADMIN_PAGE.settings );
+		await expect(
+			page.getByRole( 'textbox', { name: 'Application ID*' } )
+		).toHaveValue( ALGOLIA_CREDENTIALS.app_id );
 	} );
 
-	test( 'reports rejected credentials', async ( {
+	test( 'refuses a key Algolia says cannot write', async ( {
 		admin,
 		oneSearch,
 		page,
 	} ) => {
-		await oneSearch.stubAlgoliaSave( false );
+		// The key resolves, but its ACL lacks addObject/deleteObject.
+		await oneSearch.setAlgoliaMode( 'invalid_key' );
 		await admin.visitAdminPage( ADMIN_PAGE.settings );
 
 		await page
@@ -78,6 +98,12 @@ test.describe( 'Algolia credentials', () => {
 		await expect( notices( page ) ).toContainText(
 			'Error saving Algolia credentials. Please try again later.'
 		);
+
+		// A rejected key must not be persisted.
+		const stored = ( await oneSearch.getState() ).options[
+			OPTION.algoliaCredentials
+		];
+		expect( stored ).toBeNull();
 	} );
 
 	test( 'loads stored credentials and masks the write key', async ( {
