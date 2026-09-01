@@ -253,7 +253,15 @@ const SiteIndexableEntities = ( {
 
 				<CardBody className="onesearch-entities-body">
 					{ /* Governing Site */ }
-					<div className="onesearch-entity-site">
+					<div
+						role="group"
+						aria-label={ sprintf(
+							/* translators: %s: site name */
+							__( 'Indexable entities for %s', 'onesearch' ),
+							__( 'Governing Site', 'onesearch' )
+						) }
+						className="onesearch-entity-site"
+					>
 						<div className="onesearch-entity-site-header">
 							<h3 className="onesearch-entity-site-name">
 								{ __( 'Governing Site', 'onesearch' ) }
@@ -268,6 +276,14 @@ const SiteIndexableEntities = ( {
 								placeholder={ __(
 									'Select entities…',
 									'onesearch'
+								) }
+								ariaLabel={ sprintf(
+									/* translators: %s: site name */
+									__(
+										'Entities to index for %s',
+										'onesearch'
+									),
+									__( 'Governing Site', 'onesearch' )
 								) }
 								options={ toMultiSelectOptions(
 									allPostTypes?.[ currentSiteUrl ] || []
@@ -299,6 +315,15 @@ const SiteIndexableEntities = ( {
 						return (
 							<div
 								key={ siteKey }
+								role="group"
+								aria-label={ sprintf(
+									/* translators: %s: site name */
+									__(
+										'Indexable entities for %s',
+										'onesearch'
+									),
+									site.name
+								) }
 								className="onesearch-entity-site onesearch-entity-brand"
 							>
 								<div className="onesearch-entity-site-header">
@@ -325,6 +350,14 @@ const SiteIndexableEntities = ( {
 											placeholder={ __(
 												'Select entities…',
 												'onesearch'
+											) }
+											ariaLabel={ sprintf(
+												/* translators: %s: site name */
+												__(
+													'Entities to index for %s',
+													'onesearch'
+												),
+												site.name
 											) }
 											options={ toMultiSelectOptions(
 												allPostTypes?.[ siteKey ] || []
