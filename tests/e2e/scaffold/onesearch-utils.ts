@@ -201,7 +201,7 @@ export async function connectSites(
 			: {
 					apiKey: seed.brandApiKey ?? BRAND_SITE.api_key,
 					governingSiteUrl: GOVERNING_SITE_ORIGIN,
-			  }
+				}
 	);
 
 	await governing.setUpGoverningSite( {

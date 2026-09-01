@@ -28,10 +28,8 @@ use WP_REST_Request;
  * itself, so here only the capability check stands in the way.
  *
  * The rest of the suite authenticates as an administrator, or as nobody at all
- * to exercise token auth. Neither covers the case the fallback actually
- * decides: a signed-in user who lacks the capability. An editor can publish and
- * delete other people's posts, so "logged in" is a long way from "may hand out
- * this site's Algolia write key".
+ * to exercise token auth. Neither covers what that check actually decides: a
+ * signed-in user who lacks the capability.
  */
 #[CoversClass( Abstract_REST_Controller::class )]
 #[CoversClass( Algolia_Credentials_Controller::class )]
@@ -82,10 +80,9 @@ class RouteAuthorizationTest extends TestCase {
 	 * Every privileged route, as method, path, and a params payload.
 	 *
 	 * WordPress validates an endpoint's required args before it consults the
-	 * permission callback (`WP_REST_Server::dispatch_request()` calls
-	 * `has_valid_params()` ahead of `respond_to_request()`), so a request
-	 * missing them answers 400 and never reaches the check under test. Each
-	 * route therefore carries params good enough to get that far.
+	 * permission callback, so a request missing them answers 400 and never
+	 * reaches the check under test. Each route carries params good enough to
+	 * get that far.
 	 *
 	 * @return array<string, array{0: string, 1: string, 2: array<string, mixed>}>
 	 */
@@ -164,9 +161,8 @@ class RouteAuthorizationTest extends TestCase {
 	/**
 	 * Guard against a mistyped route in the provider.
 	 *
-	 * A route that does not exist answers 404, not 403, so the tests above would
-	 * already fail — but they would fail for the wrong reason and read as a
-	 * missing capability check. Assert registration separately, without
+	 * A missing route answers 404, so the tests above would fail for the wrong
+	 * reason and read as a missing capability check. Asserted without
 	 * dispatching, so nothing reaches Algolia.
 	 *
 	 * @param string               $method HTTP method.
