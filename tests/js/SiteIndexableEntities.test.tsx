@@ -67,6 +67,9 @@ const renderEntities = (
 		/>
 	);
 
+// The chips control is named after its site, so several can coexist on the screen.
+const governingEntities = 'Entities to index for Governing Site';
+
 describe( 'SiteIndexableEntities', () => {
 	it( 'can re-index whatever is saved', async () => {
 		answer( {} );
@@ -112,7 +115,7 @@ describe( 'SiteIndexableEntities', () => {
 
 		await screen.findByText( 'Select Entities to Index' );
 		fireEvent.click(
-			screen.getByRole( 'button', { name: 'Select entities…' } )
+			screen.getByRole( 'button', { name: governingEntities } )
 		);
 		fireEvent.click( screen.getByLabelText( 'Posts' ) );
 		fireEvent.click(
@@ -165,7 +168,7 @@ describe( 'SiteIndexableEntities', () => {
 		renderEntities( { indexableEntities: {}, loadFailed: true } );
 
 		expect(
-			screen.getByRole( 'button', { name: 'Select entities…' } )
+			screen.getByRole( 'button', { name: governingEntities } )
 		).toBeDisabled();
 		expect(
 			screen.getByRole( 'button', { name: 'Save Changes' } )
@@ -178,7 +181,7 @@ describe( 'SiteIndexableEntities', () => {
 
 		await screen.findByText( 'Select Entities to Index' );
 		fireEvent.click(
-			screen.getByRole( 'button', { name: 'Select entities…' } )
+			screen.getByRole( 'button', { name: governingEntities } )
 		);
 		fireEvent.click( screen.getByLabelText( 'Posts' ) );
 		expect(
@@ -204,7 +207,7 @@ describe( 'SiteIndexableEntities', () => {
 
 		await screen.findByText( 'Select Entities to Index' );
 		fireEvent.click(
-			screen.getByRole( 'button', { name: 'Select entities…' } )
+			screen.getByRole( 'button', { name: governingEntities } )
 		);
 		fireEvent.click( screen.getByLabelText( 'Posts' ) );
 		fireEvent.click(
