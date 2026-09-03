@@ -314,6 +314,70 @@ final class WatcherTest extends TestCase {
 	}
 
 	/**
+	 * A post deleted without passing through the trash must take its records with it.
+	 *
+	 * `wp_delete_post( $id, true )` fires no status transition, so this path is covered by
+	 * `before_delete_post` alone. The post is deleted straight from `publish` on purpose:
+	 * trashing first would clear the records through `on_post_transition` and the assertion
+	 * would then pass even with the deletion hook unregistered.
+	 *
+	 * @see https://github.com/rtCamp/OnePress/issues/84
+	 */
+	public function test_deletes_records_when_a_post_is_permanently_deleted(): void {
+		$this->set_up_governing_site();
+
+		$paths    = [];
+		$requests = [];
+		$this->mock_algolia_http_client( $paths, null, null, $requests );
+
+		( new Watcher() )->register_hooks();
+
+		$post_id   = self::factory()->post->create( [ 'post_status' => 'publish' ] );
+		$stored_id = $this->get_indexed_site_post_id( $requests );
+
+		// Drop the publish traffic, so only the delete request is left to assert on.
+		$requests = [];
+
+		wp_delete_post( $post_id, true );
+
+		$this->assertSame(
+			[ sprintf( 'site_post_id:"%s"', $stored_id ) ],
+			$this->get_delete_filters( $requests ),
+			'Permanently deleting a post must delete its records by the stored site_post_id.'
+		);
+	}
+
+	/**
+	 * The callback resolves the post itself when handed nothing but an ID.
+	 *
+	 * WordPress passes the post along with the ID, but the second argument is optional,
+	 * so a caller that omits it must not silently leave the records behind.
+	 */
+	public function test_deletes_records_when_only_the_post_id_is_passed(): void {
+		$this->set_up_governing_site();
+
+		$paths    = [];
+		$requests = [];
+		$this->mock_algolia_http_client( $paths, null, null, $requests );
+
+		$watcher = new Watcher();
+		$watcher->register_hooks();
+
+		$post_id   = self::factory()->post->create( [ 'post_status' => 'publish' ] );
+		$stored_id = $this->get_indexed_site_post_id( $requests );
+
+		$requests = [];
+
+		$watcher->on_before_delete_post( $post_id );
+
+		$this->assertSame(
+			[ sprintf( 'site_post_id:"%s"', $stored_id ) ],
+			$this->get_delete_filters( $requests ),
+			'The post has to be looked up from the ID when it is not supplied.'
+		);
+	}
+
+	/**
 	 * Reads the `site_post_id` the records were actually written with.
 	 *
 	 * @param array<int, array{path: string, body: string}> $requests The intercepted requests.
