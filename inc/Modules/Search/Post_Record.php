@@ -135,8 +135,32 @@ final class Post_Record {
 	public function __construct() {
 		// Initialization code here.
 		$this->site_url  = Utils::normalize_url( get_site_url() );
-		$this->site_key  = sanitize_key( $this->site_url );
+		$this->site_key  = self::get_site_key();
 		$this->site_name = get_bloginfo( 'name' );
+	}
+
+	/**
+	 * Gets the key used to namespace this site's records.
+	 *
+	 * Sanitized because it is embedded in the `objectID`, which Algolia addresses
+	 * as a URL path segment.
+	 */
+	public static function get_site_key(): string {
+		return sanitize_key( Utils::normalize_url( get_site_url() ) );
+	}
+
+	/**
+	 * Gets the `site_post_id` value used to identify a post's records.
+	 *
+	 * This is the single source of truth for the attribute records are written with,
+	 * filtered by and deleted by. Callers must never rebuild the value themselves.
+	 *
+	 * @see Watcher::on_post_transition() for the delete-by-filter counterpart.
+	 *
+	 * @param int $post_id The post ID.
+	 */
+	public static function get_site_post_id( int $post_id ): string {
+		return sprintf( '%s_%d', self::get_site_key(), $post_id );
 	}
 
 	/**
@@ -349,7 +373,7 @@ final class Post_Record {
 	private function get_base_record( \WP_Post $post ): array {
 		$base_record = [
 			// The unique site post ID used for distinct filtering.
-			'site_post_id'      => sprintf( '%s_%d', $this->site_key, $post->ID ),
+			'site_post_id'      => self::get_site_post_id( $post->ID ),
 			'is_sticky'         => (int) is_sticky( $post->ID ),
 			'permalink'         => get_permalink( $post ),
 			'post_date_gmt'     => (int) get_post_time( 'U', true, $post ),

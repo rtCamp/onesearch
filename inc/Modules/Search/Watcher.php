@@ -24,6 +24,7 @@ final class Watcher implements Registrable {
 	 */
 	public function register_hooks(): void {
 		add_action( 'transition_post_status', [ $this, 'on_post_transition' ], 10, 3 );
+		add_action( 'deleted_post', [ $this, 'on_deleted_post' ], 10, 2 );
 	}
 
 	/**
@@ -40,17 +41,10 @@ final class Watcher implements Registrable {
 			return;
 		}
 
-		// First delete the old post.
-		// @see Post_Record::prepare_record_object_name .
-		$site_post_id   = sprintf( '%s_%d', Utils::normalize_url( get_site_url() ), (int) $post->ID );
-		$indexer        = new Index();
-		$delete_success = $indexer->delete_by(
-			[
-				'filters' => sprintf( 'site_post_id:"%s"', $site_post_id ),
-			]
-		);
+		$indexer = new Index();
 
-		if ( is_wp_error( $delete_success ) ) {
+		// First delete the old records, so a post that is no longer indexable leaves nothing behind.
+		if ( is_wp_error( $this->delete_post_records( $indexer, (int) $post->ID ) ) ) {
 			return;
 		}
 
@@ -62,6 +56,56 @@ final class Watcher implements Registrable {
 		$records = ( new Post_Record() )->to_records( $post );
 
 		$indexer->save_records( $records );
+	}
+
+	/**
+	 * Removes a post's records once it has been permanently deleted.
+	 *
+	 * Deleting a post fires no status transition, so without this its records would
+	 * outlive the post itself.
+	 *
+	 * Runs on `deleted_post` rather than `before_delete_post`: deletion can still fail
+	 * after the earlier hook, and attachments never fire it at all.
+	 *
+	 * @internal Hook callback
+	 *
+	 * @param int       $post_id The ID of the deleted post.
+	 * @param ?\WP_Post $post    The post that was deleted.
+	 */
+	public function on_deleted_post( $post_id, $post = null ): void {
+		// The post is gone, so its type can only come from the passed object.
+		if ( ! $post instanceof \WP_Post || ! $this->is_post_type_indexable( (string) $post->post_type ) ) {
+			return;
+		}
+
+		$this->delete_post_records( new Index(), (int) $post_id );
+	}
+
+	/**
+	 * Deletes every record belonging to a post.
+	 *
+	 * The filter has to use the very same `site_post_id` the records were written with,
+	 * otherwise Algolia matches nothing and reports success.
+	 *
+	 * @see Post_Record::get_site_post_id()
+	 *
+	 * @param \OneSearch\Modules\Search\Index $indexer The index to delete the records from.
+	 * @param int                             $post_id The post ID.
+	 */
+	private function delete_post_records( Index $indexer, int $post_id ): bool|\WP_Error {
+		$deleted = $indexer->delete_by(
+			[
+				'filters' => sprintf( 'site_post_id:"%s"', Post_Record::get_site_post_id( $post_id ) ),
+			]
+		);
+
+		// A site without credentials is not a failure worth reporting.
+		if ( is_wp_error( $deleted ) && ! in_array( $deleted->get_error_code(), [ 'algolia_credentials_missing', 'algolia_index_name_invalid' ], true ) ) {
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- @todo Surface this better with a Logger class.
+			error_log( sprintf( 'OneSearch: failed to remove records for post %d: %s', $post_id, $deleted->get_error_message() ) );
+		}
+
+		return $deleted;
 	}
 
 	/**

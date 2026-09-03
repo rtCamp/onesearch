@@ -272,4 +272,193 @@ final class WatcherTest extends TestCase {
 		$batch_calls = array_filter( $recorded_paths, static fn ( $p ) => str_contains( $p, '/batch' ) );
 		$this->assertNotEmpty( $batch_calls, 'Consumer site happy path should trigger Algolia reindex (saveObjects).' );
 	}
+
+	/**
+	 * A post leaving the index must be deleted by the `site_post_id` its records carry.
+	 *
+	 * Regression test: the filter used to be built from the raw site URL while records store
+	 * the sanitized site key, so Algolia matched nothing, reported success, and unpublished
+	 * or trashed posts kept showing up until a full re-sync. The expected value is read back
+	 * off the outgoing payload, so the write and delete paths are checked against each other
+	 * instead of against a value the test rebuilds for itself.
+	 *
+	 * @see https://github.com/rtCamp/OnePress/issues/84
+	 */
+	public function test_deletes_by_the_site_post_id_written_to_records(): void {
+		$this->set_up_governing_site();
+
+		$paths    = [];
+		$requests = [];
+		$this->mock_algolia_http_client( $paths, null, null, $requests );
+
+		( new Watcher() )->register_hooks();
+
+		$post_id   = self::factory()->post->create( [ 'post_status' => 'publish' ] );
+		$stored_id = $this->get_indexed_site_post_id( $requests );
+
+		// Drop the publish traffic, so only the delete request is left to assert on.
+		$requests = [];
+
+		wp_update_post(
+			[
+				'ID'          => $post_id,
+				'post_status' => 'draft',
+			]
+		);
+
+		$this->assertSame(
+			[ sprintf( 'site_post_id:"%s"', $stored_id ) ],
+			$this->get_delete_filters( $requests ),
+			'The delete filter must name the site_post_id stored on the records.'
+		);
+	}
+
+	/**
+	 * A post deleted without passing through the trash must take its records with it.
+	 *
+	 * Deleted straight from `publish` on purpose: trashing first would clear the records
+	 * through `on_post_transition`, so the assertion would pass even with the deletion
+	 * hook unregistered.
+	 *
+	 * @see https://github.com/rtCamp/OnePress/issues/84
+	 */
+	public function test_deletes_records_when_a_post_is_permanently_deleted(): void {
+		$this->set_up_governing_site();
+
+		$paths    = [];
+		$requests = [];
+		$this->mock_algolia_http_client( $paths, null, null, $requests );
+
+		( new Watcher() )->register_hooks();
+
+		$post_id   = self::factory()->post->create( [ 'post_status' => 'publish' ] );
+		$stored_id = $this->get_indexed_site_post_id( $requests );
+
+		// Drop the publish traffic, so only the delete request is left to assert on.
+		$requests = [];
+
+		wp_delete_post( $post_id, true );
+
+		$this->assertSame(
+			[ sprintf( 'site_post_id:"%s"', $stored_id ) ],
+			$this->get_delete_filters( $requests ),
+			'Permanently deleting a post must delete its records by the stored site_post_id.'
+		);
+	}
+
+	/**
+	 * The records must outlive the post until the deletion has actually succeeded.
+	 *
+	 * Deleting from `before_delete_post` would strip the index for a post that then
+	 * survives a failed deletion.
+	 */
+	public function test_does_not_delete_records_before_the_post_is_gone(): void {
+		$this->set_up_governing_site();
+
+		$paths    = [];
+		$requests = [];
+		$this->mock_algolia_http_client( $paths, null, null, $requests );
+
+		( new Watcher() )->register_hooks();
+
+		$post_id = self::factory()->post->create( [ 'post_status' => 'publish' ] );
+
+		// Drop the publish traffic, so only the delete request is left to assert on.
+		$requests = [];
+
+		$filters_while_the_post_still_exists = null;
+		add_action(
+			'before_delete_post',
+			function () use ( &$requests, &$filters_while_the_post_still_exists ): void {
+				$filters_while_the_post_still_exists = $this->get_delete_filters( $requests );
+			},
+			PHP_INT_MAX
+		);
+
+		wp_delete_post( $post_id, true );
+
+		$this->assertSame(
+			[],
+			$filters_while_the_post_still_exists,
+			'No records may be deleted while the post is still in the database.'
+		);
+		$this->assertNotEmpty(
+			$this->get_delete_filters( $requests ),
+			'The records still have to go once the post has been deleted.'
+		);
+	}
+
+	/**
+	 * Reads the `site_post_id` the records were actually written with.
+	 *
+	 * @param array<int, array{path: string, body: string}> $requests The intercepted requests.
+	 */
+	private function get_indexed_site_post_id( array $requests ): string {
+		$ids = [];
+
+		foreach ( $requests as $request ) {
+			if ( ! str_contains( $request['path'], '/batch' ) ) {
+				continue;
+			}
+
+			$body = json_decode( $request['body'], true );
+			foreach ( $body['requests'] ?? [] as $operation ) {
+				if ( isset( $operation['body']['site_post_id'] ) ) {
+					$ids[] = (string) $operation['body']['site_post_id'];
+				}
+			}
+		}
+
+		$ids = array_values( array_unique( $ids ) );
+		$this->assertCount( 1, $ids, 'Publishing should write records under exactly one site_post_id.' );
+
+		return $ids[0];
+	}
+
+	/**
+	 * Collects the `filters` argument of every deleteByQuery request that was sent.
+	 *
+	 * @param array<int, array{path: string, body: string}> $requests The intercepted requests.
+	 *
+	 * @return list<string>
+	 */
+	private function get_delete_filters( array $requests ): array {
+		$filters = [];
+
+		foreach ( $requests as $request ) {
+			if ( ! str_contains( $request['path'], '/deleteByQuery' ) ) {
+				continue;
+			}
+
+			$body = json_decode( $request['body'], true );
+			if ( is_array( $body ) && isset( $body['filters'] ) ) {
+				$filters[] = (string) $body['filters'];
+			}
+		}
+
+		return $filters;
+	}
+
+	/**
+	 * Configures the current site as a governing site with credentials and indexable entities.
+	 *
+	 * @param string[] $entities The indexable post types.
+	 */
+	private function set_up_governing_site( array $entities = [ 'post' ] ): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		Search_Settings::set_algolia_credentials(
+			[
+				'app_id'    => 'test-app',
+				'write_key' => 'test-key',
+			]
+		);
+		update_option(
+			Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES,
+			[
+				'entities' => [
+					Utils::normalize_url( get_site_url() ) => $entities,
+				],
+			]
+		);
+	}
 }

@@ -50,6 +50,35 @@ final class PostRecordTest extends TestCase {
 	}
 
 	/**
+	 * The site key namespacing records must be URL-safe (no scheme or slashes).
+	 */
+	public function test_get_site_key_is_sanitized(): void {
+		$site_key = Post_Record::get_site_key();
+
+		$this->assertSame( sanitize_key( $site_key ), $site_key, 'The site key must already be sanitized.' );
+		$this->assertStringNotContainsString( '/', $site_key );
+		$this->assertStringNotContainsString( ':', $site_key );
+	}
+
+	/**
+	 * The `site_post_id` written to records must come from get_site_post_id().
+	 *
+	 * Watcher deletes a post's records by filtering on this value, so the two must never drift.
+	 *
+	 * @see https://github.com/rtCamp/OnePress/issues/84
+	 */
+	public function test_records_are_written_with_get_site_post_id(): void {
+		$post    = self::factory()->post->create_and_get( [ 'post_content' => 'Some indexable content.' ] );
+		$records = ( new Post_Record() )->to_records( $post );
+
+		$this->assertNotEmpty( $records );
+
+		foreach ( $records as $record ) {
+			$this->assertSame( Post_Record::get_site_post_id( $post->ID ), $record['site_post_id'] );
+		}
+	}
+
+	/**
 	 * Ensures get_allowed_statuses returns publish by default.
 	 */
 	public function test_get_allowed_statuses_returns_publish_by_default(): void {
