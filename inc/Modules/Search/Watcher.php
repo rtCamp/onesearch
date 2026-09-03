@@ -24,7 +24,7 @@ final class Watcher implements Registrable {
 	 */
 	public function register_hooks(): void {
 		add_action( 'transition_post_status', [ $this, 'on_post_transition' ], 10, 3 );
-		add_action( 'before_delete_post', [ $this, 'on_before_delete_post' ], 10, 2 );
+		add_action( 'deleted_post', [ $this, 'on_deleted_post' ], 10, 2 );
 	}
 
 	/**
@@ -59,24 +59,26 @@ final class Watcher implements Registrable {
 	}
 
 	/**
-	 * Removes a post's records when it is permanently deleted.
+	 * Removes a post's records once it has been permanently deleted.
 	 *
-	 * Permanent deletion does not fire `transition_post_status`, so without this the
-	 * records of a post deleted from the trash would outlive the post itself.
+	 * Deleting a post fires no status transition, so without this its records would
+	 * outlive the post itself.
+	 *
+	 * Runs on `deleted_post` rather than `before_delete_post`: deletion can still fail
+	 * after the earlier hook, and attachments never fire it at all.
 	 *
 	 * @internal Hook callback
 	 *
-	 * @param int       $post_id The ID of the post about to be deleted.
-	 * @param ?\WP_Post $post    The post about to be deleted.
+	 * @param int       $post_id The ID of the deleted post.
+	 * @param ?\WP_Post $post    The post that was deleted.
 	 */
-	public function on_before_delete_post( $post_id, $post = null ): void {
-		$post = $post instanceof \WP_Post ? $post : get_post( (int) $post_id );
-
+	public function on_deleted_post( $post_id, $post = null ): void {
+		// The post is gone, so its type can only come from the passed object.
 		if ( ! $post instanceof \WP_Post || ! $this->is_post_type_indexable( (string) $post->post_type ) ) {
 			return;
 		}
 
-		$this->delete_post_records( new Index(), (int) $post->ID );
+		$this->delete_post_records( new Index(), (int) $post_id );
 	}
 
 	/**
