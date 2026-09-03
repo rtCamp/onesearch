@@ -371,8 +371,7 @@ final class WatcherTest extends TestCase {
 	 */
 	private function set_up_governing_site( array $entities = [ 'post' ] ): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-		update_option(
-			Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS,
+		Search_Settings::set_algolia_credentials(
 			[
 				'app_id'    => 'test-app',
 				'write_key' => 'test-key',
