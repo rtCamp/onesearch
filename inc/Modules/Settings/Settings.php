@@ -11,6 +11,8 @@ namespace OneSearch\Modules\Settings;
 
 use OneSearch\Contracts\Interfaces\Registrable;
 use OneSearch\Encryptor;
+use OneSearch\Modules\Rest\Governing_Data_Handler;
+use OneSearch\Utils;
 
 /**
  * Class - Settings
@@ -54,6 +56,7 @@ final class Settings implements Registrable {
 
 		// Listen to updates.
 		add_action( 'update_option_' . self::OPTION_SITE_TYPE, [ $this, 'on_site_type_change' ], 10, 2 );
+		add_action( 'update_option_' . self::OPTION_GOVERNING_SHARED_SITES, [ $this, 'notify_removed_brand_sites' ], 10, 2 );
 	}
 
 	/**
@@ -177,6 +180,56 @@ final class Settings implements Registrable {
 
 		// By getting the API key, it will be generated if it doesn't exist.
 		self::get_api_key();
+	}
+
+	/**
+	 * Tells brand sites that were dropped from this governing site to clear their pairing.
+	 *
+	 * Without this, a removed site keeps naming this one as its governing site and
+	 * keeps serving its cached config.
+	 *
+	 * @internal Hook callback
+	 *
+	 * @param mixed $old_value The old value.
+	 * @param mixed $new_value The new value.
+	 */
+	public function notify_removed_brand_sites( $old_value, $new_value ): void {
+		if ( ! is_array( $old_value ) || empty( $old_value ) ) {
+			return;
+		}
+
+		$remaining_urls = [];
+		foreach ( is_array( $new_value ) ? $new_value : [] as $site ) {
+			if ( ! empty( $site['url'] ) ) {
+				$remaining_urls[ Utils::normalize_url( $site['url'] ) ] = true;
+			}
+		}
+
+		// The API keys of removed sites only exist in the old value.
+		$removed_sites = [];
+		foreach ( $old_value as $site ) {
+			if ( empty( $site['url'] ) || empty( $site['api_key'] ) ) {
+				continue;
+			}
+
+			$site_url = Utils::normalize_url( $site['url'] );
+			if ( isset( $remaining_urls[ $site_url ] ) ) {
+				continue;
+			}
+
+			$api_key = Encryptor::decrypt( $site['api_key'] );
+			if ( empty( $api_key ) ) {
+				continue;
+			}
+
+			$removed_sites[ $site_url ] = $api_key;
+		}
+
+		if ( empty( $removed_sites ) ) {
+			return;
+		}
+
+		Governing_Data_Handler::notify_brand_sites_of_disconnection( $removed_sites );
 	}
 
 	/**

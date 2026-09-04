@@ -129,6 +129,26 @@ abstract class Abstract_REST_Controller extends WP_REST_Controller implements Re
 	}
 
 	/**
+	 * Resolves the normalized URL of the site making the request.
+	 *
+	 * Falls back to the site-URL header, which same-host requests need because the
+	 * browser omits Origin for those.
+	 *
+	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
+	 *
+	 * @return string The normalized site URL, or an empty string when it is unknown.
+	 */
+	protected function get_request_site_url( $request ): string {
+		$site_url = $this->parse_origin( $request->get_header( 'origin' ) )['url'];
+
+		if ( empty( $site_url ) ) {
+			$site_url = $this->parse_origin( $request->get_header( 'X-OneSearch-Site-URL' ) )['url'];
+		}
+
+		return $site_url;
+	}
+
+	/**
 	 * Parses a raw Origin or X-OneSearch-Site-URL header value into its components.
 	 *
 	 * @param ?string $raw Raw header value.

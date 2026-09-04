@@ -47,6 +47,13 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 		wp_set_current_user( $admin_id );
 
 		( new Governing_Data_Controller() )->register_hooks();
+
+		/*
+		 * Registering the shared-sites listener keeps these tests on the production
+		 * disconnect path, since that is what notifies a dropped brand site.
+		 */
+		( new Settings() )->register_hooks();
+
 		do_action( 'rest_api_init' );
 	}
 
@@ -278,5 +285,190 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 		$site_url = trailingslashit( get_site_url() );
 		$this->assertArrayHasKey( $site_url, $data['sites'] );
 		$this->assertNotEmpty( $data['errors'] );
+	}
+
+	/**
+	 * The governing site exposes the connection endpoint brand sites deregister through.
+	 */
+	public function test_registers_connection_delete_route(): void {
+		$routes = $this->server->get_routes();
+		$ns     = '/' . Governing_Data_Controller::NAMESPACE;
+
+		$this->assertArrayHasKey( $ns . '/connection', $routes );
+		$this->assertArrayHasKey( 'DELETE', $routes[ $ns . '/connection' ][0]['methods'] );
+	}
+
+	/**
+	 * A brand site deregistering itself is dropped from the shared sites list.
+	 */
+	public function test_remove_brand_site_drops_the_requesting_site(): void {
+		$api_key = 'brand-key';
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Brand Site',
+					'url'     => 'https://brand.example.com',
+					'api_key' => $api_key,
+				],
+				[
+					'name'    => 'Other Site',
+					'url'     => 'https://other.example.com',
+					'api_key' => 'other-key',
+				],
+			]
+		);
+
+		$requested_urls = [];
+		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requested_urls[] = $url;
+			return new \WP_Error( 'blocked', 'Intercepted' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/connection' );
+		$request->set_header( 'origin', 'https://brand.example.com' );
+		$request->set_header( 'X-OneSearch-Token', $api_key );
+
+		$response = $this->server->dispatch( $request );
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertTrue( $response->get_data()['success'] );
+		$this->assertSame( [ 'https://other.example.com/' ], array_keys( Settings::get_shared_sites() ) );
+		$this->assertEmpty( $requested_urls, 'A site that disconnected itself should not be notified back.' );
+
+		/*
+		 * Removal rewrites the list from keys it just decrypted, so it has to re-encrypt what
+		 * it keeps. Only the stored value shows whether it did: a plaintext key decrypts to
+		 * itself, so one left in the clear still looks correct on the way back out.
+		 */
+		$stored = get_option( Settings::OPTION_GOVERNING_SHARED_SITES );
+
+		$this->assertNotSame(
+			'other-key',
+			$stored[0]['api_key'],
+			'The surviving brand site key must stay encrypted at rest.'
+		);
+		$this->assertSame(
+			'other-key',
+			Settings::get_shared_sites()['https://other.example.com/']['api_key'],
+			'...and must still decrypt back to the original key.'
+		);
+	}
+
+	/**
+	 * Removal is scoped to the caller: it cannot deregister a different brand site.
+	 */
+	public function test_remove_brand_site_only_removes_the_caller(): void {
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Brand Site',
+					'url'     => 'https://brand.example.com',
+					'api_key' => 'brand-key',
+				],
+				[
+					'name'    => 'Other Site',
+					'url'     => 'https://other.example.com',
+					'api_key' => 'other-key',
+				],
+			]
+		);
+
+		// Valid key, but presented from a site it does not belong to.
+		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/connection' );
+		$request->set_header( 'origin', 'https://other.example.com' );
+		$request->set_header( 'X-OneSearch-Token', 'brand-key' );
+
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 403, $response->get_status() );
+		$this->assertCount( 2, Settings::get_shared_sites() );
+	}
+
+	/**
+	 * An unregistered site cannot deregister anything.
+	 */
+	public function test_remove_brand_site_rejects_unknown_site(): void {
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Brand Site',
+					'url'     => 'https://brand.example.com',
+					'api_key' => 'brand-key',
+				],
+			]
+		);
+
+		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/connection' );
+		$request->set_header( 'origin', 'https://stranger.example.com' );
+		$request->set_header( 'X-OneSearch-Token', 'brand-key' );
+
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 403, $response->get_status() );
+		$this->assertCount( 1, Settings::get_shared_sites() );
+	}
+
+	/**
+	 * Removing a site that is already gone reports success rather than an error.
+	 */
+	public function test_remove_brand_site_is_idempotent(): void {
+		Settings::set_shared_sites( [] );
+
+		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/connection' );
+		$request->set_header( 'origin', 'https://brand.example.com' );
+
+		$response = ( new Governing_Data_Controller() )->remove_brand_site( $request );
+
+		$this->assertInstanceOf( \WP_REST_Response::class, $response );
+		$this->assertTrue( $response->get_data()['success'] );
+	}
+
+	/**
+	 * A request that carries no identifiable origin is rejected.
+	 */
+	public function test_remove_brand_site_rejects_unidentifiable_origin(): void {
+		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/connection' );
+
+		$response = ( new Governing_Data_Controller() )->remove_brand_site( $request );
+
+		$this->assertInstanceOf( \WP_Error::class, $response );
+		$this->assertSame( 'onesearch_unknown_site', $response->get_error_code() );
+	}
+
+	/**
+	 * Deregistration writes the shared sites option, which is what puts the removed site
+	 * in front of the listeners that purge its records and indexable entities.
+	 */
+	public function test_remove_brand_site_triggers_shared_sites_cleanup(): void {
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Brand Site',
+					'url'     => 'https://brand.example.com',
+					'api_key' => 'brand-key',
+				],
+			]
+		);
+
+		$removed_urls = [];
+		$listener     = static function ( $old_value ) use ( &$removed_urls ): void {
+			foreach ( $old_value as $site ) {
+				$removed_urls[] = $site['url'];
+			}
+		};
+		add_action( 'update_option_' . Settings::OPTION_GOVERNING_SHARED_SITES, $listener, 10, 1 );
+
+		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/connection' );
+		$request->set_header( 'origin', 'https://brand.example.com' );
+		$request->set_header( 'X-OneSearch-Token', 'brand-key' );
+
+		$this->server->dispatch( $request );
+
+		remove_action( 'update_option_' . Settings::OPTION_GOVERNING_SHARED_SITES, $listener, 10 );
+
+		$this->assertSame( [ 'https://brand.example.com' ], $removed_urls );
 	}
 }

@@ -331,16 +331,28 @@ class Basic_Options_ControllerTest extends TestCase {
 	}
 
 	/**
-	 * Succeeds even when no governing site was previously set.
+	 * Succeeds - with nothing to propagate - when no governing site was previously set.
 	 */
 	public function test_remove_governing_site_succeeds_when_already_unset(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
 		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
+
+		$requested_urls = [];
+		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requested_urls[] = $url;
+			return new \WP_Error( 'blocked', 'Intercepted' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
 
 		$request  = new WP_REST_Request( 'DELETE', '/onesearch/v1/governing-site' );
 		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
+		remove_filter( 'pre_http_request', $filter );
+
 		$this->assertTrue( $data['success'] );
+		$this->assertTrue( $data['remote_disconnected'] );
+		$this->assertEmpty( $requested_urls );
 	}
 
 	/**
@@ -371,5 +383,85 @@ class Basic_Options_ControllerTest extends TestCase {
 		$this->assertTrue( $data['success'] );
 		$this->assertNotEmpty( $data['secret_key'] );
 		$this->assertNotSame( $old_key, $data['secret_key'] );
+	}
+
+	/**
+	 * Disconnecting also deregisters this brand site from the governing site, so the
+	 * pairing does not survive on the governing end.
+	 */
+	public function test_remove_governing_site_deregisters_from_governing_site(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+		$api_key = Settings::get_api_key();
+
+		$requests = [];
+		$filter   = static function ( $preempt, $args, $url ) use ( &$requests ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requests[] = [
+				'url'  => $url,
+				'args' => $args,
+			];
+
+			return [
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
+				],
+				'body'     => '{"success":true}',
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$request  = new WP_REST_Request( 'DELETE', '/onesearch/v1/governing-site' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertTrue( $data['success'] );
+		$this->assertTrue( $data['remote_disconnected'] );
+		$this->assertNull( Settings::get_parent_site_url() );
+
+		$deregistrations = array_values(
+			array_filter(
+				$requests,
+				static fn ( array $request ): bool => str_contains( $request['url'], '/onesearch/v1/connection' )
+			)
+		);
+
+		$this->assertCount( 1, $deregistrations );
+		$this->assertSame( 'https://governing.example.com/wp-json/onesearch/v1/connection', $deregistrations[0]['url'] );
+		$this->assertSame( 'DELETE', $deregistrations[0]['args']['method'] );
+		$this->assertSame( $api_key, $deregistrations[0]['args']['headers']['X-OneSearch-Token'] );
+	}
+
+	/**
+	 * An unreachable governing site still disconnects locally, but says so, since the
+	 * governing site may still be listing this brand site.
+	 */
+	public function test_remove_governing_site_reports_unreachable_governing_site(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+
+		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( false === strpos( $url, 'governing.example.com' ) ) {
+				return $preempt;
+			}
+
+			return new \WP_Error( 'http_request_failed', 'cURL error 6: Could not resolve host' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$request  = new WP_REST_Request( 'DELETE', '/onesearch/v1/governing-site' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertTrue( $data['success'] );
+		$this->assertFalse( $data['remote_disconnected'] );
+		$this->assertNotEmpty( $data['remote_error'] );
+		$this->assertNull( Settings::get_parent_site_url() );
 	}
 }

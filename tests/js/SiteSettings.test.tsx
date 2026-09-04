@@ -20,6 +20,7 @@ const siteSettingsFetch = ( handlers: {
 	failGoverningSite?: boolean;
 	failRegenerate?: boolean;
 	failDisconnect?: boolean;
+	disconnectResponse?: Record< string, unknown >;
 } ) =>
 	jest.fn( async ( input: RequestInfo | URL, init?: RequestInit ) => {
 		const url = String( input );
@@ -58,7 +59,9 @@ const siteSettingsFetch = ( handlers: {
 
 			return {
 				ok: handlers.deleteOk ?? true,
-				json: jest.fn().mockResolvedValue( {} ),
+				json: jest
+					.fn()
+					.mockResolvedValue( handlers.disconnectResponse ?? {} ),
 			} as unknown as Response;
 		}
 
@@ -194,6 +197,62 @@ describe( 'SiteSettings', () => {
 		expect(
 			await screen.findByText(
 				'Failed to copy api key. Please try again. Error: clipboard failed',
+				{ selector: '.components-notice__content' }
+			)
+		).toBeInTheDocument();
+	} );
+
+	it( 'warns when the governing site could not be notified of the disconnect', async () => {
+		global.fetch = siteSettingsFetch( {
+			secretKey: 'brand-secret',
+			governingSiteUrl: 'https://governing.example.com/',
+			disconnectResponse: {
+				success: true,
+				remote_disconnected: false,
+				message:
+					'Governing site disconnected on this site, but the governing site could not be notified and may still list this brand site.',
+			},
+		} );
+
+		render( <SiteSettings /> );
+
+		await screen.findByDisplayValue( 'https://governing.example.com/' );
+		fireEvent.click(
+			screen.getByRole( 'button', { name: 'Disconnect Governing Site' } )
+		);
+		fireEvent.click( screen.getByRole( 'button', { name: 'Disconnect' } ) );
+
+		expect(
+			await screen.findByText(
+				'Governing site disconnected on this site, but the governing site could not be notified and may still list this brand site.',
+				{ selector: '.components-notice__content' }
+			)
+		).toBeInTheDocument();
+		expect( screen.getByDisplayValue( '' ) ).toBeInTheDocument();
+	} );
+
+	it( 'reports success when the governing site confirms the disconnect', async () => {
+		global.fetch = siteSettingsFetch( {
+			secretKey: 'brand-secret',
+			governingSiteUrl: 'https://governing.example.com/',
+			disconnectResponse: {
+				success: true,
+				remote_disconnected: true,
+				message: 'Governing site removed successfully.',
+			},
+		} );
+
+		render( <SiteSettings /> );
+
+		await screen.findByDisplayValue( 'https://governing.example.com/' );
+		fireEvent.click(
+			screen.getByRole( 'button', { name: 'Disconnect Governing Site' } )
+		);
+		fireEvent.click( screen.getByRole( 'button', { name: 'Disconnect' } ) );
+
+		expect(
+			await screen.findByText(
+				'Governing site disconnected successfully.',
 				{ selector: '.components-notice__content' }
 			)
 		).toBeInTheDocument();
