@@ -275,4 +275,141 @@ final class SettingsTest extends TestCase {
 
 		$this->assertContains( $setting_name, $new_allowed_options[ Settings::SETTING_GROUP ] ?? [] );
 	}
+
+	/**
+	 * A brand site removed from the governing site is told to drop its own pairing.
+	 */
+	public function test_notify_removed_brand_sites_notifies_dropped_sites(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+
+		$requests = [];
+		$filter   = static function ( $preempt, $args, $url ) use ( &$requests ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requests[ $url ] = $args;
+			return new \WP_Error( 'blocked', 'Intercepted' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$this->settings->notify_removed_brand_sites(
+			[
+				[
+					'url'     => 'https://removed.example.com',
+					'api_key' => Encryptor::encrypt( 'removed-key' ),
+				],
+				[
+					'url'     => 'https://kept.example.com',
+					'api_key' => Encryptor::encrypt( 'kept-key' ),
+				],
+			],
+			[
+				[
+					'url'     => 'https://kept.example.com',
+					'api_key' => Encryptor::encrypt( 'kept-key' ),
+				],
+			]
+		);
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertSame( [ 'https://removed.example.com/wp-json/onesearch/v1/connection' ], array_keys( $requests ) );
+		$this->assertSame( 'removed-key', $requests['https://removed.example.com/wp-json/onesearch/v1/connection']['headers']['X-OneSearch-Token'] );
+	}
+
+	/**
+	 * Nothing is sent when the update did not drop any site.
+	 */
+	public function test_notify_removed_brand_sites_ignores_unrelated_updates(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+
+		$requested_urls = [];
+		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requested_urls[] = $url;
+			return new \WP_Error( 'blocked', 'Intercepted' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		// Renaming a site keeps it connected.
+		$this->settings->notify_removed_brand_sites(
+			[
+				[
+					'name'    => 'Old Name',
+					'url'     => 'https://kept.example.com',
+					'api_key' => Encryptor::encrypt( 'kept-key' ),
+				],
+			],
+			[
+				[
+					'name'    => 'New Name',
+					'url'     => 'https://kept.example.com/',
+					'api_key' => Encryptor::encrypt( 'kept-key' ),
+				],
+			]
+		);
+
+		// There was nothing connected to begin with.
+		$this->settings->notify_removed_brand_sites( [], [] );
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertEmpty( $requested_urls );
+	}
+
+	/**
+	 * Deleting the last brand site still notifies it.
+	 */
+	public function test_notify_removed_brand_sites_handles_emptied_list(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+
+		$requested_urls = [];
+		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requested_urls[] = $url;
+			return new \WP_Error( 'blocked', 'Intercepted' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$this->settings->notify_removed_brand_sites(
+			[
+				[
+					'url'     => 'https://removed.example.com',
+					'api_key' => Encryptor::encrypt( 'removed-key' ),
+				],
+			],
+			[]
+		);
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertSame( [ 'https://removed.example.com/wp-json/onesearch/v1/connection' ], $requested_urls );
+	}
+
+	/**
+	 * Removing a brand site through the option notifies it, end to end.
+	 */
+	public function test_removing_a_shared_site_notifies_it(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		$this->settings->register_hooks();
+
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Brand Site',
+					'url'     => 'https://brand.example.com',
+					'api_key' => 'brand-key',
+				],
+			]
+		);
+
+		$requested_urls = [];
+		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requested_urls[] = $url;
+			return new \WP_Error( 'blocked', 'Intercepted' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		Settings::set_shared_sites( [] );
+
+		remove_filter( 'pre_http_request', $filter );
+		remove_action( 'update_option_' . Settings::OPTION_GOVERNING_SHARED_SITES, [ $this->settings, 'notify_removed_brand_sites' ], 10 );
+
+		$this->assertContains( 'https://brand.example.com/wp-json/onesearch/v1/connection', $requested_urls );
+	}
 }

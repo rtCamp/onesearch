@@ -152,14 +152,29 @@ const SiteSettings = () => {
 			if ( ! response.ok ) {
 				throw new Error( 'Network response was not ok' );
 			}
+			const data = await response.json();
 			setGoverningSite( '' );
-			setNotice( {
-				type: 'success',
-				message: __(
-					'Governing site disconnected successfully.',
-					'onesearch'
-				),
-			} );
+
+			// The local disconnection succeeded even when the governing site couldn't be reached.
+			setNotice(
+				data?.remote_disconnected === false
+					? {
+							type: 'warning',
+							message:
+								data?.message ||
+								__(
+									'Governing site disconnected on this site, but the governing site could not be notified and may still list this brand site.',
+									'onesearch'
+								),
+					  }
+					: {
+							type: 'success',
+							message: __(
+								'Governing site disconnected successfully.',
+								'onesearch'
+							),
+					  }
+			);
 		} catch {
 			setNotice( {
 				type: 'error',

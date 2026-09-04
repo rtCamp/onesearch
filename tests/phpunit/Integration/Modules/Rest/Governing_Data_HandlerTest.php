@@ -539,4 +539,225 @@ class Governing_Data_HandlerTest extends TestCase {
 		$this->assertNotEmpty( $result['errors'] );
 		$this->assertStringContainsString( 'invalid response', $result['errors'][0]['message'] );
 	}
+
+	/**
+	 * Deregistration is refused on anything other than a brand site.
+	 */
+	public function test_deregister_from_governing_site_requires_consumer_site(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+
+		$result = Governing_Data_Handler::deregister_from_governing_site();
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'onesearch_unauthorized_site', $result->get_error_code() );
+	}
+
+	/**
+	 * Deregistration is a no-op error when no governing site is paired.
+	 */
+	public function test_deregister_from_governing_site_returns_error_when_no_parent(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
+
+		$result = Governing_Data_Handler::deregister_from_governing_site();
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'onesearch_no_parent', $result->get_error_code() );
+	}
+
+	/**
+	 * Sends an authenticated DELETE to the governing site's connection endpoint.
+	 */
+	public function test_deregister_from_governing_site_sends_authenticated_delete(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+		$api_key = Settings::get_api_key();
+
+		$requests = [];
+		$filter   = static function ( $preempt, $args, $url ) use ( &$requests ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requests[] = [
+				'url'  => $url,
+				'args' => $args,
+			];
+
+			return [
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
+				],
+				'body'     => '{"success":true}',
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$result = Governing_Data_Handler::deregister_from_governing_site();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertTrue( $result );
+		$this->assertCount( 1, $requests );
+		$this->assertSame( 'https://governing.example.com/wp-json/onesearch/v1/connection', $requests[0]['url'] );
+		$this->assertSame( 'DELETE', $requests[0]['args']['method'] );
+		$this->assertSame( $api_key, $requests[0]['args']['headers']['X-OneSearch-Token'] );
+	}
+
+	/**
+	 * A non-200 from the governing site is reported as an error.
+	 */
+	public function test_deregister_from_governing_site_reports_rejected_request(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+
+		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( false === strpos( $url, 'governing.example.com' ) ) {
+				return $preempt;
+			}
+
+			return [
+				'response' => [
+					'code'    => 401,
+					'message' => 'Unauthorized',
+				],
+				'body'     => '{"code":"rest_forbidden"}',
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$result = Governing_Data_Handler::deregister_from_governing_site();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'onesearch_rest_failed_to_connect', $result->get_error_code() );
+	}
+
+	/**
+	 * A transport failure is surfaced rather than swallowed.
+	 */
+	public function test_deregister_from_governing_site_reports_unreachable_site(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+
+		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( false === strpos( $url, 'governing.example.com' ) ) {
+				return $preempt;
+			}
+
+			return new \WP_Error( 'http_request_failed', 'cURL error 6: Could not resolve host' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$result = Governing_Data_Handler::deregister_from_governing_site();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'http_request_failed', $result->get_error_code() );
+	}
+
+	/**
+	 * Each removed brand site gets an authenticated disconnection notice.
+	 */
+	public function test_notify_brand_sites_of_disconnection_notifies_each_site(): void {
+		$requests = [];
+		$filter   = static function ( $preempt, $args, $url ) use ( &$requests ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requests[ $url ] = $args;
+
+			return [
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
+				],
+				'body'     => '{"success":true}',
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		Governing_Data_Handler::notify_brand_sites_of_disconnection(
+			[
+				'https://a.example.com/' => 'key-a',
+				'https://b.example.com/' => 'key-b',
+			]
+		);
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertSame(
+			[
+				'https://a.example.com/wp-json/onesearch/v1/connection',
+				'https://b.example.com/wp-json/onesearch/v1/connection',
+			],
+			array_keys( $requests )
+		);
+		$this->assertSame( 'DELETE', $requests['https://a.example.com/wp-json/onesearch/v1/connection']['method'] );
+		$this->assertSame( 'key-b', $requests['https://b.example.com/wp-json/onesearch/v1/connection']['headers']['X-OneSearch-Token'] );
+	}
+
+	/**
+	 * Sites without an API key cannot be authenticated against, so they are skipped.
+	 */
+	public function test_notify_brand_sites_of_disconnection_skips_sites_without_key(): void {
+		$requested_urls = [];
+		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requested_urls[] = $url;
+			return new \WP_Error( 'blocked', 'Intercepted' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		Governing_Data_Handler::notify_brand_sites_of_disconnection( [ 'https://a.example.com/' => '' ] );
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertEmpty( $requested_urls );
+	}
+
+	/**
+	 * A site that disconnected itself is not notified back about its own removal.
+	 */
+	public function test_notify_brand_sites_of_disconnection_skips_suppressed_site(): void {
+		$requested_urls = [];
+		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requested_urls[] = $url;
+			return new \WP_Error( 'blocked', 'Intercepted' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		Governing_Data_Handler::suppress_disconnect_notice( 'https://a.example.com/' );
+		Governing_Data_Handler::notify_brand_sites_of_disconnection(
+			[
+				'https://a.example.com/' => 'key-a',
+				'https://b.example.com/' => 'key-b',
+			]
+		);
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertSame( [ 'https://b.example.com/wp-json/onesearch/v1/connection' ], $requested_urls );
+	}
+
+	/**
+	 * Suppression only covers the removal it was recorded for.
+	 */
+	public function test_suppression_does_not_persist_beyond_one_removal(): void {
+		$requested_urls = [];
+		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requested_urls[] = $url;
+			return new \WP_Error( 'blocked', 'Intercepted' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		Governing_Data_Handler::suppress_disconnect_notice( 'https://a.example.com/' );
+		Governing_Data_Handler::notify_brand_sites_of_disconnection( [ 'https://a.example.com/' => 'key-a' ] );
+		Governing_Data_Handler::notify_brand_sites_of_disconnection( [ 'https://a.example.com/' => 'key-a' ] );
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertSame( [ 'https://a.example.com/wp-json/onesearch/v1/connection' ], $requested_urls );
+	}
 }

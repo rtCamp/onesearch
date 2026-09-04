@@ -11,7 +11,6 @@ namespace OneSearch\Modules\Rest;
 
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
-use OneSearch\Utils;
 use WP_REST_Response;
 use WP_REST_Server;
 
@@ -34,6 +33,17 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 					'permission_callback' => [ $this, 'check_api_permissions' ],
 				]
 			);
+
+			// Lets a brand site deregister itself.
+			register_rest_route(
+				self::NAMESPACE,
+				'/connection',
+				[
+					'methods'             => WP_REST_Server::DELETABLE,
+					'callback'            => [ $this, 'remove_brand_site' ],
+					'permission_callback' => [ $this, 'check_api_permissions' ],
+				]
+			);
 		}
 
 		// Only on consumer sites.
@@ -45,6 +55,17 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 				[
 					'methods'             => WP_REST_Server::DELETABLE,
 					'callback'            => [ $this, 'delete_brand_config_cache' ],
+					'permission_callback' => [ $this, 'check_api_permissions' ],
+				]
+			);
+
+			// Lets the governing site drop this brand site.
+			register_rest_route(
+				self::NAMESPACE,
+				'/connection',
+				[
+					'methods'             => WP_REST_Server::DELETABLE,
+					'callback'            => [ $this, 'remove_governing_site_connection' ],
 					'permission_callback' => [ $this, 'check_api_permissions' ],
 				]
 			);
@@ -69,9 +90,7 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 	 */
 	public function get_brand_config( $request ): WP_REST_Response|\WP_Error {
 		// Get the origin from the request headers and confirm it's a known site.
-		$origin   = $request->get_header( 'origin' );
-		$origin   = ! empty( $origin ) ? esc_url_raw( wp_unslash( $origin ) ) : '';
-		$site_url = Utils::normalize_url( $origin );
+		$site_url = $this->get_request_site_url( $request );
 
 		if ( empty( $site_url ) || ! $this->is_allowed_site( $site_url ) ) {
 			return new \WP_Error(
@@ -131,6 +150,75 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 			[
 				'success' => true,
 				'message' => __( 'Brand configuration cache cleared successfully.', 'onesearch' ),
+			]
+		);
+	}
+
+	/**
+	 * Removes the requesting brand site from this governing site.
+	 *
+	 * Called by a brand site when it disconnects, so the pairing is torn down on both ends.
+	 *
+	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
+	 */
+	public function remove_brand_site( $request ): WP_REST_Response|\WP_Error {
+		$site_url = $this->get_request_site_url( $request );
+
+		if ( empty( $site_url ) ) {
+			return new \WP_Error(
+				'onesearch_unknown_site',
+				__( 'The requesting site could not be identified.', 'onesearch' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		$shared_sites = Settings::get_shared_sites();
+
+		// Already gone: nothing to do, but the caller got what it asked for.
+		if ( ! isset( $shared_sites[ $site_url ] ) ) {
+			return rest_ensure_response(
+				[
+					'success' => true,
+					'message' => __( 'The brand site is not connected to this governing site.', 'onesearch' ),
+				]
+			);
+		}
+
+		unset( $shared_sites[ $site_url ] );
+
+		// The brand site already disconnected locally, so don't notify it back.
+		Governing_Data_Handler::suppress_disconnect_notice( $site_url );
+
+		if ( ! Settings::set_shared_sites( $shared_sites ) ) {
+			return new \WP_Error(
+				'onesearch_disconnect_failed',
+				__( 'The brand site could not be removed from the governing site.', 'onesearch' ),
+				[ 'status' => 500 ]
+			);
+		}
+
+		return rest_ensure_response(
+			[
+				'success' => true,
+				'message' => __( 'Brand site disconnected successfully.', 'onesearch' ),
+			]
+		);
+	}
+
+	/**
+	 * Clears the governing site pairing on this brand site.
+	 *
+	 * Called by the governing site when it deletes this brand site from its list.
+	 */
+	public function remove_governing_site_connection(): WP_REST_Response {
+		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
+
+		Governing_Data_Handler::clear_brand_config_cache();
+
+		return rest_ensure_response(
+			[
+				'success' => true,
+				'message' => __( 'Governing site disconnected successfully.', 'onesearch' ),
 			]
 		);
 	}

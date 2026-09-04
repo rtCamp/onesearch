@@ -31,6 +31,15 @@ class Governing_Data_Handler {
 	public const TRANSIENT_KEY = 'onesearch_brand_config_cache';
 
 	/**
+	 * Normalized brand site URLs that should not be sent a disconnection notice.
+	 *
+	 * Populated when a brand site deregisters itself: it has already disconnected.
+	 *
+	 * @var array<string,bool>
+	 */
+	private static array $suppressed_disconnect_notices = [];
+
+	/**
 	 * Retrieve consolidated brand site configuration with transient caching.
 	 *
 	 * This method consolidates multiple configuration requests into a single endpoint call.
@@ -265,6 +274,115 @@ class Governing_Data_Handler {
 			'sites'  => $all_sites,
 			'errors' => $errors,
 		];
+	}
+
+	/**
+	 * Deregisters this brand site from its governing site.
+	 *
+	 * @return true|\WP_Error True on success, WP_Error when the governing site could not be told.
+	 */
+	public static function deregister_from_governing_site(): true|\WP_Error {
+		if ( ! Settings::is_consumer_site() ) {
+			return new \WP_Error(
+				'onesearch_unauthorized_site',
+				__( 'Only brand sites can disconnect from a governing site.', 'onesearch' ),
+			);
+		}
+
+		$parent_url = Settings::get_parent_site_url();
+		if ( empty( $parent_url ) ) {
+			return new \WP_Error(
+				'onesearch_no_parent',
+				__( 'No governing site is configured.', 'onesearch' ),
+			);
+		}
+
+		$our_public_key = Settings::get_api_key();
+		if ( empty( $our_public_key ) ) {
+			return new \WP_Error(
+				'onesearch_no_key',
+				__( 'No API key is configured.', 'onesearch' ),
+			);
+		}
+
+		$response = self::request_disconnect( $parent_url, $our_public_key );
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$code = wp_remote_retrieve_response_code( $response );
+		if ( 200 !== $code ) {
+			return new \WP_Error(
+				'onesearch_rest_failed_to_connect',
+				__( 'The governing site could not be notified of the disconnection.', 'onesearch' ),
+				[
+					'status' => $code,
+					'body'   => wp_remote_retrieve_body( $response ),
+				]
+			);
+		}
+
+		return true;
+	}
+
+	/**
+	 * Tells brand sites that they are no longer governed by this site.
+	 *
+	 * @param array<string,string> $removed_sites Map of normalized brand site URL to its (decrypted) API key.
+	 */
+	public static function notify_brand_sites_of_disconnection( array $removed_sites ): void {
+		foreach ( $removed_sites as $site_url => $api_key ) {
+			if ( isset( self::$suppressed_disconnect_notices[ $site_url ] ) ) {
+				unset( self::$suppressed_disconnect_notices[ $site_url ] );
+				continue;
+			}
+
+			if ( empty( $site_url ) || empty( $api_key ) ) {
+				continue;
+			}
+
+			self::request_disconnect( $site_url, $api_key );
+		}
+	}
+
+	/**
+	 * Skips the outbound disconnection notice for a brand site.
+	 *
+	 * @param string $site_url Normalized brand site URL.
+	 */
+	public static function suppress_disconnect_notice( string $site_url ): void {
+		self::$suppressed_disconnect_notices[ $site_url ] = true;
+	}
+
+	/**
+	 * Sends a disconnection request to the paired site.
+	 *
+	 * @param string $site_url The URL of the site to disconnect from.
+	 * @param string $api_key  The API key used to authenticate against that site.
+	 *
+	 * @return array<string,mixed>|\WP_Error The response, or WP_Error on failure.
+	 */
+	private static function request_disconnect( string $site_url, string $api_key ) {
+		$endpoint = sprintf(
+			'%s/wp-json/%s/connection',
+			untrailingslashit( $site_url ),
+			Abstract_REST_Controller::NAMESPACE,
+		);
+
+		return wp_safe_remote_request(
+			$endpoint,
+			[
+				'method'  => \WP_REST_Server::DELETABLE,
+				'timeout' => 10, // phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout -- The pairing teardown must be confirmed before reporting back.
+				'headers' => [
+					'Accept'            => 'application/json',
+					'Content-Type'      => 'application/json',
+					'Origin'            => get_site_url(),
+					'X-OneSearch-Token' => $api_key,
+				],
+			]
+		);
 	}
 
 	/**

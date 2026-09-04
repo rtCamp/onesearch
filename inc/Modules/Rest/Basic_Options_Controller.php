@@ -235,18 +235,39 @@ class Basic_Options_Controller extends Abstract_REST_Controller {
 	/**
 	 * Remove governing site url.
 	 *
+	 * Deregisters from the governing site first, so the pairing is torn down on both
+	 * ends. The local disconnection happens either way, so an unreachable governing
+	 * site cannot trap the admin here.
+	 *
 	 * @return \WP_REST_Response|\WP_Error
 	 */
 	public function remove_governing_site(): WP_REST_Response|\WP_Error {
+		// With no governing site recorded there is nothing to propagate.
+		$deregistered = empty( Settings::get_parent_site_url() )
+			? true
+			: Governing_Data_Handler::deregister_from_governing_site();
+
 		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
 
 		// Clear cached brand configuration.
 		Governing_Data_Handler::clear_brand_config_cache();
 
+		if ( is_wp_error( $deregistered ) ) {
+			return rest_ensure_response(
+				[
+					'success'             => true,
+					'remote_disconnected' => false,
+					'message'             => __( 'Governing site disconnected on this site, but the governing site could not be notified and may still list this brand site.', 'onesearch' ),
+					'remote_error'        => $deregistered->get_error_message(),
+				]
+			);
+		}
+
 		return rest_ensure_response(
 			[
-				'success' => true,
-				'message' => __( 'Governing site removed successfully.', 'onesearch' ),
+				'success'             => true,
+				'remote_disconnected' => true,
+				'message'             => __( 'Governing site removed successfully.', 'onesearch' ),
 			]
 		);
 	}

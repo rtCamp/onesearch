@@ -97,4 +97,66 @@ class Governing_Data_Controller_BrandSiteTest extends TestCase {
 		$this->assertSame( 200, $response->get_status() );
 		$this->assertTrue( $data['success'] );
 	}
+
+	/**
+	 * The brand site exposes the connection endpoint its governing site disconnects through.
+	 */
+	public function test_registers_connection_delete_route(): void {
+		$routes = $this->server->get_routes();
+		$ns     = '/' . Governing_Data_Controller::NAMESPACE;
+
+		$this->assertArrayHasKey( $ns . '/connection', $routes );
+		$this->assertArrayHasKey( 'DELETE', $routes[ $ns . '/connection' ][0]['methods'] );
+	}
+
+	/**
+	 * The governing site can clear the pairing when it deletes this brand site.
+	 */
+	public function test_remove_governing_site_connection_clears_pairing(): void {
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+		set_transient( Governing_Data_Handler::TRANSIENT_KEY, [ 'cached' => true ], 3600 );
+
+		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/connection' );
+		$request->set_header( 'origin', 'https://governing.example.com' );
+		$request->set_header( 'X-OneSearch-Token', Settings::get_api_key() );
+
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertTrue( $response->get_data()['success'] );
+		$this->assertNull( Settings::get_parent_site_url() );
+		$this->assertFalse( get_transient( Governing_Data_Handler::TRANSIENT_KEY ) );
+	}
+
+	/**
+	 * Only the paired governing site may tear the connection down.
+	 */
+	public function test_remove_governing_site_connection_rejects_other_sites(): void {
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+
+		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/connection' );
+		$request->set_header( 'origin', 'https://impostor.example.com' );
+		$request->set_header( 'X-OneSearch-Token', Settings::get_api_key() );
+
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 403, $response->get_status() );
+		$this->assertSame( 'https://governing.example.com', Settings::get_parent_site_url() );
+	}
+
+	/**
+	 * A wrong token is rejected even when the origin matches the governing site.
+	 */
+	public function test_remove_governing_site_connection_rejects_invalid_token(): void {
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+
+		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/connection' );
+		$request->set_header( 'origin', 'https://governing.example.com' );
+		$request->set_header( 'X-OneSearch-Token', 'not-the-key' );
+
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 403, $response->get_status() );
+		$this->assertSame( 'https://governing.example.com', Settings::get_parent_site_url() );
+	}
 }
