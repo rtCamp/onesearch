@@ -95,7 +95,7 @@ final class Watcher implements Registrable {
 	private function delete_post_records( Index $indexer, int $post_id ): bool|\WP_Error {
 		$deleted = $indexer->delete_by(
 			[
-				'filters' => sprintf( 'site_post_id:"%s"', Post_Record::get_site_post_id( $post_id ) ),
+				'filters' => sprintf( 'site_post_id:"%s"', ( new Post_Record() )->get_site_post_id( $post_id ) ),
 			]
 		);
 
