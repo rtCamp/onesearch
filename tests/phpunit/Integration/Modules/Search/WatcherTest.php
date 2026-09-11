@@ -342,12 +342,9 @@ final class WatcherTest extends TestCase {
 	}
 
 	/**
-	 * The records must outlive the post until the deletion has actually succeeded.
-	 *
-	 * Deleting from `before_delete_post` would strip the index for a post that then
-	 * survives a failed deletion.
+	 * Ensures a record is purged when wp_delete_post() is used to permanently delete the post directly.
 	 */
-	public function test_does_not_delete_records_before_the_post_is_gone(): void {
+	public function test_deletes_record_when_a_post_is_permanently_deleted(): void {
 		$this->set_up_governing_site();
 
 		$paths    = [];
