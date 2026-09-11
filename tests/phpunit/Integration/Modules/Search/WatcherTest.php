@@ -17,6 +17,7 @@ use OneSearch\Tests\TestCase;
 use OneSearch\Utils;
 use OneSearch\Vendor\Algolia\AlgoliaSearch\Algolia as AlgoliaSDK;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Tests for the Watcher class.
@@ -284,7 +285,7 @@ final class WatcherTest extends TestCase {
 	}
 
 	/**
-	 * Tests a post that is set to draft is triggered for removal from Algolia.
+	 * A post leaving `publish` must have its records removed from Algolia.
 	 *
 	 * @param string $status The post status
 	 */
@@ -307,15 +308,29 @@ final class WatcherTest extends TestCase {
 		wp_update_post(
 			[
 				'ID'          => $post_id,
-				'post_status' => 'draft',
+				'post_status' => $status,
 			]
 		);
 
 		$this->assertSame(
 			[ sprintf( 'site_post_id:"%s"', $stored_id ) ],
 			$this->get_delete_filters( $requests ),
-			'The delete filter must name the site_post_id stored on the records.'
+			sprintf( 'A post moved to "%s" must have its records deleted by the stored site_post_id.', $status )
 		);
+	}
+
+	/**
+	 * Provides post statuses that must evict a post's records.
+	 *
+	 * @return array<string, array{0:string}>
+	 */
+	public static function delete_record_provider(): array {
+		return [
+			'draft'   => [ 'draft' ],
+			'pending' => [ 'pending' ],
+			'private' => [ 'private' ],
+			'trash'   => [ 'trash' ],
+		];
 	}
 
 	/**
