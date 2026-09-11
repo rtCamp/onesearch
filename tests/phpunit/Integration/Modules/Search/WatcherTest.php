@@ -332,12 +332,12 @@ final class WatcherTest extends TestCase {
 		// Drop the publish traffic, so only the delete request is left to assert on.
 		$requests = [];
 
-		wp_delete_post( $post_id, true );
+		wp_delete_post( $post_id );
 
 		$this->assertSame(
 			[ sprintf( 'site_post_id:"%s"', $stored_id ) ],
 			$this->get_delete_filters( $requests ),
-			'Permanently deleting a post must delete its records by the stored site_post_id.'
+			'Trashing a post with wp_delete_post must delete its records by the stored site_post_id.'
 		);
 	}
 
