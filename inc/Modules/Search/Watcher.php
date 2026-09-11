@@ -64,9 +64,6 @@ final class Watcher implements Registrable {
 	 * Deleting a post fires no status transition, so without this its records would
 	 * outlive the post itself.
 	 *
-	 * Runs on `deleted_post` rather than `before_delete_post`: deletion can still fail
-	 * after the earlier hook, and attachments never fire it at all.
-	 *
 	 * @internal Hook callback
 	 *
 	 * @param int       $post_id The ID of the deleted post.
