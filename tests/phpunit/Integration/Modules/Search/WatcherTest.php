@@ -274,17 +274,12 @@ final class WatcherTest extends TestCase {
 	}
 
 	/**
-	 * A post leaving the index must be deleted by the `site_post_id` its records carry.
+	 * Tests a post that is set to draft is triggered for removal from Algolia.
 	 *
-	 * Regression test: the filter used to be built from the raw site URL while records store
-	 * the sanitized site key, so Algolia matched nothing, reported success, and unpublished
-	 * or trashed posts kept showing up until a full re-sync. The expected value is read back
-	 * off the outgoing payload, so the write and delete paths are checked against each other
-	 * instead of against a value the test rebuilds for itself.
-	 *
-	 * @see https://github.com/rtCamp/OnePress/issues/84
+	 * @param string $status The post status
 	 */
-	public function test_deletes_by_the_site_post_id_written_to_records(): void {
+	#[DataProvider( 'delete_record_provider' )]
+	public function test_deletes_record_when_not_published( string $status ): void {
 		$this->set_up_governing_site();
 
 		$paths    = [];
