@@ -309,15 +309,9 @@ final class WatcherTest extends TestCase {
 	}
 
 	/**
-	 * A post deleted without passing through the trash must take its records with it.
-	 *
-	 * Deleted straight from `publish` on purpose: trashing first would clear the records
-	 * through `on_post_transition`, so the assertion would pass even with the deletion
-	 * hook unregistered.
-	 *
-	 * @see https://github.com/rtCamp/OnePress/issues/84
+	 * A post deleted via `wp_delete_post()` should have its records purged.
 	 */
-	public function test_deletes_records_when_a_post_is_permanently_deleted(): void {
+	public function test_deletes_records_when_wp_delete_post_is_called(): void {
 		$this->set_up_governing_site();
 
 		$paths    = [];
