@@ -50,6 +50,21 @@ final class PostRecordTest extends TestCase {
 	}
 
 	/**
+	 * The `site_post_id` written to records must come from get_site_post_id().
+	 */
+	public function test_records_are_written_with_get_site_post_id(): void {
+		$post        = self::factory()->post->create_and_get( [ 'post_content' => 'Some indexable content.' ] );
+		$post_record = new Post_Record();
+		$records     = $post_record->to_records( $post );
+
+		$this->assertNotEmpty( $records );
+
+		foreach ( $records as $record ) {
+			$this->assertSame( $post_record->get_site_post_id( $post->ID ), $record['site_post_id'] );
+		}
+	}
+
+	/**
 	 * Ensures get_allowed_statuses returns publish by default.
 	 */
 	public function test_get_allowed_statuses_returns_publish_by_default(): void {

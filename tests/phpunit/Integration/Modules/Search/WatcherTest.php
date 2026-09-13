@@ -17,6 +17,7 @@ use OneSearch\Tests\TestCase;
 use OneSearch\Utils;
 use OneSearch\Vendor\Algolia\AlgoliaSearch\Algolia as AlgoliaSDK;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Tests for the Watcher class.
@@ -28,6 +29,16 @@ final class WatcherTest extends TestCase {
 	 */
 	protected function tearDown(): void {
 		AlgoliaSDK::resetHttpClient();
+
+		// Reset governing site config to avoid polluting other tests.
+		delete_option( Settings::OPTION_SITE_TYPE );
+		delete_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );
+		Search_Settings::set_algolia_credentials(
+			[
+				'app_id'    => '',
+				'write_key' => '',
+			]
+		);
 
 		parent::tearDown();
 	}
@@ -271,5 +282,194 @@ final class WatcherTest extends TestCase {
 		// Assert that a /batch (saveObjects) call was made.
 		$batch_calls = array_filter( $recorded_paths, static fn ( $p ) => str_contains( $p, '/batch' ) );
 		$this->assertNotEmpty( $batch_calls, 'Consumer site happy path should trigger Algolia reindex (saveObjects).' );
+	}
+
+	/**
+	 * A post leaving `publish` must have its records removed from Algolia.
+	 *
+	 * @param string $status The post status
+	 */
+	#[DataProvider( 'delete_record_provider' )]
+	public function test_deletes_record_when_not_published( string $status ): void {
+		$this->set_up_governing_site();
+
+		$paths    = [];
+		$requests = [];
+		$this->mock_algolia_http_client( $paths, null, null, $requests );
+
+		( new Watcher() )->register_hooks();
+
+		$post_id   = self::factory()->post->create( [ 'post_status' => 'publish' ] );
+		$stored_id = $this->get_indexed_site_post_id( $requests );
+
+		// Drop the publish traffic, so only the delete request is left to assert on.
+		$requests = [];
+
+		wp_update_post(
+			[
+				'ID'          => $post_id,
+				'post_status' => $status,
+			]
+		);
+
+		$this->assertSame(
+			[ sprintf( 'site_post_id:"%s"', $stored_id ) ],
+			$this->get_delete_filters( $requests ),
+			sprintf( 'A post moved to "%s" must have its records deleted by the stored site_post_id.', $status )
+		);
+	}
+
+	/**
+	 * Provides post statuses that must evict a post's records.
+	 *
+	 * @return array<string, array{0:string}>
+	 */
+	public static function delete_record_provider(): array {
+		return [
+			'draft'   => [ 'draft' ],
+			'pending' => [ 'pending' ],
+			'private' => [ 'private' ],
+			'trash'   => [ 'trash' ],
+		];
+	}
+
+	/**
+	 * A post deleted via `wp_delete_post()` should have its records purged.
+	 */
+	public function test_deletes_records_when_wp_delete_post_is_called(): void {
+		$this->set_up_governing_site();
+
+		$paths    = [];
+		$requests = [];
+		$this->mock_algolia_http_client( $paths, null, null, $requests );
+
+		( new Watcher() )->register_hooks();
+
+		$post_id   = self::factory()->post->create( [ 'post_status' => 'publish' ] );
+		$stored_id = $this->get_indexed_site_post_id( $requests );
+
+		// Drop the publish traffic, so only the delete request is left to assert on.
+		$requests = [];
+
+		wp_delete_post( $post_id );
+
+		$this->assertSame(
+			[ sprintf( 'site_post_id:"%s"', $stored_id ) ],
+			$this->get_delete_filters( $requests ),
+			'Trashing a post with wp_delete_post must delete its records by the stored site_post_id.'
+		);
+	}
+
+	/**
+	 * Ensures a record is purged when wp_delete_post() is used to permanently delete the post directly.
+	 */
+	public function test_deletes_record_when_a_post_is_permanently_deleted(): void {
+		$this->set_up_governing_site();
+
+		$paths    = [];
+		$requests = [];
+		$this->mock_algolia_http_client( $paths, null, null, $requests );
+
+		( new Watcher() )->register_hooks();
+
+		$post_id = self::factory()->post->create( [ 'post_status' => 'publish' ] );
+
+		// Drop the publish traffic, so only the delete request is left to assert on.
+		$requests = [];
+
+		$filters_while_the_post_still_exists = null;
+		add_action(
+			'before_delete_post',
+			function () use ( &$requests, &$filters_while_the_post_still_exists ): void {
+				$filters_while_the_post_still_exists = $this->get_delete_filters( $requests );
+			},
+			PHP_INT_MAX
+		);
+
+		wp_delete_post( $post_id, true );
+
+		$this->assertSame(
+			[],
+			$filters_while_the_post_still_exists,
+			'No records may be deleted while the post is still in the database.'
+		);
+		$this->assertNotEmpty(
+			$this->get_delete_filters( $requests ),
+			'The records still have to go once the post has been deleted.'
+		);
+	}
+
+	/**
+	 * Reads the `site_post_id` the records were actually written with.
+	 *
+	 * @param array<int, array{path: string, body: string}> $requests The intercepted requests.
+	 */
+	private function get_indexed_site_post_id( array $requests ): string {
+		$ids = [];
+
+		foreach ( $requests as $request ) {
+			if ( ! str_contains( $request['path'], '/batch' ) ) {
+				continue;
+			}
+
+			$body = json_decode( $request['body'], true );
+			foreach ( $body['requests'] ?? [] as $operation ) {
+				if ( isset( $operation['body']['site_post_id'] ) ) {
+					$ids[] = (string) $operation['body']['site_post_id'];
+				}
+			}
+		}
+
+		$ids = array_values( array_unique( $ids ) );
+		$this->assertCount( 1, $ids, 'Publishing should write records under exactly one site_post_id.' );
+
+		return $ids[0];
+	}
+
+	/**
+	 * Collects the `filters` argument of every deleteByQuery request that was sent.
+	 *
+	 * @param array<int, array{path: string, body: string}> $requests The intercepted requests.
+	 *
+	 * @return list<string>
+	 */
+	private function get_delete_filters( array $requests ): array {
+		$filters = [];
+
+		foreach ( $requests as $request ) {
+			if ( ! str_contains( $request['path'], '/deleteByQuery' ) ) {
+				continue;
+			}
+
+			$body = json_decode( $request['body'], true );
+			if ( is_array( $body ) && isset( $body['filters'] ) ) {
+				$filters[] = (string) $body['filters'];
+			}
+		}
+
+		return $filters;
+	}
+
+	/**
+	 * Configures the current site as a governing site with credentials and indexable entities.
+	 *
+	 * @param string[] $entities The indexable post types.
+	 */
+	private function set_up_governing_site( array $entities = [ 'post' ] ): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		Search_Settings::set_algolia_credentials(
+			[
+				'app_id'    => 'test-app',
+				'write_key' => 'test-key',
+			]
+		);
+		update_option(
+			Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES,
+			[
+				'entities' => [
+					Utils::normalize_url( get_site_url() ) => $entities,
+				],
+			]
+		);
 	}
 }
