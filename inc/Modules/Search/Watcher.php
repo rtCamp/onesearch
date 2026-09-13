@@ -61,9 +61,6 @@ final class Watcher implements Registrable {
 	/**
 	 * Removes a post's records once it has been permanently deleted.
 	 *
-	 * Deleting a post fires no status transition, so without this its records would
-	 * outlive the post itself.
-	 *
 	 * @internal Hook callback
 	 *
 	 * @param int       $post_id The ID of the deleted post.

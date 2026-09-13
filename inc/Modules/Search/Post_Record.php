@@ -135,7 +135,6 @@ final class Post_Record {
 	public function __construct() {
 		$this->site_url = Utils::normalize_url( get_site_url() );
 
-		// Sanitized because it is embedded in the `objectID`, which Algolia addresses as a URL path segment.
 		$this->site_key = sanitize_key( $this->site_url );
 
 		$this->site_name = get_bloginfo( 'name' );
@@ -143,9 +142,6 @@ final class Post_Record {
 
 	/**
 	 * Gets the `site_post_id` value used to identify a post's records.
-	 *
-	 * This is the single source of truth for the attribute records are written with,
-	 * filtered by and deleted by. Callers must never rebuild the value themselves.
 	 *
 	 * @see Watcher::on_post_transition() for the delete-by-filter counterpart.
 	 *
