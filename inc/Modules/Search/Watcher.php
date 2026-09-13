@@ -36,24 +36,27 @@ final class Watcher implements Registrable {
 	 * @param string   $old_status The previous post status.
 	 * @param \WP_Post $post       The post object.
 	 */
-	public function on_post_transition( $new_status, $old_status, $post ): void { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+	public function on_post_transition( $new_status, $old_status, $post ): void {
 		if ( ! $post instanceof \WP_Post || ! $this->is_post_type_indexable( (string) $post->post_type ) ) {
 			return;
 		}
 
-		$indexer = new Index();
-
-		// First delete the old records, so a post that is no longer indexable leaves nothing behind.
-		if ( is_wp_error( $this->delete_post_records( $indexer, (int) $post->ID ) ) ) {
-			return;
-		}
+		$allowed_statuses = Post_Record::get_allowed_statuses( [ $post->post_type ] );
+		$indexer          = new Index();
 
 		// Check if the new status is allowed before reindexing.
-		if ( ! in_array( $new_status, Post_Record::get_allowed_statuses( [ $post->post_type ] ), true ) ) {
+		if ( ! in_array( $new_status, $allowed_statuses, true ) ) {
+			// Only clean up if the post was indexed under its previous status.
+			if ( in_array( $old_status, $allowed_statuses, true ) ) {
+				$this->delete_post_records( $indexer, (int) $post->ID );
+			}
+
 			return;
 		}
 
 		$records = ( new Post_Record() )->to_records( $post );
+
+		// @todo Prune chunks left behind when a post shrinks across a chunk boundary.
 
 		$indexer->save_records( $records );
 	}
