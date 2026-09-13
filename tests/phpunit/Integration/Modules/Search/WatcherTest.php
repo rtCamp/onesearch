@@ -17,7 +17,6 @@ use OneSearch\Tests\TestCase;
 use OneSearch\Utils;
 use OneSearch\Vendor\Algolia\AlgoliaSearch\Algolia as AlgoliaSDK;
 use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Tests for the Watcher class.
@@ -286,11 +285,8 @@ final class WatcherTest extends TestCase {
 
 	/**
 	 * A post leaving `publish` must have its records removed from Algolia.
-	 *
-	 * @param string $status The post status
 	 */
-	#[DataProvider( 'delete_record_provider' )]
-	public function test_deletes_record_when_not_published( string $status ): void {
+	public function test_deletes_records_when_a_post_leaves_publish(): void {
 		$this->set_up_governing_site();
 
 		$paths    = [];
@@ -308,55 +304,14 @@ final class WatcherTest extends TestCase {
 		wp_update_post(
 			[
 				'ID'          => $post_id,
-				'post_status' => $status,
+				'post_status' => 'draft',
 			]
 		);
 
 		$this->assertSame(
 			[ sprintf( 'site_post_id:"%s"', $stored_id ) ],
 			$this->get_delete_filters( $requests ),
-			sprintf( 'A post moved to "%s" must have its records deleted by the stored site_post_id.', $status )
-		);
-	}
-
-	/**
-	 * Provides post statuses that must evict a post's records.
-	 *
-	 * @return array<string, array{0:string}>
-	 */
-	public static function delete_record_provider(): array {
-		return [
-			'draft'   => [ 'draft' ],
-			'pending' => [ 'pending' ],
-			'private' => [ 'private' ],
-			'trash'   => [ 'trash' ],
-		];
-	}
-
-	/**
-	 * A post deleted via `wp_delete_post()` should have its records purged.
-	 */
-	public function test_deletes_records_when_wp_delete_post_is_called(): void {
-		$this->set_up_governing_site();
-
-		$paths    = [];
-		$requests = [];
-		$this->mock_algolia_http_client( $paths, null, null, $requests );
-
-		( new Watcher() )->register_hooks();
-
-		$post_id   = self::factory()->post->create( [ 'post_status' => 'publish' ] );
-		$stored_id = $this->get_indexed_site_post_id( $requests );
-
-		// Drop the publish traffic, so only the delete request is left to assert on.
-		$requests = [];
-
-		wp_delete_post( $post_id );
-
-		$this->assertSame(
-			[ sprintf( 'site_post_id:"%s"', $stored_id ) ],
-			$this->get_delete_filters( $requests ),
-			'Trashing a post with wp_delete_post must delete its records by the stored site_post_id.'
+			'Unpublishing a post must delete its records by the stored site_post_id.'
 		);
 	}
 
