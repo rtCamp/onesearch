@@ -6,7 +6,6 @@ export default [
 	{
 		ignores: [
 			'**/*.min.js',
-			'.claude/**',
 			'build/**',
 			'node_modules/**',
 			'tests/_output/**',
