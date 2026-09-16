@@ -105,8 +105,8 @@ class Governing_Data_Controller_BrandSiteTest extends TestCase {
 		$routes = $this->server->get_routes();
 		$ns     = '/' . Governing_Data_Controller::NAMESPACE;
 
-		$this->assertArrayHasKey( $ns . '/connection', $routes );
-		$this->assertArrayHasKey( 'DELETE', $routes[ $ns . '/connection' ][0]['methods'] );
+		$this->assertArrayHasKey( $ns . '/site-connection/governing/remove', $routes );
+		$this->assertArrayHasKey( 'DELETE', $routes[ $ns . '/site-connection/governing/remove' ][0]['methods'] );
 	}
 
 	/**
@@ -116,7 +116,7 @@ class Governing_Data_Controller_BrandSiteTest extends TestCase {
 		Settings::set_parent_site_url( 'https://governing.example.com' );
 		set_transient( Governing_Data_Handler::TRANSIENT_KEY, [ 'cached' => true ], 3600 );
 
-		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/connection' );
+		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/site-connection/governing/remove' );
 		$request->set_header( 'origin', 'https://governing.example.com' );
 		$request->set_header( 'X-OneSearch-Token', Settings::get_api_key() );
 
@@ -134,7 +134,7 @@ class Governing_Data_Controller_BrandSiteTest extends TestCase {
 	public function test_remove_governing_site_connection_rejects_other_sites(): void {
 		Settings::set_parent_site_url( 'https://governing.example.com' );
 
-		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/connection' );
+		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/site-connection/governing/remove' );
 		$request->set_header( 'origin', 'https://impostor.example.com' );
 		$request->set_header( 'X-OneSearch-Token', Settings::get_api_key() );
 
@@ -150,7 +150,7 @@ class Governing_Data_Controller_BrandSiteTest extends TestCase {
 	public function test_remove_governing_site_connection_rejects_invalid_token(): void {
 		Settings::set_parent_site_url( 'https://governing.example.com' );
 
-		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/connection' );
+		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/site-connection/governing/remove' );
 		$request->set_header( 'origin', 'https://governing.example.com' );
 		$request->set_header( 'X-OneSearch-Token', 'not-the-key' );
 

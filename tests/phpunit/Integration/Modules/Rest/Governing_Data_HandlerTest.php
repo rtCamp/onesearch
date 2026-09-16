@@ -598,7 +598,7 @@ class Governing_Data_HandlerTest extends TestCase {
 
 		$this->assertTrue( $result );
 		$this->assertCount( 1, $requests );
-		$this->assertSame( 'https://governing.example.com/wp-json/onesearch/v1/connection', $requests[0]['url'] );
+		$this->assertSame( 'https://governing.example.com/wp-json/onesearch/v1/site-connection/brand/remove', $requests[0]['url'] );
 		$this->assertSame( 'DELETE', $requests[0]['args']['method'] );
 		$this->assertSame( $api_key, $requests[0]['args']['headers']['X-OneSearch-Token'] );
 	}
@@ -851,7 +851,7 @@ class Governing_Data_HandlerTest extends TestCase {
 
 		$this->assertTrue( $resolved );
 		$this->assertSame(
-			[ 'https://old-governing.example.com/wp-json/onesearch/v1/connection' ],
+			[ 'https://old-governing.example.com/wp-json/onesearch/v1/site-connection/brand/remove' ],
 			$requested_urls
 		);
 	}
@@ -887,13 +887,13 @@ class Governing_Data_HandlerTest extends TestCase {
 
 		$this->assertSame(
 			[
-				'https://a.example.com/wp-json/onesearch/v1/connection',
-				'https://b.example.com/wp-json/onesearch/v1/connection',
+				'https://a.example.com/wp-json/onesearch/v1/site-connection/governing/remove',
+				'https://b.example.com/wp-json/onesearch/v1/site-connection/governing/remove',
 			],
 			array_keys( $requests )
 		);
-		$this->assertSame( 'DELETE', $requests['https://a.example.com/wp-json/onesearch/v1/connection']['method'] );
-		$this->assertSame( 'key-b', $requests['https://b.example.com/wp-json/onesearch/v1/connection']['headers']['X-OneSearch-Token'] );
+		$this->assertSame( 'DELETE', $requests['https://a.example.com/wp-json/onesearch/v1/site-connection/governing/remove']['method'] );
+		$this->assertSame( 'key-b', $requests['https://b.example.com/wp-json/onesearch/v1/site-connection/governing/remove']['headers']['X-OneSearch-Token'] );
 	}
 
 	/**
@@ -1182,7 +1182,7 @@ class Governing_Data_HandlerTest extends TestCase {
 
 		remove_filter( 'pre_http_request', $filter );
 
-		$this->assertSame( [ 'https://b.example.com/wp-json/onesearch/v1/connection' ], $requested_urls );
+		$this->assertSame( [ 'https://b.example.com/wp-json/onesearch/v1/site-connection/governing/remove' ], $requested_urls );
 	}
 
 	/**
@@ -1202,6 +1202,6 @@ class Governing_Data_HandlerTest extends TestCase {
 
 		remove_filter( 'pre_http_request', $filter );
 
-		$this->assertSame( [ 'https://a.example.com/wp-json/onesearch/v1/connection' ], $requested_urls );
+		$this->assertSame( [ 'https://a.example.com/wp-json/onesearch/v1/site-connection/governing/remove' ], $requested_urls );
 	}
 }

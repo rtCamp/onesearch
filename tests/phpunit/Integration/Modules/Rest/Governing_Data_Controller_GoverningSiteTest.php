@@ -294,8 +294,8 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 		$routes = $this->server->get_routes();
 		$ns     = '/' . Governing_Data_Controller::NAMESPACE;
 
-		$this->assertArrayHasKey( $ns . '/connection', $routes );
-		$this->assertArrayHasKey( 'DELETE', $routes[ $ns . '/connection' ][0]['methods'] );
+		$this->assertArrayHasKey( $ns . '/site-connection/brand/remove', $routes );
+		$this->assertArrayHasKey( 'DELETE', $routes[ $ns . '/site-connection/brand/remove' ][0]['methods'] );
 	}
 
 	/**
@@ -325,7 +325,7 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 		};
 		add_filter( 'pre_http_request', $filter, 10, 3 );
 
-		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/connection' );
+		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/site-connection/brand/remove' );
 		$request->set_header( 'origin', 'https://brand.example.com' );
 		$request->set_header( 'X-OneSearch-Token', $api_key );
 
@@ -379,7 +379,7 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 		add_filter( 'pre_http_request', static fn () => new \WP_Error( 'blocked', 'Intercepted' ) );
 
 		$make_request = static function () use ( $api_key ): WP_REST_Request {
-			$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/connection' );
+			$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/site-connection/brand/remove' );
 			$request->set_header( 'origin', 'https://brand.example.com' );
 			$request->set_header( 'X-OneSearch-Token', $api_key );
 			return $request;
@@ -415,7 +415,7 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 		);
 
 		// Valid key, but presented from a site it does not belong to.
-		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/connection' );
+		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/site-connection/brand/remove' );
 		$request->set_header( 'origin', 'https://other.example.com' );
 		$request->set_header( 'X-OneSearch-Token', 'brand-key' );
 
@@ -439,7 +439,7 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 			]
 		);
 
-		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/connection' );
+		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/site-connection/brand/remove' );
 		$request->set_header( 'origin', 'https://stranger.example.com' );
 		$request->set_header( 'X-OneSearch-Token', 'brand-key' );
 
@@ -455,7 +455,7 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 	public function test_remove_brand_site_is_idempotent(): void {
 		Settings::set_shared_sites( [] );
 
-		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/connection' );
+		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/site-connection/brand/remove' );
 		$request->set_header( 'origin', 'https://brand.example.com' );
 
 		$response = ( new Governing_Data_Controller() )->remove_brand_site( $request );
@@ -468,7 +468,7 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 	 * A request that carries no identifiable origin is rejected.
 	 */
 	public function test_remove_brand_site_rejects_unidentifiable_origin(): void {
-		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/connection' );
+		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/site-connection/brand/remove' );
 
 		$response = ( new Governing_Data_Controller() )->remove_brand_site( $request );
 
@@ -499,7 +499,7 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 		};
 		add_action( 'update_option_' . Settings::OPTION_GOVERNING_SHARED_SITES, $listener, 10, 1 );
 
-		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/connection' );
+		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/site-connection/brand/remove' );
 		$request->set_header( 'origin', 'https://brand.example.com' );
 		$request->set_header( 'X-OneSearch-Token', 'brand-key' );
 

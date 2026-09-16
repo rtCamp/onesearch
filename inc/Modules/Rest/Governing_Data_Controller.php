@@ -19,6 +19,16 @@ use WP_REST_Server;
  */
 class Governing_Data_Controller extends Abstract_REST_Controller {
 	/**
+	 * Route a brand site calls on its governing site to remove itself.
+	 */
+	public const ROUTE_REMOVE_BRAND = '/site-connection/brand/remove';
+
+	/**
+	 * Route a governing site calls on a brand site to clear the pairing.
+	 */
+	public const ROUTE_REMOVE_GOVERNING = '/site-connection/governing/remove';
+
+	/**
 	 * {@inheritDoc}
 	 */
 	public function register_routes(): void {
@@ -37,7 +47,7 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 			// Lets a brand site deregister itself.
 			register_rest_route(
 				self::NAMESPACE,
-				'/connection',
+				self::ROUTE_REMOVE_BRAND,
 				[
 					'methods'             => WP_REST_Server::DELETABLE,
 					'callback'            => [ $this, 'remove_brand_site' ],
@@ -62,7 +72,7 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 			// Lets the governing site drop this brand site.
 			register_rest_route(
 				self::NAMESPACE,
-				'/connection',
+				self::ROUTE_REMOVE_GOVERNING,
 				[
 					'methods'             => WP_REST_Server::DELETABLE,
 					'callback'            => [ $this, 'remove_governing_site_connection' ],

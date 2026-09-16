@@ -315,7 +315,7 @@ class Governing_Data_Handler {
 			);
 		}
 
-		$response = self::request_disconnect( $parent_url, $our_public_key );
+		$response = self::request_disconnect( $parent_url, $our_public_key, Governing_Data_Controller::ROUTE_REMOVE_BRAND );
 
 		$error = self::get_disconnect_error( $response );
 		if ( null === $error ) {
@@ -362,7 +362,7 @@ class Governing_Data_Handler {
 				continue;
 			}
 
-			$error = self::get_disconnect_error( self::request_disconnect( $site_url, $api_key ) );
+			$error = self::get_disconnect_error( self::request_disconnect( $site_url, $api_key, Governing_Data_Controller::ROUTE_REMOVE_GOVERNING ) );
 			if ( null === $error ) {
 				self::clear_pending_disconnect_notice( $site_url );
 				continue;
@@ -481,7 +481,7 @@ class Governing_Data_Handler {
 			return true;
 		}
 
-		$error = self::get_disconnect_error( self::request_disconnect( $site_url, $api_key ) );
+		$error = self::get_disconnect_error( self::request_disconnect( $site_url, $api_key, Governing_Data_Controller::ROUTE_REMOVE_GOVERNING ) );
 		if ( null === $error ) {
 			unset( $pending[ $site_url ] );
 			update_option( self::OPTION_PENDING_DISCONNECT_NOTICES, $pending, false );
@@ -592,7 +592,7 @@ class Governing_Data_Handler {
 			return true;
 		}
 
-		$error = self::get_disconnect_error( self::request_disconnect( $pending['url'], $api_key ) );
+		$error = self::get_disconnect_error( self::request_disconnect( $pending['url'], $api_key, Governing_Data_Controller::ROUTE_REMOVE_BRAND ) );
 		if ( null === $error ) {
 			self::clear_pending_governing_disconnect();
 			return true;
@@ -655,16 +655,21 @@ class Governing_Data_Handler {
 	/**
 	 * Sends a disconnection request to the paired site.
 	 *
+	 * The two roles expose different routes, so the caller picks the one the
+	 * receiving site registers.
+	 *
 	 * @param string $site_url The URL of the site to disconnect from.
 	 * @param string $api_key  The API key used to authenticate against that site.
+	 * @param string $route    Route on the receiving site, a Governing_Data_Controller::ROUTE_REMOVE_* constant.
 	 *
 	 * @return array<string,mixed>|\WP_Error The response, or WP_Error on failure.
 	 */
-	private static function request_disconnect( string $site_url, string $api_key ) {
+	private static function request_disconnect( string $site_url, string $api_key, string $route ) {
 		$endpoint = sprintf(
-			'%s/wp-json/%s/connection',
+			'%s/wp-json/%s%s',
 			untrailingslashit( $site_url ),
 			Abstract_REST_Controller::NAMESPACE,
+			$route,
 		);
 
 		return wp_safe_remote_request(

@@ -426,12 +426,12 @@ class Basic_Options_ControllerTest extends TestCase {
 		$deregistrations = array_values(
 			array_filter(
 				$requests,
-				static fn ( array $request ): bool => str_contains( $request['url'], '/onesearch/v1/connection' )
+				static fn ( array $request ): bool => str_contains( $request['url'], '/onesearch/v1/site-connection/brand/remove' )
 			)
 		);
 
 		$this->assertCount( 1, $deregistrations );
-		$this->assertSame( 'https://governing.example.com/wp-json/onesearch/v1/connection', $deregistrations[0]['url'] );
+		$this->assertSame( 'https://governing.example.com/wp-json/onesearch/v1/site-connection/brand/remove', $deregistrations[0]['url'] );
 		$this->assertSame( 'DELETE', $deregistrations[0]['args']['method'] );
 		$this->assertSame( $api_key, $deregistrations[0]['args']['headers']['X-OneSearch-Token'] );
 	}

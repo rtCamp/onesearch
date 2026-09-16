@@ -412,8 +412,8 @@ final class SettingsTest extends TestCase {
 
 		remove_filter( 'pre_http_request', $filter );
 
-		$this->assertSame( [ 'https://removed.example.com/wp-json/onesearch/v1/connection' ], array_keys( $requests ) );
-		$this->assertSame( 'removed-key', $requests['https://removed.example.com/wp-json/onesearch/v1/connection']['headers']['X-OneSearch-Token'] );
+		$this->assertSame( [ 'https://removed.example.com/wp-json/onesearch/v1/site-connection/governing/remove' ], array_keys( $requests ) );
+		$this->assertSame( 'removed-key', $requests['https://removed.example.com/wp-json/onesearch/v1/site-connection/governing/remove']['headers']['X-OneSearch-Token'] );
 	}
 
 	/**
@@ -480,7 +480,7 @@ final class SettingsTest extends TestCase {
 
 		remove_filter( 'pre_http_request', $filter );
 
-		$this->assertSame( [ 'https://removed.example.com/wp-json/onesearch/v1/connection' ], $requested_urls );
+		$this->assertSame( [ 'https://removed.example.com/wp-json/onesearch/v1/site-connection/governing/remove' ], $requested_urls );
 	}
 
 	/**
@@ -512,6 +512,6 @@ final class SettingsTest extends TestCase {
 		remove_filter( 'pre_http_request', $filter );
 		remove_action( 'update_option_' . Settings::OPTION_GOVERNING_SHARED_SITES, [ $this->settings, 'notify_removed_brand_sites' ], 10 );
 
-		$this->assertContains( 'https://brand.example.com/wp-json/onesearch/v1/connection', $requested_urls );
+		$this->assertContains( 'https://brand.example.com/wp-json/onesearch/v1/site-connection/governing/remove', $requested_urls );
 	}
 }
