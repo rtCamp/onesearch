@@ -4,19 +4,19 @@
 /**
  * External dependencies
  */
-import { useEffect, useState, useCallback } from 'react';
 import {
-	TextareaControl,
 	Button,
 	Card,
+	CardBody,
+	CardHeader,
+	Modal,
 	Notice,
 	Spinner,
-	CardHeader,
-	CardBody,
+	TextareaControl,
 	TextControl,
-	Modal,
 } from '@wordpress/components';
-import { __ } from '@wordpress/i18n';
+import { __, sprintf } from '@wordpress/i18n';
+import { useCallback, useEffect, useState } from 'react';
 
 /**
  * Internal dependencies
@@ -34,6 +34,7 @@ const SiteSettings = () => {
 	const [ governingSite, setGoverningSite ] = useState( '' );
 	const [ showDisconnectionModal, setShowDisconnectionModal ] =
 		useState( false );
+	const [ hasPendingDisconnect, setHasPendingDisconnect ] = useState( false );
 
 	const fetchApiKey = useCallback( async () => {
 		setIsLoading( true );
@@ -140,6 +141,8 @@ const SiteSettings = () => {
 	}, [ apiKey ] );
 
 	const deleteGoverningSiteConnection = useCallback( async () => {
+		const previousGoverningSite = governingSite;
+
 		try {
 			const response = await fetch( `${ API_NAMESPACE }/governing-site`, {
 				method: 'DELETE',
@@ -152,10 +155,36 @@ const SiteSettings = () => {
 			if ( ! response.ok ) {
 				throw new Error( 'Network response was not ok' );
 			}
+			const data = await response.json();
 
-			// Reload so the admin notice for an undelivered disconnection (rendered
-			// server-side) shows up immediately instead of only after a manual refresh.
-			window.location.reload();
+			setGoverningSite( '' );
+			setShowDisconnectionModal( false );
+
+			if ( ! data?.remote_disconnected ) {
+				setHasPendingDisconnect( true );
+				setNotice( {
+					type: 'warning',
+					message:
+						data?.message ||
+						sprintf(
+							/* translators: %s: governing site URL. */
+							__(
+								'The governing site "%s" could not be notified that this site disconnected, and may still list this site as connected.',
+								'onesearch'
+							),
+							previousGoverningSite
+						),
+				} );
+				return;
+			}
+
+			setNotice( {
+				type: 'success',
+				message: __(
+					'Governing site disconnected successfully.',
+					'onesearch'
+				),
+			} );
 		} catch {
 			setNotice( {
 				type: 'error',
@@ -166,7 +195,7 @@ const SiteSettings = () => {
 			} );
 			setShowDisconnectionModal( false );
 		}
-	}, [ apiKey ] );
+	}, [ apiKey, governingSite ] );
 
 	const handleDisconnectGoverningSite = useCallback( async () => {
 		setShowDisconnectionModal( true );
@@ -183,7 +212,35 @@ const SiteSettings = () => {
 
 	return (
 		<>
-			{ notice && (
+			{ notice && hasPendingDisconnect && (
+				/*
+				 * Core admin-notice markup rather than <Notice>, so this renders
+				 * identically to its server-side counterpart in
+				 * Settings::render_disconnect_retry_row() - which takes over on the
+				 * next page load, and whose Retry is the one that does the work.
+				 */
+				<div className="notice notice-warning">
+					<div
+						style={ {
+							display: 'flex',
+							alignItems: 'center',
+							justifyContent: 'space-between',
+							gap: '8px',
+						} }
+					>
+						<p style={ { margin: 0 } }>{ notice.message }</p>
+						<button
+							type="button"
+							className="button button-secondary"
+							onClick={ () => window.location.reload() }
+						>
+							{ __( 'Retry', 'onesearch' ) }
+						</button>
+					</div>
+				</div>
+			) }
+
+			{ notice && ! hasPendingDisconnect && (
 				<Notice
 					status={ notice.type }
 					isDismissible

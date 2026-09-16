@@ -238,8 +238,10 @@ class Basic_Options_Controller extends Abstract_REST_Controller {
 	 * @return \WP_REST_Response|\WP_Error
 	 */
 	public function remove_governing_site(): WP_REST_Response|\WP_Error {
+		$parent_url = Settings::get_parent_site_url();
+
 		// With no governing site recorded there is nothing to propagate.
-		$deregistered = empty( Settings::get_parent_site_url() )
+		$deregistered = empty( $parent_url )
 			? true
 			: Governing_Data_Handler::deregister_from_governing_site();
 
@@ -253,7 +255,12 @@ class Basic_Options_Controller extends Abstract_REST_Controller {
 				[
 					'success'             => true,
 					'remote_disconnected' => false,
-					'message'             => __( 'Governing site disconnected on this site, but the governing site could not be notified and may still list this brand site.', 'onesearch' ),
+					// Worded exactly as the admin notice that takes over on the next page load.
+					'message'             => sprintf(
+						/* translators: %s: governing site URL. */
+						__( 'The governing site "%s" could not be notified that this site disconnected, and may still list this site as connected.', 'onesearch' ),
+						$parent_url
+					),
 					'remote_error'        => $deregistered->get_error_message(),
 				]
 			);

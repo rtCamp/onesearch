@@ -165,7 +165,7 @@ final class Settings implements Registrable {
 	 */
 	private static function render_disconnect_retry_row( string $message, string $nonce_action, array $hidden_fields = [] ): void {
 		// A <p> auto-closes as soon as a <form> follows it, which would break the layout; use a <div> instead.
-		echo '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:1em 0;">';
+		echo '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">';
 
 		printf( '<p style="margin:0;">%s</p>', esc_html( $message ) );
 

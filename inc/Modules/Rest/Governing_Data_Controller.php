@@ -44,7 +44,6 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 				]
 			);
 
-			// Lets a brand site deregister itself.
 			register_rest_route(
 				self::NAMESPACE,
 				self::ROUTE_REMOVE_BRAND,
@@ -69,7 +68,6 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 				]
 			);
 
-			// Lets the governing site drop this brand site.
 			register_rest_route(
 				self::NAMESPACE,
 				self::ROUTE_REMOVE_GOVERNING,
