@@ -238,19 +238,23 @@ class Basic_Options_Controller extends Abstract_REST_Controller {
 	 * @return \WP_REST_Response|\WP_Error
 	 */
 	public function remove_governing_site(): WP_REST_Response|\WP_Error {
-		$parent_url = Settings::get_parent_site_url();
+		$parent_url   = Settings::get_parent_site_url();
+		$remote_error = '';
 
-		// With no governing site recorded there is nothing to propagate.
-		$deregistered = empty( $parent_url )
-			? true
-			: Governing_Data_Handler::deregister_from_governing_site();
+		// Without a governing site there is nothing to propagate, and nothing local to tear down.
+		if ( ! empty( $parent_url ) ) {
+			// Reads the parent URL, so it has to run before the option is deleted.
+			$deregistered = Governing_Data_Handler::deregister_from_governing_site();
 
-		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
+			if ( is_wp_error( $deregistered ) ) {
+				$remote_error = $deregistered->get_error_message();
+			}
 
-		// Clear cached brand configuration.
-		Governing_Data_Handler::clear_brand_config_cache();
+			delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
+			Governing_Data_Handler::clear_brand_config_cache();
+		}
 
-		if ( is_wp_error( $deregistered ) ) {
+		if ( '' !== $remote_error ) {
 			return rest_ensure_response(
 				[
 					'success'             => true,
@@ -261,7 +265,7 @@ class Basic_Options_Controller extends Abstract_REST_Controller {
 						__( 'The governing site "%s" could not be notified that this site disconnected, and may still list this site as connected.', 'onesearch' ),
 						$parent_url
 					),
-					'remote_error'        => $deregistered->get_error_message(),
+					'remote_error'        => $remote_error,
 				]
 			);
 		}

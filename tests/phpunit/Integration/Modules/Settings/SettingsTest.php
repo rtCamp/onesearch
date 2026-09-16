@@ -381,7 +381,7 @@ final class SettingsTest extends TestCase {
 	/**
 	 * A brand site removed from the governing site is told to drop its own pairing.
 	 */
-	public function test_notify_removed_brand_sites_notifies_dropped_sites(): void {
+	public function test_on_brand_site_removed_notifies_dropped_sites(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
 
 		$requests = [];
@@ -391,7 +391,7 @@ final class SettingsTest extends TestCase {
 		};
 		add_filter( 'pre_http_request', $filter, 10, 3 );
 
-		$this->settings->notify_removed_brand_sites(
+		$this->settings->on_brand_site_removed(
 			[
 				[
 					'url'     => 'https://removed.example.com',
@@ -419,7 +419,7 @@ final class SettingsTest extends TestCase {
 	/**
 	 * Nothing is sent when the update did not drop any site.
 	 */
-	public function test_notify_removed_brand_sites_ignores_unrelated_updates(): void {
+	public function test_on_brand_site_removed_ignores_unrelated_updates(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
 
 		$requested_urls = [];
@@ -430,7 +430,7 @@ final class SettingsTest extends TestCase {
 		add_filter( 'pre_http_request', $filter, 10, 3 );
 
 		// Renaming a site keeps it connected.
-		$this->settings->notify_removed_brand_sites(
+		$this->settings->on_brand_site_removed(
 			[
 				[
 					'name'    => 'Old Name',
@@ -448,7 +448,7 @@ final class SettingsTest extends TestCase {
 		);
 
 		// There was nothing connected to begin with.
-		$this->settings->notify_removed_brand_sites( [], [] );
+		$this->settings->on_brand_site_removed( [], [] );
 
 		remove_filter( 'pre_http_request', $filter );
 
@@ -458,7 +458,7 @@ final class SettingsTest extends TestCase {
 	/**
 	 * Deleting the last brand site still notifies it.
 	 */
-	public function test_notify_removed_brand_sites_handles_emptied_list(): void {
+	public function test_on_brand_site_removed_handles_emptied_list(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
 
 		$requested_urls = [];
@@ -468,7 +468,7 @@ final class SettingsTest extends TestCase {
 		};
 		add_filter( 'pre_http_request', $filter, 10, 3 );
 
-		$this->settings->notify_removed_brand_sites(
+		$this->settings->on_brand_site_removed(
 			[
 				[
 					'url'     => 'https://removed.example.com',
@@ -510,7 +510,7 @@ final class SettingsTest extends TestCase {
 		Settings::set_shared_sites( [] );
 
 		remove_filter( 'pre_http_request', $filter );
-		remove_action( 'update_option_' . Settings::OPTION_GOVERNING_SHARED_SITES, [ $this->settings, 'notify_removed_brand_sites' ], 10 );
+		remove_action( 'update_option_' . Settings::OPTION_GOVERNING_SHARED_SITES, [ $this->settings, 'on_brand_site_removed' ], 10 );
 
 		$this->assertContains( 'https://brand.example.com/wp-json/onesearch/v1/site-connection/governing/remove', $requested_urls );
 	}

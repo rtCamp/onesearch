@@ -27,6 +27,7 @@ final class Main {
 		Modules\Core\Assets::class,
 		Modules\Core\Rest::class,
 		Modules\Settings\Admin::class,
+		Modules\Settings\Disconnect_Notices::class,
 		Modules\Settings\Settings::class,
 		Modules\Search\Admin::class,
 		Modules\Search\Search::class,

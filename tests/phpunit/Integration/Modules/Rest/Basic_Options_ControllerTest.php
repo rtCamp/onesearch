@@ -356,6 +356,41 @@ class Basic_Options_ControllerTest extends TestCase {
 	}
 
 	/**
+	 * Touches nothing on a governing site, where no governing site is ever recorded.
+	 *
+	 * Clearing the config cache there fans out to every shared brand site, so the
+	 * teardown has to stay scoped to sites that actually had a pairing.
+	 */
+	public function test_remove_governing_site_does_not_notify_brand_sites(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		Settings::set_shared_sites(
+			[
+				'https://brand.example.com/' => [
+					'url'     => 'https://brand.example.com/',
+					'name'    => 'Brand',
+					'api_key' => 'brand-key',
+				],
+			]
+		);
+
+		$requested_urls = [];
+		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requested_urls[] = $url;
+			return new \WP_Error( 'blocked', 'Intercepted' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$request  = new WP_REST_Request( 'DELETE', '/onesearch/v1/governing-site' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertTrue( $data['success'] );
+		$this->assertEmpty( $requested_urls );
+	}
+
+	/**
 	 * GET secret-key returns a non-empty key (auto-generated if absent).
 	 */
 	public function test_get_secret_key_returns_key(): void {
