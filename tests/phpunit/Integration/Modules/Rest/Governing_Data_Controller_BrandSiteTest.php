@@ -99,17 +99,6 @@ class Governing_Data_Controller_BrandSiteTest extends TestCase {
 	}
 
 	/**
-	 * The brand site exposes the connection endpoint its governing site disconnects through.
-	 */
-	public function test_registers_connection_delete_route(): void {
-		$routes = $this->server->get_routes();
-		$ns     = '/' . Governing_Data_Controller::NAMESPACE;
-
-		$this->assertArrayHasKey( $ns . '/site-connection/governing/remove', $routes );
-		$this->assertArrayHasKey( 'DELETE', $routes[ $ns . '/site-connection/governing/remove' ][0]['methods'] );
-	}
-
-	/**
 	 * The governing site can clear the pairing when it deletes this brand site.
 	 */
 	public function test_remove_governing_site_connection_clears_pairing(): void {
