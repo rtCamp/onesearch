@@ -397,7 +397,6 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 		// Falls back to the route's registered default when absint() yields 0.
 		$batch_size = $request->get_param( 'batch_size' ) ?: 100;
 
-		// If no post_types specified, resolve from settings.
 		if ( empty( $post_types ) ) {
 			$post_types = $this->get_post_types_to_index();
 
@@ -471,8 +470,7 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 
 		$scheduler->cancel( $job_id );
 
-		// If this is a parent Reindex_Job being cancelled, clear the
-		// reindex state so the frontend knows it can start a new one.
+		// Clearing the reindex state is what tells the frontend it may start a new run.
 		if ( ! empty( $status['child_ids'] ?? [] ) ) {
 			Search_Controller::clear_reindex_state();
 		}
@@ -555,7 +553,6 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 			return $this->retry_failed_child_jobs( $scheduler, $status );
 		}
 
-		// Unschedule any remaining retry actions for this job.
 		$group      = 'onesearch_' . ( $status['group'] ?? 'default' );
 		$repository = new Job_Repository();
 		$action_rec = $repository->get_action( $job_id );
@@ -563,7 +560,6 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 			as_unschedule_action( Job_Scheduler::HOOK, $action_rec['args'], $group );
 		}
 
-		// Reconstruct, reset, and reschedule the same job.
 		$job = Sync_Job::from_array( $status );
 		$job->set_status( Abstract_Job::STATUS_PENDING );
 		$job->set_retry_count( 0 );
@@ -579,7 +575,6 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 			);
 		}
 
-		// If this child had a parent, reset parent tracking.
 		$parent_id = $status['parent_id'] ?? '';
 		if ( $parent_id ) {
 			$this->reset_parent_for_retry( $scheduler, $wpdb, $parent_id );
@@ -639,9 +634,7 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 		}
 
 		if ( empty( $failed_children ) ) {
-			// Parent is stuck in a failed state but all children have completed —
-			// this is a stale status caused by a race between notify_parent() and
-			// cancel()/timeout. Reconcile the parent to completed and return success.
+			// A failed parent with all children complete is a notify_parent()/cancel() race; reconcile it to completed.
 			if ( $completed_children > 0 ) {
 				$repository                        = new Job_Repository();
 				$parent_data['status']             = Abstract_Job::STATUS_COMPLETED;
@@ -765,7 +758,6 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 		$parent_data['children_completed'] = $new_done;
 		$parent_data['children_failed']    = $new_failed;
 
-		// If parent was terminal, reset to RUNNING.
 		if ( in_array( $parent_data['status'] ?? '', Job_Scheduler::TERMINAL_STATUSES, true ) ) {
 			$parent_data['status']     = Abstract_Job::STATUS_RUNNING;
 			$parent_data['updated_at'] = time();
@@ -868,8 +860,7 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 
 		$children_total = count( $child_ids );
 
-		// Capture DB-stored aggregate totals before overwriting with local counts.
-		// When _remote_aggregated is set these values already include remote sites.
+		// Capture stored aggregates first: when _remote_aggregated is set they already include remote sites.
 		$stored_children_completed = (int) ( $job['children_completed'] ?? 0 );
 		$stored_children_total     = (int) ( $job['children_total'] ?? 0 );
 
@@ -880,13 +871,10 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 			$local_failed + $local_cancelled
 		);
 
-		// Aggregate remote job progress for governing sites.
-		// Use batch_count from stored sites array for totals (reliable, no API call),
-		// and fetch completed counts from remote APIs.
+		// Totals come from the stored batch_count to avoid an API call; only completed counts need remote polling.
 		if ( $has_remote ) {
 			$current_site = \OneSearch\Utils::normalize_url( get_site_url() );
 
-			// Calculate remote totals from stored batch_count (always accurate).
 			$remote_total = 0;
 			foreach ( $remote_sites as $site_info ) {
 				$site_url = \OneSearch\Utils::normalize_url( $site_info['site_url'] ?? '' );
@@ -897,15 +885,12 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 			}
 
 			if ( ! empty( $job['data']['_remote_aggregated'] ) ) {
-				// Already finalized — use the DB-stored aggregate (includes remote).
-				// Cannot read from $job['children_completed']/['children_total'] here
-				// because those were just overwritten with local-only counts above.
+				// $job's child counts were just overwritten with local-only values, so read the stored aggregate instead.
 				$children_completed        = $stored_children_completed ?: $children_completed;
 				$children_total            = $stored_children_total ?: $children_total + $remote_total;
 				$job['children_completed'] = $children_completed;
 				$job['children_total']     = $children_total;
 			} else {
-				// Fetch remote completed counts via API (cached after finalization).
 				$remote_progress     = $scheduler->fetch_remote_job_progress( $remote_sites );
 				$children_completed += $remote_progress['completed'];
 				$children_terminal  += $remote_progress['terminal'];
@@ -944,7 +929,6 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 			}
 		}
 
-		// Skip all remote finalization work once the row has been cached.
 		if ( $has_remote && empty( $job['data']['_remote_aggregated'] ) ) {
 			$resolved       = true;
 			$needs_finalize = ! empty( $job['data']['_needs_remote_finalize'] );
@@ -956,8 +940,7 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 				$r = $scheduler->check_remote_job_statuses( $remote_sites );
 
 				if ( $r['running'] > 0 ) {
-					// Remote sites still in flight — leave uncached so the next
-					// history load re-polls.
+					// Leave uncached while remote sites are in flight so the next history load re-polls.
 					$resolved = false;
 				} else {
 					if ( $r['cancelled'] > 0 ) {
@@ -980,8 +963,7 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 				}
 			}
 
-			// Once the job is in a stable terminal state, persist the aggregated
-			// totals and mark the row so future history loads skip remote polling.
+			// Marking the row at terminal state lets future history loads skip remote polling.
 			if ( $resolved && in_array( $job['status'] ?? '', Job_Scheduler::TERMINAL_STATUSES, true ) ) {
 				unset( $job['data']['_needs_remote_finalize'] );
 				$job['data']['_remote_aggregated'] = true;
@@ -1073,7 +1055,6 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 		$namespace      = self::NAMESPACE;
 		$encoded_job_id = rawurlencode( (string) $job_id );
 
-		// Fetch job status.
 		$job_response = wp_safe_remote_get(
 			sprintf( '%s/wp-json/%s/jobs/%s', $base_url, $namespace, $encoded_job_id ),
 			[
@@ -1082,7 +1063,6 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 			]
 		);
 
-		// Fetch children.
 		$children_response = wp_safe_remote_get(
 			sprintf( '%s/wp-json/%s/jobs/%s/children', $base_url, $namespace, $encoded_job_id ),
 			[
@@ -1094,7 +1074,6 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 		$job_data      = null;
 		$children_data = [];
 
-		// Parse job response.
 		if ( ! is_wp_error( $job_response ) ) {
 			$code = wp_remote_retrieve_response_code( $job_response );
 			$body = wp_remote_retrieve_body( $job_response );
@@ -1104,7 +1083,6 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 			}
 		}
 
-		// Parse children response.
 		if ( ! is_wp_error( $children_response ) ) {
 			$code = wp_remote_retrieve_response_code( $children_response );
 			$body = wp_remote_retrieve_body( $children_response );

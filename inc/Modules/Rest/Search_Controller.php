@@ -271,9 +271,7 @@ class Search_Controller extends Abstract_REST_Controller {
 	 * child Sync_Jobs; the child Sync_Jobs then run asynchronously via Action Scheduler.
 	 */
 	public function reindex(): \WP_REST_Response|\WP_Error {
-		// Guard: prevent starting a new reindex while one is already running.
-		// Use an option-based mutex (add_option is atomic in MySQL) to prevent
-		// race conditions between concurrent requests.
+		// add_option() is atomic in MySQL, so it doubles as a mutex against concurrent reindex requests.
 		$lock_key = self::REINDEX_STATE_TRANSIENT . '_lock';
 		if ( ! add_option( $lock_key, '1', '', false ) ) {
 			return new \WP_Error(
@@ -283,10 +281,7 @@ class Search_Controller extends Abstract_REST_Controller {
 			);
 		}
 
-		// Auto-expire the lock after 5 minutes in case the process crashes
-		// before cleanup. wp_schedule_single_action is preferred but not
-		// guaranteed to be available during plugin init, so we use a transient
-		// as a safety net.
+		// Transient, not wp_schedule_single_action, which isn't guaranteed available during init; expires a crashed lock.
 		set_transient( $lock_key . '_expiry', '1', 5 * MINUTE_IN_SECONDS );
 
 		$active_state = $this->get_active_reindex_state();
@@ -322,9 +317,7 @@ class Search_Controller extends Abstract_REST_Controller {
 			return $post_types;
 		}
 
-		// Create and execute the Reindex_Job synchronously.
-		// The parent job runs in this request (resolve posts, clear index,
-		// schedule child Sync_Jobs). Only the child Sync_Jobs run async via AS.
+		// The parent runs inline so the caller gets child job IDs back; only the child Sync_Jobs go async via AS.
 		$job = new Reindex_Job();
 		$job->set_data(
 			[
@@ -343,10 +336,7 @@ class Search_Controller extends Abstract_REST_Controller {
 			$scheduler->persist_job( $job );
 			$job->handle();
 
-			// Only re-persist when no children were scheduled.
-			// When children exist, notify_parent() owns the parent lifecycle;
-			// re-persisting RUNNING here would clobber a terminal status that a
-			// fast child already wrote during async processing.
+			// Once children exist notify_parent() owns the parent lifecycle; re-persisting here would clobber a terminal status.
 			if ( ! $job->has_pending_children() ) {
 				if ( ! $job->is_finished() ) {
 					$job->mark_completed();
@@ -362,7 +352,6 @@ class Search_Controller extends Abstract_REST_Controller {
 			];
 		}
 
-		// Add local site to the jobs list.
 		$local_site_name = Settings::is_governing_site() ? __( 'Governing Site', 'onesearch' ) : get_bloginfo( 'name' );
 		$local_site_url  = get_site_url();
 		$local_batches   = count( $job->get_child_ids() );
@@ -379,16 +368,14 @@ class Search_Controller extends Abstract_REST_Controller {
 			);
 		}
 
-		// Compute combined total across all sites and store in the
-		// governing site's job data so the history table can display it.
+		// The history table reads the combined cross-site total from the governing job's data.
 		if ( Settings::is_governing_site() ) {
 			$total_batches      = $local_batches;
 			$child_batch_counts = $child_result['batch_counts'] ?? [];
 			foreach ( $child_batch_counts as $count ) {
 				$total_batches += $count;
 			}
-			// Re-read the freshest stored state so we never downgrade a terminal
-			// status (e.g. COMPLETED) that notify_parent() may have already written.
+			// Re-read stored state so we never downgrade a terminal status notify_parent() already wrote.
 			$latest    = $scheduler->get_status( $job_id );
 			$merge_job = $latest ? Reindex_Job::from_array( $latest ) : $job;
 			$merge_job->set_data(
@@ -464,8 +451,7 @@ class Search_Controller extends Abstract_REST_Controller {
 			$job_id     = $entry['job_id'] ?? '';
 			$job_status = $scheduler->get_status( $job_id );
 
-			// Missing row = not blocking; live jobs are always persisted before
-			// the reindex lock is released, so absence means the job is gone.
+			// Live jobs are persisted before the lock is released, so a missing row means the job is gone, not blocking.
 			if ( ! $job_status ) {
 				continue;
 			}
@@ -475,9 +461,7 @@ class Search_Controller extends Abstract_REST_Controller {
 				continue;
 			}
 
-			// Pending/running but no progress for > 15 min = abandoned.
-			// updated_at is bumped by every notify_parent() call, so stale
-			// updated_at reliably means the job is wedged or the process died.
+			// notify_parent() bumps updated_at, so 15 min of staleness means the job is wedged or its process died.
 			$updated_at = (int) ( $job_status['updated_at'] ?? 0 );
 			if ( $updated_at > 0 && ( $now - $updated_at ) > self::STALE_JOB_THRESHOLD ) {
 				continue;
@@ -644,7 +628,6 @@ class Search_Controller extends Abstract_REST_Controller {
 				continue;
 			}
 
-			// Capture the child job ID from the child's response.
 			if ( ! empty( $response_data['job_id'] ) ) {
 				$child_jobs[]   = [
 					'site_name'   => $site_data['name'] ?? $site_data['url'],

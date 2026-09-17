@@ -251,7 +251,7 @@ final class Index {
 			return true;
 		}
 
-		// Check if settings were already applied in a previous request.
+		// Index settings rarely change, so re-sending them on every request is wasted API budget.
 		if ( 'yes' === get_transient( self::SETTINGS_INITIALIZED_KEY ) ) {
 			self::$settings_initialized = true;
 			return true;

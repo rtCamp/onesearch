@@ -113,7 +113,6 @@ final class Sync_Job extends Abstract_Job {
 			$this->update_progress( $i + 1 );
 		}
 
-		// Batch all deletions into a single Algolia call.
 		if ( ! empty( $delete_filters ) ) {
 			$result = $index->delete_by(
 				[

@@ -76,7 +76,7 @@ final class Reindex_Job extends Abstract_Job {
 
 		$allowed_statuses = \OneSearch\Modules\Search\Post_Record::get_allowed_statuses( $post_types );
 
-		// Clear existing records before reindexing.
+		// Clearing up front means a failed reindex leaves the site unsearchable until the next successful run.
 		$indexer = new Index();
 		$indexer->delete_by(
 			[
@@ -129,7 +129,6 @@ final class Reindex_Job extends Abstract_Job {
 				$this->add_child_id( $child->get_id() );
 				++$scheduled;
 			} catch ( \Throwable $e ) {
-				// If scheduling fails, cancel all already-scheduled children.
 				foreach ( $this->get_child_ids() as $child_id ) {
 					$scheduler->cancel( $child_id );
 				}
@@ -156,9 +155,7 @@ final class Reindex_Job extends Abstract_Job {
 		// Persist the parent job with child IDs so we can track completion.
 		$scheduler->persist_job( $this );
 
-		// REST-triggered reindexes do not run in wp-admin, so Action Scheduler's
-		// normal shutdown-based async dispatch may not fire. Dispatch the async
-		// runner directly when available, and fall back to cron nudging otherwise.
+		// AS's shutdown-based dispatch only fires in wp-admin, so REST-triggered reindexes must nudge the runner directly.
 		if (
 			class_exists( '\\ActionScheduler_AsyncRequest_QueueRunner' )
 			&& class_exists( '\\ActionScheduler_Store' )

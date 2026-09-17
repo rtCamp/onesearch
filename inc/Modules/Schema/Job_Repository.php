@@ -72,8 +72,7 @@ class Job_Repository {
 
 		$row = $this->prepare_row( $data );
 
-		// Build placeholders handling NULLs explicitly — $wpdb->prepare('%s', null)
-		// produces '' not NULL, which breaks IS NULL queries on parent_id etc.
+		// $wpdb->prepare('%s', null) yields '' not NULL, which would break IS NULL queries on parent_id.
 		$columns      = array_keys( $row );
 		$placeholders = [];
 		$values       = [];
@@ -447,7 +446,6 @@ class Job_Repository {
 	private function prepare_row( array $data ): array {
 		$now = time();
 
-		// Fields without dedicated columns go into the data blob.
 		$blob_keys = [ 'max_retries', 'retry_count', 'retry_delay_seconds', 'child_ids' ];
 		$blob      = is_array( $data['data'] ?? null ) ? $data['data'] : [];
 		foreach ( $blob_keys as $key ) {
@@ -491,8 +489,7 @@ class Job_Repository {
 			$blob    = is_array( $decoded ) ? $decoded : [];
 		}
 
-		// Strip blob-only fields from the 'data' key so the domain model sees
-		// only the user-provided metadata, not the retry/child_ids we folded in.
+		// Strip the folded-in retry/child_ids so the domain model sees only user-provided metadata.
 		$data_only = array_diff_key(
 			$blob,
 			array_flip( [ 'max_retries', 'retry_count', 'retry_delay_seconds', 'child_ids' ] )

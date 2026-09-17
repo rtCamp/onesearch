@@ -298,10 +298,7 @@ final class Job_Scheduler {
 					$status['finished_at'] = time();
 					$status['updated_at']  = time();
 
-					// Always reconcile against the atomic DB counters: a snapshot
-					// (whether from the transient or a stale read) can lag behind
-					// what notify_parent() incremented directly, so the counters are
-					// the source of truth and prevent the upsert from regressing them.
+					// Snapshots lag behind notify_parent()'s direct increments, so the DB counters are the source of truth.
 					$counters                     = $this->repository->get_counters( $job_id );
 					$status['children_cancelled'] = $counters['cancelled'];
 					$status['children_failed']    = max( (int) ( $status['children_failed'] ?? 0 ), $counters['failed'] );
@@ -345,7 +342,6 @@ final class Job_Scheduler {
 			return;
 		}
 
-		// Children share one AS group: onesearch_reindex_{parent_id}.
 		$child_as_group = 'onesearch_reindex_' . $parent_id;
 		if ( function_exists( 'as_unschedule_all_actions' ) ) {
 			as_unschedule_all_actions( self::HOOK, [], $child_as_group );
@@ -497,9 +493,7 @@ final class Job_Scheduler {
 		try {
 			$job->handle();
 
-			// Re-check DB status: cancel() may have set this job to cancelled
-			// while handle() was running. If so, respect the cancellation and
-			// don't overwrite it with completed/running status.
+			// cancel() may have landed while handle() ran, so re-read status rather than overwrite the cancellation.
 			$current = $this->repository->get_by_id( $job_id );
 			if ( $current && Abstract_Job::STATUS_CANCELLED === ( $current['status'] ?? '' ) ) {
 				$job->set_status( Abstract_Job::STATUS_CANCELLED );
@@ -518,8 +512,7 @@ final class Job_Scheduler {
 		} catch ( \Throwable $e ) {
 			$job->set_retry_count( $retry + 1 );
 
-			// Re-check DB status: cancel() may have set this job to cancelled
-			// while handle() was running. If so, respect the cancellation.
+			// cancel() may have landed while handle() ran, so respect it rather than overwrite.
 			$current = $this->repository->get_by_id( $job_id );
 			if ( $current && Abstract_Job::STATUS_CANCELLED === ( $current['status'] ?? '' ) ) {
 				$job->set_status( Abstract_Job::STATUS_CANCELLED );
@@ -680,9 +673,7 @@ final class Job_Scheduler {
 		// Check if all local children are done (fast check, no lock needed yet).
 		$all_local_done = $child_total > 0 && $done >= $child_total;
 
-		// If all local children are done and this is a governing site with remote
-		// sites, check remote statuses BEFORE acquiring the lock. This prevents
-		// blocking cancel() during slow remote API calls.
+		// Poll remote statuses before taking the lock so slow remote calls don't block cancel().
 		$remote_status = null;
 		if ( $all_local_done && Settings::is_governing_site() ) {
 			$remote_sites = $parent_data['data']['sites'] ?? [];
@@ -691,8 +682,7 @@ final class Job_Scheduler {
 			}
 		}
 
-		// Acquire the lock for the parent status update (with expiry so a crashed
-		// process cannot orphan the lock indefinitely).
+		// Lock has an expiry so a crashed process cannot orphan it.
 		if ( ! $this->acquire_lock( $lock_key ) ) {
 			error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 				sprintf(
@@ -719,13 +709,11 @@ final class Job_Scheduler {
 			$parent_data['updated_at']         = time();
 
 			if ( $all_local_done ) {
-				// Incorporate remote status if we checked it earlier.
 				if ( null !== $remote_status ) {
 					$total_failed                  += $remote_status['failed'];
 					$total_cancelled               += $remote_status['cancelled'];
 					$parent_data['children_failed'] = $total_failed + $total_cancelled;
 
-					// If any remote site is still running, defer finalization.
 					if ( $remote_status['running'] > 0 ) {
 						$parent_data['data']['_needs_remote_finalize'] = true;
 						$parent_data['status']                         = Abstract_Job::STATUS_RUNNING;
@@ -850,8 +838,7 @@ final class Job_Scheduler {
 
 			$job_data = $this->fetch_remote_job( $site_url, $job_id, $site_keys );
 
-			// An unreachable/unauthorized site can't be confirmed successful, so
-			// it counts as failed (matching the prior behaviour).
+			// An unreachable or unauthorized site can't be confirmed successful, so it counts as failed.
 			if ( null === $job_data ) {
 				++$failed;
 				continue;

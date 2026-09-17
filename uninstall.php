@@ -120,7 +120,6 @@ function delete_options(): void {
 	);
 	// phpcs:enable
 
-	// Drop the custom jobs table.
 	$table = $wpdb->prefix . 'onesearch_index_jobs';
 	// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 	$wpdb->query( "DROP TABLE IF EXISTS {$table}" );
