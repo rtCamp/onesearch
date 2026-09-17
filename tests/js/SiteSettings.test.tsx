@@ -16,6 +16,9 @@ const siteSettingsFetch = ( handlers: {
 	governingSiteUrl?: string;
 	regeneratedKey?: string;
 	deleteOk?: boolean;
+	remoteDisconnected?: boolean;
+	retrySuccess?: boolean;
+	retryPending?: { site_url: string; message: string }[];
 	failSecretKey?: boolean;
 	failGoverningSite?: boolean;
 	failRegenerate?: boolean;
@@ -56,7 +59,22 @@ const siteSettingsFetch = ( handlers: {
 				return { ok: false } as Response;
 			}
 
-			return { ok: handlers.deleteOk ?? true } as Response;
+			if ( false === handlers.deleteOk ) {
+				return { ok: false } as Response;
+			}
+
+			return okJson( {
+				success: true,
+				remote_disconnected: handlers.remoteDisconnected ?? true,
+				message: 'The governing site could not be notified.',
+			} );
+		}
+
+		if ( url.endsWith( '/retry-disconnect' ) && method === 'POST' ) {
+			return okJson( {
+				success: handlers.retrySuccess ?? true,
+				pending: handlers.retryPending ?? [],
+			} );
 		}
 
 		return { ok: false } as Response;
@@ -91,7 +109,7 @@ describe( 'SiteSettings', () => {
 			await screen.findByText(
 				'Failed to fetch API key. Please try again later.',
 				{
-					selector: '.components-notice__content',
+					selector: '.components-snackbar__content',
 				}
 			)
 		).toBeInTheDocument();
@@ -118,7 +136,7 @@ describe( 'SiteSettings', () => {
 
 		expect(
 			await screen.findByText( 'API key copied to clipboard.', {
-				selector: '.components-notice__content',
+				selector: '.components-snackbar__content',
 			} )
 		).toBeInTheDocument();
 	} );
@@ -161,7 +179,104 @@ describe( 'SiteSettings', () => {
 		);
 		fireEvent.click( screen.getByRole( 'button', { name: 'Disconnect' } ) );
 
-		await waitFor( () => expect( console ).toHaveErrored() );
+		expect(
+			await screen.findByText(
+				'Governing site disconnected successfully.',
+				{
+					selector: '.components-snackbar__content',
+				}
+			)
+		).toBeInTheDocument();
+	} );
+
+	it( 'keeps a retryable notice when the governing site could not be notified', async () => {
+		global.fetch = siteSettingsFetch( {
+			secretKey: 'brand-secret',
+			governingSiteUrl: 'https://governing.example.com/',
+			remoteDisconnected: false,
+		} );
+
+		render( <SiteSettings /> );
+
+		await screen.findByDisplayValue( 'https://governing.example.com/' );
+		fireEvent.click(
+			screen.getByRole( 'button', { name: 'Disconnect Governing Site' } )
+		);
+		fireEvent.click( screen.getByRole( 'button', { name: 'Disconnect' } ) );
+
+		expect(
+			await screen.findByText(
+				'The governing site could not be notified.',
+				{
+					selector: '.components-notice__content',
+				}
+			)
+		).toBeInTheDocument();
+
+		// Retry posts to the endpoint and clears the notice once nothing is pending.
+		fireEvent.click( screen.getByRole( 'button', { name: 'Retry' } ) );
+
+		await waitFor( () =>
+			expect( global.fetch ).toHaveBeenCalledWith(
+				expect.stringContaining( '/retry-disconnect' ),
+				expect.objectContaining( { method: 'POST' } )
+			)
+		);
+
+		await waitFor( () =>
+			expect(
+				screen.queryByText(
+					'The governing site could not be notified.',
+					{
+						selector: '.components-notice__content',
+					}
+				)
+			).not.toBeInTheDocument()
+		);
+	} );
+
+	it( 'keeps the notice when the retry fails again', async () => {
+		global.fetch = siteSettingsFetch( {
+			secretKey: 'brand-secret',
+			governingSiteUrl: 'https://governing.example.com/',
+			remoteDisconnected: false,
+			retrySuccess: false,
+			retryPending: [
+				{
+					site_url: '',
+					message: 'Still unreachable after retry.',
+				},
+			],
+		} );
+
+		render( <SiteSettings /> );
+
+		await screen.findByDisplayValue( 'https://governing.example.com/' );
+		fireEvent.click(
+			screen.getByRole( 'button', { name: 'Disconnect Governing Site' } )
+		);
+		fireEvent.click( screen.getByRole( 'button', { name: 'Disconnect' } ) );
+
+		await screen.findByText( 'The governing site could not be notified.', {
+			selector: '.components-notice__content',
+		} );
+
+		fireEvent.click( screen.getByRole( 'button', { name: 'Retry' } ) );
+
+		// The governing site is still unreachable, so the warning has to stand.
+		expect(
+			await screen.findByText( 'Still unreachable after retry.', {
+				selector: '.components-notice__content',
+			} )
+		).toBeInTheDocument();
+
+		// ...and the failed attempt is called out on its own.
+		expect(
+			screen.getByText(
+				'The site still could not be notified. Please try again later.',
+				{ selector: '.components-snackbar__content' }
+			)
+		).toBeInTheDocument();
 	} );
 
 	it( 'shows an error notice when copying the api key fails', async () => {
@@ -183,7 +298,7 @@ describe( 'SiteSettings', () => {
 		expect(
 			await screen.findByText(
 				'Failed to copy api key. Please try again. Error: clipboard failed',
-				{ selector: '.components-notice__content' }
+				{ selector: '.components-snackbar__content' }
 			)
 		).toBeInTheDocument();
 	} );
@@ -206,7 +321,7 @@ describe( 'SiteSettings', () => {
 		expect(
 			await screen.findByText(
 				'Failed to disconnect governing site. Please try again later.',
-				{ selector: '.components-notice__content' }
+				{ selector: '.components-snackbar__content' }
 			)
 		).toBeInTheDocument();
 	} );
@@ -222,7 +337,7 @@ describe( 'SiteSettings', () => {
 		expect(
 			await screen.findByText(
 				'Failed to fetch governing site. Please try again later.',
-				{ selector: '.components-notice__content' }
+				{ selector: '.components-snackbar__content' }
 			)
 		).toBeInTheDocument();
 	} );
@@ -244,7 +359,7 @@ describe( 'SiteSettings', () => {
 		expect(
 			await screen.findByText(
 				'Failed to regenerate API key. Please try again later.',
-				{ selector: '.components-notice__content' }
+				{ selector: '.components-snackbar__content' }
 			)
 		).toBeInTheDocument();
 	} );
@@ -266,7 +381,7 @@ describe( 'SiteSettings', () => {
 		expect(
 			await screen.findByText(
 				'Error regenerating API key. Please try again later.',
-				{ selector: '.components-notice__content' }
+				{ selector: '.components-snackbar__content' }
 			)
 		).toBeInTheDocument();
 	} );

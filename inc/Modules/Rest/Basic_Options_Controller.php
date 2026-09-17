@@ -10,6 +10,7 @@ declare(strict_types = 1);
 namespace OneSearch\Modules\Rest;
 
 use OneSearch\Modules\Settings\Settings;
+use OneSearch\Utils;
 use WP_REST_Request;
 use WP_REST_Response;
 use WP_REST_Server;
@@ -112,6 +113,27 @@ class Basic_Options_Controller extends Abstract_REST_Controller {
 						);
 					},
 					'permission_callback' => static fn () => current_user_can( 'manage_options' ),
+				],
+			]
+		);
+
+		/**
+		 * Register a route to retry an undelivered disconnection.
+		 */
+		register_rest_route(
+			self::NAMESPACE,
+			'/retry-disconnect',
+			[
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => [ $this, 'retry_disconnect' ],
+				'permission_callback' => static fn () => current_user_can( 'manage_options' ),
+				'args'                => [
+					'site_url' => [
+						'required'          => false,
+						'type'              => 'string',
+						'default'           => '',
+						'sanitize_callback' => 'esc_url_raw',
+					],
 				],
 			]
 		);
@@ -228,6 +250,27 @@ class Basic_Options_Controller extends Abstract_REST_Controller {
 			[
 				'success'            => true,
 				'governing_site_url' => $governing_site_url,
+			]
+		);
+	}
+
+	/**
+	 * Retries one undelivered disconnection, and returns whatever is still pending.
+	 *
+	 * @param \WP_REST_Request<array<string,mixed>> $request The request object.
+	 *
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public function retry_disconnect( $request ): WP_REST_Response|\WP_Error {
+		$site_url = (string) $request->get_param( 'site_url' );
+		$site_url = '' !== $site_url ? Utils::normalize_url( $site_url ) : '';
+
+		$retried = Governing_Data_Handler::retry_pending_disconnect( $site_url );
+
+		return rest_ensure_response(
+			[
+				'success' => $retried,
+				'pending' => Governing_Data_Handler::get_pending_disconnects_for_admin(),
 			]
 		);
 	}

@@ -606,6 +606,66 @@ class Governing_Data_Handler {
 	}
 
 	/**
+	 * The undelivered disconnections this site should warn its admin about.
+	 *
+	 * @return array<int,array{site_url:string,message:string}>
+	 */
+	public static function get_pending_disconnects_for_admin(): array {
+		if ( Settings::is_consumer_site() ) {
+			$pending = self::get_pending_governing_disconnect();
+
+			if ( null === $pending || self::is_pending_governing_disconnect_stale( $pending['url'] ) ) {
+				return [];
+			}
+
+			return [
+				[
+					'site_url' => '',
+					'message'  => sprintf(
+						/* translators: %s: governing site URL. */
+						__( 'The governing site "%s" could not be notified that this site disconnected, and may still list this site as connected.', 'onesearch' ),
+						$pending['url']
+					),
+				],
+			];
+		}
+
+		if ( ! Settings::is_governing_site() ) {
+			return [];
+		}
+
+		$notices = [];
+
+		foreach ( self::get_pending_disconnect_notices() as $site_url => $notice ) {
+			$notices[] = [
+				'site_url' => (string) $site_url,
+				'message'  => sprintf(
+					/* translators: %s: brand site name. */
+					__( 'The "%s" couldn\'t be notified that it was disconnected.', 'onesearch' ),
+					$notice['name']
+				),
+			];
+		}
+
+		return $notices;
+	}
+
+	/**
+	 * Retries one undelivered disconnection on behalf of the admin.
+	 *
+	 * @param string $site_url Brand site to retry, or an empty string for the governing site.
+	 *
+	 * @return bool True if it went through (or there was nothing pending), false if it failed again.
+	 */
+	public static function retry_pending_disconnect( string $site_url ): bool {
+		if ( '' === $site_url ) {
+			return self::retry_pending_governing_disconnect();
+		}
+
+		return self::retry_pending_disconnect_notice( $site_url );
+	}
+
+	/**
 	 * The pending governing-site disconnect notice, for display to the admin.
 	 *
 	 * @return array{url:string,attempts:int,last_error:string,updated_at:int}|null

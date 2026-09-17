@@ -12,6 +12,11 @@ export interface OneSearchSharedSite {
 	api_key?: string;
 }
 
+export interface OneSearchPendingDisconnect {
+	site_url: string;
+	message: string;
+}
+
 export interface OneSearchSettings {
 	restUrl: string;
 	nonce: string;
@@ -19,6 +24,7 @@ export interface OneSearchSettings {
 	setupUrl: string;
 	siteType: SiteType;
 	sharedSites?: OneSearchSharedSite[];
+	pendingDisconnects?: OneSearchPendingDisconnect[];
 	restNamespace: string;
 	currentSiteUrl: string;
 	indexableEntities?: Record< string, string[] >;

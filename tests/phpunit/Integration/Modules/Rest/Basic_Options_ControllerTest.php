@@ -11,6 +11,7 @@ namespace OneSearch\Tests\Integration\Modules\Rest;
 
 use OneSearch\Modules\Rest\Abstract_REST_Controller;
 use OneSearch\Modules\Rest\Basic_Options_Controller;
+use OneSearch\Modules\Rest\Governing_Data_Handler;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -353,6 +354,71 @@ class Basic_Options_ControllerTest extends TestCase {
 		$this->assertTrue( $data['success'] );
 		$this->assertTrue( $data['remote_disconnected'] );
 		$this->assertEmpty( $requested_urls );
+	}
+
+	/**
+	 * The retry route is registered and gated on `manage_options`.
+	 */
+	public function test_registers_retry_disconnect_route(): void {
+		$routes = $this->server->get_routes();
+		$ns     = '/' . Basic_Options_Controller::NAMESPACE;
+
+		$this->assertArrayHasKey( $ns . '/retry-disconnect', $routes );
+		$this->assertArrayHasKey( 'POST', $routes[ $ns . '/retry-disconnect' ][0]['methods'] );
+	}
+
+	/**
+	 * A successful retry clears the pending governing-disconnect notice.
+	 */
+	public function test_retry_disconnect_clears_pending_governing_notice(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+
+		// Record a pending notice by failing the outbound disconnect.
+		$fail = static fn () => new \WP_Error( 'http_request_failed', 'Could not resolve host' );
+		add_filter( 'pre_http_request', $fail, 10, 3 );
+		$this->server->dispatch( new WP_REST_Request( 'DELETE', '/onesearch/v1/governing-site' ) );
+		remove_filter( 'pre_http_request', $fail );
+
+		$this->assertNotEmpty( Governing_Data_Handler::get_pending_disconnects_for_admin() );
+
+		// The retry succeeds this time, so nothing should be left pending.
+		$ok = static fn () => [
+			'response' => [ 'code' => 200 ],
+			'body'     => '{"success":true}',
+		];
+		add_filter( 'pre_http_request', $ok, 10, 3 );
+
+		$response = $this->server->dispatch( new WP_REST_Request( 'POST', '/onesearch/v1/retry-disconnect' ) );
+		$data     = $response->get_data();
+
+		remove_filter( 'pre_http_request', $ok );
+
+		$this->assertTrue( $data['success'] );
+		$this->assertSame( [], $data['pending'] );
+	}
+
+	/**
+	 * A failed retry leaves the notice in place for the admin to try again.
+	 */
+	public function test_retry_disconnect_keeps_notice_when_it_fails_again(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+
+		$fail = static fn () => new \WP_Error( 'http_request_failed', 'Could not resolve host' );
+		add_filter( 'pre_http_request', $fail, 10, 3 );
+
+		$this->server->dispatch( new WP_REST_Request( 'DELETE', '/onesearch/v1/governing-site' ) );
+
+		$response = $this->server->dispatch( new WP_REST_Request( 'POST', '/onesearch/v1/retry-disconnect' ) );
+		$data     = $response->get_data();
+
+		remove_filter( 'pre_http_request', $fail );
+
+		$this->assertFalse( $data['success'] );
+		$this->assertCount( 1, $data['pending'] );
+		$this->assertSame( '', $data['pending'][0]['site_url'] );
+		$this->assertNotEmpty( $data['pending'][0]['message'] );
 	}
 
 	/**
