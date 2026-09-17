@@ -605,7 +605,10 @@ class Governing_Data_Handler {
 	/**
 	 * The undelivered disconnections this site should warn its admin about.
 	 *
-	 * @return array<int,array{site_url:string,message:string}>
+	 * `error` is the raw, untranslated transport error from the last attempt. It rides along
+	 * for whoever is reading the response; the admin screen shows `message` instead.
+	 *
+	 * @return array<int,array{site_url:string,message:string,error:string}>
 	 */
 	public static function get_pending_disconnects_for_admin(): array {
 		if ( Settings::is_consumer_site() ) {
@@ -623,6 +626,7 @@ class Governing_Data_Handler {
 						__( 'The governing site "%s" could not be notified that this site disconnected, and may still list this site as connected.', 'onesearch' ),
 						$pending['url']
 					),
+					'error'    => $pending['last_error'],
 				],
 			];
 		}
@@ -641,6 +645,7 @@ class Governing_Data_Handler {
 					__( 'The "%s" couldn\'t be notified that it was disconnected.', 'onesearch' ),
 					$notice['name']
 				),
+				'error'    => $notice['last_error'],
 			];
 		}
 

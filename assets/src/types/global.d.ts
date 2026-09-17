@@ -15,6 +15,8 @@ export interface OneSearchSharedSite {
 export interface OneSearchPendingDisconnect {
 	site_url: string;
 	message: string;
+	/** Raw transport error from the last attempt. Diagnostic only - not rendered. */
+	error?: string;
 }
 
 export interface OneSearchSettings {

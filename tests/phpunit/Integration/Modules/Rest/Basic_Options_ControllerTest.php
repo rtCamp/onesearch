@@ -419,6 +419,7 @@ class Basic_Options_ControllerTest extends TestCase {
 		$this->assertCount( 1, $data['pending'] );
 		$this->assertSame( '', $data['pending'][0]['site_url'] );
 		$this->assertNotEmpty( $data['pending'][0]['message'] );
+		$this->assertStringContainsString( 'Could not resolve host', $data['pending'][0]['error'] );
 	}
 
 	/**
@@ -562,7 +563,7 @@ class Basic_Options_ControllerTest extends TestCase {
 
 		$this->assertTrue( $data['success'] );
 		$this->assertFalse( $data['remote_disconnected'] );
-		$this->assertNotEmpty( $data['remote_error'] );
+		$this->assertStringContainsString( 'Could not resolve host', $data['error'] );
 		$this->assertNull( Settings::get_parent_site_url() );
 	}
 }
