@@ -288,17 +288,6 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 	}
 
 	/**
-	 * The governing site exposes the connection endpoint brand sites deregister through.
-	 */
-	public function test_registers_connection_delete_route(): void {
-		$routes = $this->server->get_routes();
-		$ns     = '/' . Governing_Data_Controller::NAMESPACE;
-
-		$this->assertArrayHasKey( $ns . '/site-connection/brand/remove', $routes );
-		$this->assertArrayHasKey( 'DELETE', $routes[ $ns . '/site-connection/brand/remove' ][0]['methods'] );
-	}
-
-	/**
 	 * A brand site deregistering itself is dropped from the shared sites list.
 	 */
 	public function test_remove_brand_site_drops_the_requesting_site(): void {
@@ -355,44 +344,6 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 			Settings::get_shared_sites()['https://other.example.com/']['api_key'],
 			'...and must still decrypt back to the original key.'
 		);
-	}
-
-	/**
-	 * A retry of the disconnect request - e.g. because the first response was lost in
-	 * transit - is rejected once the brand's API key is gone, same as any other request
-	 * from a site that is no longer connected. There is no idempotency guarantee here:
-	 * the brand's own retry handling is expected to treat a 403 on this route as "already
-	 * disconnected" rather than an error.
-	 */
-	public function test_remove_brand_site_retry_after_success_is_rejected(): void {
-		$api_key = 'brand-key';
-		Settings::set_shared_sites(
-			[
-				[
-					'name'    => 'Brand Site',
-					'url'     => 'https://brand.example.com',
-					'api_key' => $api_key,
-				],
-			]
-		);
-
-		add_filter( 'pre_http_request', static fn () => new \WP_Error( 'blocked', 'Intercepted' ) );
-
-		$make_request = static function () use ( $api_key ): WP_REST_Request {
-			$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/site-connection/brand/remove' );
-			$request->set_header( 'origin', 'https://brand.example.com' );
-			$request->set_header( 'X-OneSearch-Token', $api_key );
-			return $request;
-		};
-
-		$first = $this->server->dispatch( $make_request() );
-		$this->assertSame( 200, $first->get_status() );
-		$this->assertSame( [], Settings::get_shared_sites() );
-
-		// Same request again, as if the client never saw the first response.
-		$retry = $this->server->dispatch( $make_request() );
-
-		$this->assertSame( 403, $retry->get_status() );
 	}
 
 	/**

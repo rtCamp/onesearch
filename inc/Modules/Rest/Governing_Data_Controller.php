@@ -94,9 +94,6 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 	/**
 	 * Resolves the normalized URL of the site making the request.
 	 *
-	 * Falls back to the site-URL header, which same-host requests need because the
-	 * browser omits Origin for those.
-	 *
 	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
 	 *
 	 * @return string The normalized site URL, or an empty string when it is unknown.
@@ -183,9 +180,7 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 	}
 
 	/**
-	 * Removes the requesting brand site from this governing site.
-	 *
-	 * Called by a brand site when it disconnects, so the pairing is torn down on both ends.
+	 * Removes the requesting brand site from current governing site.
 	 *
 	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
 	 */
@@ -229,9 +224,7 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 	}
 
 	/**
-	 * Clears the governing site pairing on this brand site.
-	 *
-	 * Called by the governing site when it deletes this brand site from its list.
+	 * Clears the governing site pairing on current brand site.
 	 */
 	public function remove_governing_site_connection(): WP_REST_Response {
 		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );

@@ -287,7 +287,7 @@ class Governing_Data_Handler {
 	}
 
 	/**
-	 * Deregisters this brand site from its governing site.
+	 * Deregisters brand site from its governing site.
 	 *
 	 * @return true|\WP_Error True on success, WP_Error when the governing site could not be told.
 	 */
@@ -341,9 +341,6 @@ class Governing_Data_Handler {
 
 	/**
 	 * Tells brand sites that they are no longer governed by this site.
-	 *
-	 * Best effort: the sites have already been dropped from the option by the time this
-	 * runs, so a notice that fails is reported rather than undone.
 	 *
 	 * @param array<string,string> $removed_sites Map of normalized brand site URL to its (decrypted) API key.
 	 * @param array<string,string> $site_names    Map of normalized brand site URL to its display name,

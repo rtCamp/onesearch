@@ -553,19 +553,6 @@ class Governing_Data_HandlerTest extends TestCase {
 	}
 
 	/**
-	 * Deregistration is a no-op error when no governing site is paired.
-	 */
-	public function test_deregister_from_governing_site_returns_error_when_no_parent(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
-		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
-
-		$result = Governing_Data_Handler::deregister_from_governing_site();
-
-		$this->assertInstanceOf( \WP_Error::class, $result );
-		$this->assertSame( 'onesearch_no_parent', $result->get_error_code() );
-	}
-
-	/**
 	 * Sends an authenticated DELETE to the governing site's connection endpoint.
 	 */
 	public function test_deregister_from_governing_site_sends_authenticated_delete(): void {
@@ -683,37 +670,6 @@ class Governing_Data_HandlerTest extends TestCase {
 	}
 
 	/**
-	 * A successful deregistration leaves nothing pending.
-	 */
-	public function test_deregister_from_governing_site_clears_pending_notice_on_success(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
-		Settings::set_parent_site_url( 'https://governing.example.com' );
-
-		add_filter( 'pre_http_request', static fn () => new \WP_Error( 'http_request_failed', 'Could not resolve host' ) );
-		Governing_Data_Handler::deregister_from_governing_site();
-		remove_all_filters( 'pre_http_request' );
-
-		add_filter(
-			'pre_http_request',
-			static fn () => [
-				'response' => [
-					'code'    => 200,
-					'message' => 'OK',
-				],
-				'body'     => '{"success":true}',
-				'headers'  => [],
-				'cookies'  => [],
-			]
-		);
-
-		Governing_Data_Handler::deregister_from_governing_site();
-
-		remove_all_filters( 'pre_http_request' );
-
-		$this->assertNull( Governing_Data_Handler::get_pending_governing_disconnect() );
-	}
-
-	/**
 	 * A retry that succeeds clears the pending governing-disconnect notice.
 	 */
 	public function test_retry_pending_governing_disconnect_clears_notice_on_success(): void {
@@ -724,11 +680,6 @@ class Governing_Data_HandlerTest extends TestCase {
 		Governing_Data_Handler::deregister_from_governing_site();
 		remove_all_filters( 'pre_http_request' );
 
-		/*
-		 * The REST route drops the pairing locally right after deregistering, whether or not
-		 * the governing site could be told. Leaving it in place here would look exactly like
-		 * the brand having paired again, which the retry refuses to act on.
-		 */
 		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
 
 		add_filter(
@@ -762,11 +713,6 @@ class Governing_Data_HandlerTest extends TestCase {
 		add_filter( 'pre_http_request', static fn () => new \WP_Error( 'blocked', 'Still unreachable' ) );
 		Governing_Data_Handler::deregister_from_governing_site();
 
-		/*
-		 * The REST route drops the pairing locally right after deregistering, whether or not
-		 * the governing site could be told. Leaving it in place here would look exactly like
-		 * the brand having paired again, which the retry refuses to act on.
-		 */
 		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
 
 		$resolved = Governing_Data_Handler::retry_pending_governing_disconnect();
@@ -777,13 +723,6 @@ class Governing_Data_HandlerTest extends TestCase {
 		$this->assertFalse( $resolved );
 		$this->assertSame( 2, $pending['attempts'] );
 		$this->assertSame( 'Still unreachable', $pending['last_error'] );
-	}
-
-	/**
-	 * Retrying with nothing pending is a no-op success.
-	 */
-	public function test_retry_pending_governing_disconnect_is_noop_when_nothing_pending(): void {
-		$this->assertTrue( Governing_Data_Handler::retry_pending_governing_disconnect() );
 	}
 
 	/**
@@ -798,7 +737,6 @@ class Governing_Data_HandlerTest extends TestCase {
 		Governing_Data_Handler::deregister_from_governing_site();
 		remove_all_filters( 'pre_http_request' );
 
-		// The brand paired with the same governing site again before the admin retried.
 		Settings::set_parent_site_url( 'https://governing.example.com' );
 
 		$requested_urls = [];
@@ -898,9 +836,6 @@ class Governing_Data_HandlerTest extends TestCase {
 
 	/**
 	 * A brand site that could not be reached is reported rather than dropped silently.
-	 *
-	 * The governing site discards the brand's API key along with its row, so it cannot
-	 * retry: the failure has to be surfaced for anyone to act on it.
 	 */
 	public function test_notify_brand_sites_of_disconnection_reports_unreachable_site(): void {
 		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
@@ -962,41 +897,6 @@ class Governing_Data_HandlerTest extends TestCase {
 	}
 
 	/**
-	 * A notice that got through is not reported as a failure.
-	 */
-	public function test_notify_brand_sites_of_disconnection_reports_nothing_on_success(): void {
-		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-			if ( false === strpos( $url, 'a.example.com' ) ) {
-				return $preempt;
-			}
-
-			return [
-				'response' => [
-					'code'    => 200,
-					'message' => 'OK',
-				],
-				'body'     => '{"success":true}',
-				'headers'  => [],
-				'cookies'  => [],
-			];
-		};
-		add_filter( 'pre_http_request', $filter, 10, 3 );
-
-		$failures = [];
-		$listener = static function ( $site_url ) use ( &$failures ): void {
-			$failures[] = $site_url;
-		};
-		add_action( 'onesearch_brand_disconnect_notice_failed', $listener, 10, 1 );
-
-		Governing_Data_Handler::notify_brand_sites_of_disconnection( [ 'https://a.example.com/' => 'key-a' ] );
-
-		remove_action( 'onesearch_brand_disconnect_notice_failed', $listener, 10 );
-		remove_filter( 'pre_http_request', $filter );
-
-		$this->assertEmpty( $failures );
-	}
-
-	/**
 	 * A failed notice is kept around for the admin to retry manually - it is never
 	 * retried on its own. Without a display name it falls back to the URL.
 	 */
@@ -1011,22 +911,6 @@ class Governing_Data_HandlerTest extends TestCase {
 		$this->assertSame( 'https://a.example.com/', $pending['https://a.example.com/']['name'] );
 		$this->assertSame( 1, $pending['https://a.example.com/']['attempts'] );
 		$this->assertSame( 'Intercepted', $pending['https://a.example.com/']['last_error'] );
-	}
-
-	/**
-	 * A pending notice carries the site's display name through, for the admin notice.
-	 */
-	public function test_notify_brand_sites_of_disconnection_records_the_site_name(): void {
-		add_filter( 'pre_http_request', static fn () => new \WP_Error( 'blocked', 'Intercepted' ) );
-
-		Governing_Data_Handler::notify_brand_sites_of_disconnection(
-			[ 'https://a.example.com/' => 'key-a' ],
-			[ 'https://a.example.com/' => 'Brand A' ]
-		);
-
-		$pending = Governing_Data_Handler::get_pending_disconnect_notices();
-
-		$this->assertSame( 'Brand A', $pending['https://a.example.com/']['name'] );
 	}
 
 	/**

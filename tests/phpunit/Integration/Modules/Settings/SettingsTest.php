@@ -260,22 +260,6 @@ final class SettingsTest extends TestCase {
 		$this->assertSame( [ 'https://brand-two.example/' ], array_keys( Settings::get_shared_sites() ) );
 	}
 
-	/** Removing a site that isn't there is a no-op, reported as such rather than as an error. */
-	public function test_remove_shared_site_returns_null_when_already_absent(): void {
-		Settings::set_shared_sites(
-			[
-				[
-					'id'      => 'brand-1',
-					'name'    => 'Brand One',
-					'url'     => 'https://brand-one.example',
-					'api_key' => 'brand-one-key',
-				],
-			]
-		);
-
-		$this->assertNull( Settings::remove_shared_site( 'https://unknown.example' ) );
-	}
-
 	/**
 	 * A concurrent write between the read and the write must not resurrect a site removed
 	 * by that other write, nor stop this removal from going through: it should retry

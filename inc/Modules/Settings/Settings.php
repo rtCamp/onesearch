@@ -185,9 +185,6 @@ final class Settings implements Registrable {
 	/**
 	 * Tells brand sites that were dropped from this governing site to clear their pairing.
 	 *
-	 * Without this, a removed site keeps naming this one as its governing site and
-	 * keeps serving its cached config.
-	 *
 	 * @internal Hook callback
 	 *
 	 * @param mixed $old_value The old value.
@@ -379,18 +376,11 @@ final class Settings implements Registrable {
 	/**
 	 * Atomically removes a single brand site from the shared-sites option.
 	 *
-	 * A plain get-modify-update round trip lets two concurrent disconnects each read the
-	 * same snapshot and overwrite each other, resurrecting whichever site the other request
-	 * removed. This instead compare-and-swaps the raw option value, retrying against a fresh
-	 * read whenever another process wrote in between.
-	 *
 	 * @param string $site_url           Brand site URL to remove.
 	 * @param bool   $is_self_disconnect Whether this site is disconnecting itself, so it
 	 *                                   should not be sent a disconnection notice back.
 	 *
 	 * @return array{api_key:string,id:string,logo:string,logo_id:int,name:string,url:string}|false|null
-	 *         The removed site's (decrypted) data, null if it was already absent, or false if
-	 *         the write could not be applied after retrying.
 	 */
 	public static function remove_shared_site( string $site_url, bool $is_self_disconnect = false ) {
 		$site_url = trailingslashit( $site_url );
@@ -413,10 +403,6 @@ final class Settings implements Registrable {
 				return null;
 			}
 
-			/*
-			 * The removal below fires the shared-sites-changed notification synchronously,
-			 * so this has to be set immediately before it, not after.
-			 */
 			if ( $is_self_disconnect ) {
 				Governing_Data_Handler::suppress_disconnect_notice( $site_url );
 			}
@@ -425,7 +411,6 @@ final class Settings implements Registrable {
 				return self::hydrate_shared_site( $removed, $site_url );
 			}
 
-			// Another process wrote to the option first; back off briefly and retry against fresh data.
 			usleep( wp_rand( 1000, 5000 ) );
 		}
 
@@ -452,13 +437,13 @@ final class Settings implements Registrable {
 	}
 
 	/**
-	 * Replaces an option's stored value only if it still matches the value read just before.
+	 * Replaces a list option's stored value only if it still matches the value read just before.
 	 *
-	 * @param string $option        Option name.
-	 * @param mixed  $expected      The value read immediately before this call.
-	 * @param mixed  $new_value     The value to write if nothing has changed since.
+	 * @param string       $option    Option name.
+	 * @param mixed        $expected  The value read immediately before this call.
+	 * @param array<mixed> $new_value The list to write if nothing has changed since.
 	 */
-	private static function compare_and_swap_option( string $option, $expected, $new_value ): bool {
+	private static function compare_and_swap_option( string $option, $expected, array $new_value ): bool {
 		global $wpdb;
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Compare-and-swap has no wpdb/options-API equivalent.
@@ -477,11 +462,6 @@ final class Settings implements Registrable {
 
 		wp_cache_delete( $option, 'options' );
 
-		/*
-		 * update_option() fires these around its own write; other code (e.g. the brand-disconnect
-		 * notice and the search-settings cleanup) depends on them, so this has to replicate them
-		 * for a direct write to behave the same as going through the Options API.
-		 */
 		// phpcs:disable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Replicating core's own update_option() hooks, not inventing new ones.
 		do_action( 'update_option', $option, $expected, $new_value );
 		do_action( "update_option_{$option}", $expected, $new_value, $option );

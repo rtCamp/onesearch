@@ -302,7 +302,6 @@ class Basic_Options_Controller extends Abstract_REST_Controller {
 				[
 					'success'             => true,
 					'remote_disconnected' => false,
-					// Worded exactly as the admin notice that takes over on the next page load.
 					'message'             => sprintf(
 						/* translators: %s: governing site URL. */
 						__( 'The governing site "%s" could not be notified that this site disconnected, and may still list this site as connected.', 'onesearch' ),
