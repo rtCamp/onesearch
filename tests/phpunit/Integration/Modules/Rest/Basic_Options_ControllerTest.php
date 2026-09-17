@@ -11,6 +11,7 @@ namespace OneSearch\Tests\Integration\Modules\Rest;
 
 use OneSearch\Modules\Rest\Abstract_REST_Controller;
 use OneSearch\Modules\Rest\Basic_Options_Controller;
+use OneSearch\Modules\Rest\Governing_Data_Handler;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -331,16 +332,129 @@ class Basic_Options_ControllerTest extends TestCase {
 	}
 
 	/**
-	 * Succeeds even when no governing site was previously set.
+	 * Succeeds - with nothing to propagate - when no governing site was previously set.
 	 */
 	public function test_remove_governing_site_succeeds_when_already_unset(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
 		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
+
+		$requested_urls = [];
+		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requested_urls[] = $url;
+			return new \WP_Error( 'blocked', 'Intercepted' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
 
 		$request  = new WP_REST_Request( 'DELETE', '/onesearch/v1/governing-site' );
 		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
+		remove_filter( 'pre_http_request', $filter );
+
 		$this->assertTrue( $data['success'] );
+		$this->assertTrue( $data['remote_disconnected'] );
+		$this->assertEmpty( $requested_urls );
+	}
+
+	/**
+	 * The retry route is registered and gated on `manage_options`.
+	 */
+	public function test_registers_retry_disconnect_route(): void {
+		$routes = $this->server->get_routes();
+		$ns     = '/' . Basic_Options_Controller::NAMESPACE;
+
+		$this->assertArrayHasKey( $ns . '/retry-disconnect', $routes );
+		$this->assertArrayHasKey( 'POST', $routes[ $ns . '/retry-disconnect' ][0]['methods'] );
+	}
+
+	/**
+	 * A successful retry clears the pending governing-disconnect notice.
+	 */
+	public function test_retry_disconnect_clears_pending_governing_notice(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+
+		// Record a pending notice by failing the outbound disconnect.
+		$fail = static fn () => new \WP_Error( 'http_request_failed', 'Could not resolve host' );
+		add_filter( 'pre_http_request', $fail, 10, 3 );
+		$this->server->dispatch( new WP_REST_Request( 'DELETE', '/onesearch/v1/governing-site' ) );
+		remove_filter( 'pre_http_request', $fail );
+
+		$this->assertNotEmpty( Governing_Data_Handler::get_pending_disconnects_for_admin() );
+
+		// The retry succeeds this time, so nothing should be left pending.
+		$ok = static fn () => [
+			'response' => [ 'code' => 200 ],
+			'body'     => '{"success":true}',
+		];
+		add_filter( 'pre_http_request', $ok, 10, 3 );
+
+		$response = $this->server->dispatch( new WP_REST_Request( 'POST', '/onesearch/v1/retry-disconnect' ) );
+		$data     = $response->get_data();
+
+		remove_filter( 'pre_http_request', $ok );
+
+		$this->assertTrue( $data['success'] );
+		$this->assertSame( [], $data['pending'] );
+	}
+
+	/**
+	 * A failed retry leaves the notice in place for the admin to try again.
+	 */
+	public function test_retry_disconnect_keeps_notice_when_it_fails_again(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+
+		$fail = static fn () => new \WP_Error( 'http_request_failed', 'Could not resolve host' );
+		add_filter( 'pre_http_request', $fail, 10, 3 );
+
+		$this->server->dispatch( new WP_REST_Request( 'DELETE', '/onesearch/v1/governing-site' ) );
+
+		$response = $this->server->dispatch( new WP_REST_Request( 'POST', '/onesearch/v1/retry-disconnect' ) );
+		$data     = $response->get_data();
+
+		remove_filter( 'pre_http_request', $fail );
+
+		$this->assertFalse( $data['success'] );
+		$this->assertCount( 1, $data['pending'] );
+		$this->assertSame( '', $data['pending'][0]['site_url'] );
+		$this->assertNotEmpty( $data['pending'][0]['message'] );
+		$this->assertStringContainsString( 'Could not resolve host', $data['pending'][0]['error'] );
+	}
+
+	/**
+	 * Touches nothing on a governing site, where no governing site is ever recorded.
+	 *
+	 * Clearing the config cache there fans out to every shared brand site, so the
+	 * teardown has to stay scoped to sites that actually had a pairing.
+	 */
+	public function test_remove_governing_site_does_not_notify_brand_sites(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		Settings::set_shared_sites(
+			[
+				'https://brand.example.com/' => [
+					'url'     => 'https://brand.example.com/',
+					'name'    => 'Brand',
+					'api_key' => 'brand-key',
+				],
+			]
+		);
+
+		$requested_urls = [];
+		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requested_urls[] = $url;
+			return new \WP_Error( 'blocked', 'Intercepted' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$request  = new WP_REST_Request( 'DELETE', '/onesearch/v1/governing-site' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertTrue( $data['success'] );
+		$this->assertEmpty( $requested_urls );
 	}
 
 	/**
@@ -371,5 +485,85 @@ class Basic_Options_ControllerTest extends TestCase {
 		$this->assertTrue( $data['success'] );
 		$this->assertNotEmpty( $data['secret_key'] );
 		$this->assertNotSame( $old_key, $data['secret_key'] );
+	}
+
+	/**
+	 * Disconnecting also deregisters this brand site from the governing site, so the
+	 * pairing does not survive on the governing end.
+	 */
+	public function test_remove_governing_site_deregisters_from_governing_site(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+		$api_key = Settings::get_api_key();
+
+		$requests = [];
+		$filter   = static function ( $preempt, $args, $url ) use ( &$requests ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requests[] = [
+				'url'  => $url,
+				'args' => $args,
+			];
+
+			return [
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
+				],
+				'body'     => '{"success":true}',
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$request  = new WP_REST_Request( 'DELETE', '/onesearch/v1/governing-site' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertTrue( $data['success'] );
+		$this->assertTrue( $data['remote_disconnected'] );
+		$this->assertNull( Settings::get_parent_site_url() );
+
+		$deregistrations = array_values(
+			array_filter(
+				$requests,
+				static fn ( array $request ): bool => str_contains( $request['url'], '/onesearch/v1/site-connection/brand/remove' )
+			)
+		);
+
+		$this->assertCount( 1, $deregistrations );
+		$this->assertSame( 'https://governing.example.com/wp-json/onesearch/v1/site-connection/brand/remove', $deregistrations[0]['url'] );
+		$this->assertSame( 'DELETE', $deregistrations[0]['args']['method'] );
+		$this->assertSame( $api_key, $deregistrations[0]['args']['headers']['X-OneSearch-Token'] );
+	}
+
+	/**
+	 * An unreachable governing site still disconnects locally, but says so, since the
+	 * governing site may still be listing this brand site.
+	 */
+	public function test_remove_governing_site_reports_unreachable_governing_site(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+
+		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( false === strpos( $url, 'governing.example.com' ) ) {
+				return $preempt;
+			}
+
+			return new \WP_Error( 'http_request_failed', 'cURL error 6: Could not resolve host' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$request  = new WP_REST_Request( 'DELETE', '/onesearch/v1/governing-site' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertTrue( $data['success'] );
+		$this->assertFalse( $data['remote_disconnected'] );
+		$this->assertStringContainsString( 'Could not resolve host', $data['error'] );
+		$this->assertNull( Settings::get_parent_site_url() );
 	}
 }

@@ -135,7 +135,7 @@ abstract class Abstract_REST_Controller extends WP_REST_Controller implements Re
 	 *
 	 * @return array{origin: string, parsed: array<string, mixed>, url: string, port: int|null}
 	 */
-	private function parse_origin( ?string $raw ): array {
+	protected function parse_origin( ?string $raw ): array {
 		$origin = ! empty( $raw ) ? esc_url_raw( wp_unslash( $raw ) ) : '';
 		$parsed = wp_parse_url( $origin );
 		$parsed = is_array( $parsed ) ? $parsed : [];

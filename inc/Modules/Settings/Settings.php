@@ -11,6 +11,8 @@ namespace OneSearch\Modules\Settings;
 
 use OneSearch\Contracts\Interfaces\Registrable;
 use OneSearch\Encryptor;
+use OneSearch\Modules\Rest\Governing_Data_Handler;
+use OneSearch\Utils;
 
 /**
  * Class - Settings
@@ -54,6 +56,7 @@ final class Settings implements Registrable {
 
 		// Listen to updates.
 		add_action( 'update_option_' . self::OPTION_SITE_TYPE, [ $this, 'on_site_type_change' ], 10, 2 );
+		add_action( 'update_option_' . self::OPTION_GOVERNING_SHARED_SITES, [ $this, 'on_brand_site_removed' ], 10, 2 );
 	}
 
 	/**
@@ -180,6 +183,55 @@ final class Settings implements Registrable {
 	}
 
 	/**
+	 * Tells brand sites that were dropped from this governing site to clear their pairing.
+	 *
+	 * @internal Hook callback
+	 *
+	 * @param mixed $old_value The old value.
+	 * @param mixed $new_value The new value.
+	 */
+	public function on_brand_site_removed( $old_value, $new_value ): void {
+		if ( ! is_array( $old_value ) || empty( $old_value ) ) {
+			return;
+		}
+
+		$remaining_urls = [];
+		foreach ( is_array( $new_value ) ? $new_value : [] as $site ) {
+			if ( ! empty( $site['url'] ) ) {
+				$remaining_urls[ Utils::normalize_url( $site['url'] ) ] = true;
+			}
+		}
+
+		// The API keys of removed sites only exist in the old value.
+		$removed_sites = [];
+		$site_names    = [];
+		foreach ( $old_value as $site ) {
+			if ( empty( $site['url'] ) || empty( $site['api_key'] ) ) {
+				continue;
+			}
+
+			$site_url = Utils::normalize_url( $site['url'] );
+			if ( isset( $remaining_urls[ $site_url ] ) ) {
+				continue;
+			}
+
+			$api_key = Encryptor::decrypt( $site['api_key'] );
+			if ( empty( $api_key ) ) {
+				continue;
+			}
+
+			$removed_sites[ $site_url ] = $api_key;
+			$site_names[ $site_url ]    = ! empty( $site['name'] ) ? (string) $site['name'] : $site_url;
+		}
+
+		if ( empty( $removed_sites ) ) {
+			return;
+		}
+
+		Governing_Data_Handler::notify_brand_sites_of_disconnection( $removed_sites, $site_names );
+	}
+
+	/**
 	 * Sanitize the `shared_sites` option.
 	 *
 	 * @param mixed $input The input value.
@@ -255,19 +307,8 @@ final class Settings implements Registrable {
 				continue;
 			}
 
-			$decrypted_api_key = ! empty( $brand['api_key'] ) ? Encryptor::decrypt( $brand['api_key'] ) : '';
-
-			// Always use a trailing-slash URL.
-			$url = trailingslashit( $brand['url'] );
-
-			$brands_to_return[ $url ] = [
-				'api_key' => $decrypted_api_key ?: '',
-				'id'      => $brand['id'] ?? '',
-				'logo'    => $brand['logo'] ?? '',
-				'logo_id' => $brand['logo_id'] ?? 0,
-				'name'    => $brand['name'] ?? '',
-				'url'     => $url,
-			];
+			$url                      = trailingslashit( $brand['url'] );
+			$brands_to_return[ $url ] = self::hydrate_shared_site( $brand, $url );
 		}
 
 		return $brands_to_return;
@@ -330,6 +371,104 @@ final class Settings implements Registrable {
 		}
 
 		return update_option( self::OPTION_GOVERNING_SHARED_SITES, array_values( $sites ), false );
+	}
+
+	/**
+	 * Atomically removes a single brand site from the shared-sites option.
+	 *
+	 * @param string $site_url           Brand site URL to remove.
+	 * @param bool   $is_self_disconnect Whether this site is disconnecting itself, so it
+	 *                                   should not be sent a disconnection notice back.
+	 *
+	 * @return array{api_key:string,id:string,logo:string,logo_id:int,name:string,url:string}|false|null
+	 */
+	public static function remove_shared_site( string $site_url, bool $is_self_disconnect = false ) {
+		$site_url = trailingslashit( $site_url );
+
+		for ( $attempt = 0; $attempt < 5; $attempt++ ) {
+			$raw_sites = get_option( self::OPTION_GOVERNING_SHARED_SITES, [] );
+			$raw_sites = is_array( $raw_sites ) ? $raw_sites : [];
+
+			$removed  = null;
+			$filtered = [];
+			foreach ( $raw_sites as $site ) {
+				if ( null === $removed && ! empty( $site['url'] ) && trailingslashit( $site['url'] ) === $site_url ) {
+					$removed = $site;
+					continue;
+				}
+				$filtered[] = $site;
+			}
+
+			if ( null === $removed ) {
+				return null;
+			}
+
+			if ( $is_self_disconnect ) {
+				Governing_Data_Handler::suppress_disconnect_notice( $site_url );
+			}
+
+			if ( self::compare_and_swap_option( self::OPTION_GOVERNING_SHARED_SITES, $raw_sites, $filtered ) ) {
+				return self::hydrate_shared_site( $removed, $site_url );
+			}
+
+			usleep( wp_rand( 1000, 5000 ) );
+		}
+
+		return false;
+	}
+
+	/**
+	 * Builds a shared site's public shape from its raw stored row, decrypting its API key.
+	 *
+	 * @param array<string,mixed> $raw The raw stored site row.
+	 * @param string              $url The (already trailing-slashed) URL to record it under.
+	 *
+	 * @return array{api_key:string,id:string,logo:string,logo_id:int,name:string,url:string}
+	 */
+	private static function hydrate_shared_site( array $raw, string $url ): array {
+		return [
+			'api_key' => ! empty( $raw['api_key'] ) ? ( Encryptor::decrypt( $raw['api_key'] ) ?: '' ) : '',
+			'id'      => $raw['id'] ?? '',
+			'logo'    => $raw['logo'] ?? '',
+			'logo_id' => $raw['logo_id'] ?? 0,
+			'name'    => $raw['name'] ?? '',
+			'url'     => $url,
+		];
+	}
+
+	/**
+	 * Replaces a list option's stored value only if it still matches the value read just before.
+	 *
+	 * @param string       $option    Option name.
+	 * @param mixed        $expected  The value read immediately before this call.
+	 * @param array<mixed> $new_value The list to write if nothing has changed since.
+	 */
+	private static function compare_and_swap_option( string $option, $expected, array $new_value ): bool {
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Compare-and-swap has no wpdb/options-API equivalent.
+		$updated = $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
+				maybe_serialize( array_values( $new_value ) ),
+				$option,
+				maybe_serialize( $expected )
+			)
+		);
+
+		if ( ! $updated ) {
+			return false;
+		}
+
+		wp_cache_delete( $option, 'options' );
+
+		// phpcs:disable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Replicating core's own update_option() hooks, not inventing new ones.
+		do_action( 'update_option', $option, $expected, $new_value );
+		do_action( "update_option_{$option}", $expected, $new_value, $option );
+		do_action( 'updated_option', $option, $expected, $new_value );
+		// phpcs:enable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
+
+		return true;
 	}
 
 	/**

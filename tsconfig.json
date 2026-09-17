@@ -8,7 +8,7 @@
 		"paths": {
 			"@/*": [ "./assets/src/*" ]
 		},
-		"types": [ "jest", "node" ]
+		"types": [ "jest", "node", "@wordpress/jest-console" ]
 	},
 	"include": [
 		"**/*.d.ts",

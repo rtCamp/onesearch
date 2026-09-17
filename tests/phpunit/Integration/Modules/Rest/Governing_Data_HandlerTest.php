@@ -539,4 +539,553 @@ class Governing_Data_HandlerTest extends TestCase {
 		$this->assertNotEmpty( $result['errors'] );
 		$this->assertStringContainsString( 'invalid response', $result['errors'][0]['message'] );
 	}
+
+	/**
+	 * Deregistration is refused on anything other than a brand site.
+	 */
+	public function test_deregister_from_governing_site_requires_consumer_site(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+
+		$result = Governing_Data_Handler::deregister_from_governing_site();
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'onesearch_unauthorized_site', $result->get_error_code() );
+	}
+
+	/**
+	 * Sends an authenticated DELETE to the governing site's connection endpoint.
+	 */
+	public function test_deregister_from_governing_site_sends_authenticated_delete(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+		$api_key = Settings::get_api_key();
+
+		$requests = [];
+		$filter   = static function ( $preempt, $args, $url ) use ( &$requests ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requests[] = [
+				'url'  => $url,
+				'args' => $args,
+			];
+
+			return [
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
+				],
+				'body'     => '{"success":true}',
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$result = Governing_Data_Handler::deregister_from_governing_site();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertTrue( $result );
+		$this->assertCount( 1, $requests );
+		$this->assertSame( 'https://governing.example.com/wp-json/onesearch/v1/site-connection/brand/remove', $requests[0]['url'] );
+		$this->assertSame( 'DELETE', $requests[0]['args']['method'] );
+		$this->assertSame( $api_key, $requests[0]['args']['headers']['X-OneSearch-Token'] );
+	}
+
+	/**
+	 * A non-200 from the governing site is reported as an error.
+	 */
+	public function test_deregister_from_governing_site_reports_rejected_request(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+
+		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( false === strpos( $url, 'governing.example.com' ) ) {
+				return $preempt;
+			}
+
+			return [
+				'response' => [
+					'code'    => 401,
+					'message' => 'Unauthorized',
+				],
+				'body'     => '{"code":"rest_forbidden"}',
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$result = Governing_Data_Handler::deregister_from_governing_site();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'onesearch_rest_failed_to_connect', $result->get_error_code() );
+	}
+
+	/**
+	 * A transport failure is surfaced rather than swallowed.
+	 */
+	public function test_deregister_from_governing_site_reports_unreachable_site(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+
+		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( false === strpos( $url, 'governing.example.com' ) ) {
+				return $preempt;
+			}
+
+			return new \WP_Error( 'http_request_failed', 'cURL error 6: Could not resolve host' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$result = Governing_Data_Handler::deregister_from_governing_site();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'http_request_failed', $result->get_error_code() );
+	}
+
+	/**
+	 * When the governing site cannot be reached, the disconnect is recorded so the admin
+	 * can retry it later - otherwise the governing site is left listing a brand that has
+	 * already disconnected locally, with no way to reconcile it.
+	 */
+	public function test_deregister_from_governing_site_records_a_pending_notice_when_unreachable(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+
+		add_filter( 'pre_http_request', static fn () => new \WP_Error( 'http_request_failed', 'Could not resolve host' ) );
+
+		Governing_Data_Handler::deregister_from_governing_site();
+
+		remove_all_filters( 'pre_http_request' );
+
+		$pending = Governing_Data_Handler::get_pending_governing_disconnect();
+
+		$this->assertNotNull( $pending );
+		$this->assertSame( 'https://governing.example.com', $pending['url'] );
+		$this->assertSame( 1, $pending['attempts'] );
+		$this->assertSame( 'Could not resolve host', $pending['last_error'] );
+	}
+
+	/**
+	 * A retry that succeeds clears the pending governing-disconnect notice.
+	 */
+	public function test_retry_pending_governing_disconnect_clears_notice_on_success(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+
+		add_filter( 'pre_http_request', static fn () => new \WP_Error( 'blocked', 'Intercepted' ) );
+		Governing_Data_Handler::deregister_from_governing_site();
+		remove_all_filters( 'pre_http_request' );
+
+		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
+
+		add_filter(
+			'pre_http_request',
+			static fn () => [
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
+				],
+				'body'     => '{"success":true}',
+				'headers'  => [],
+				'cookies'  => [],
+			]
+		);
+
+		$resolved = Governing_Data_Handler::retry_pending_governing_disconnect();
+
+		remove_all_filters( 'pre_http_request' );
+
+		$this->assertTrue( $resolved );
+		$this->assertNull( Governing_Data_Handler::get_pending_governing_disconnect() );
+	}
+
+	/**
+	 * A retry that fails again keeps the notice and bumps its attempt count.
+	 */
+	public function test_retry_pending_governing_disconnect_keeps_notice_on_continued_failure(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+
+		add_filter( 'pre_http_request', static fn () => new \WP_Error( 'blocked', 'Still unreachable' ) );
+		Governing_Data_Handler::deregister_from_governing_site();
+
+		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
+
+		$resolved = Governing_Data_Handler::retry_pending_governing_disconnect();
+
+		remove_all_filters( 'pre_http_request' );
+
+		$pending = Governing_Data_Handler::get_pending_governing_disconnect();
+		$this->assertFalse( $resolved );
+		$this->assertSame( 2, $pending['attempts'] );
+		$this->assertSame( 'Still unreachable', $pending['last_error'] );
+	}
+
+	/**
+	 * Pairing with the same governing site again makes a pending notice moot: replaying it
+	 * would tear down the new pairing and leave it one-sided.
+	 */
+	public function test_retry_pending_governing_disconnect_refuses_after_repairing(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+
+		add_filter( 'pre_http_request', static fn () => new \WP_Error( 'http_request_failed', 'Could not resolve host' ) );
+		Governing_Data_Handler::deregister_from_governing_site();
+		remove_all_filters( 'pre_http_request' );
+
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+
+		$requested_urls = [];
+		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requested_urls[] = $url;
+			return new \WP_Error( 'blocked', 'Intercepted' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$resolved = Governing_Data_Handler::retry_pending_governing_disconnect();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertTrue( $resolved );
+		$this->assertEmpty( $requested_urls, 'A live pairing must not be torn down by a stale retry.' );
+		$this->assertNull( Governing_Data_Handler::get_pending_governing_disconnect() );
+	}
+
+	/**
+	 * A notice naming a different governing site is still valid after re-pairing elsewhere.
+	 */
+	public function test_retry_pending_governing_disconnect_still_runs_for_a_different_governing_site(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://old-governing.example.com' );
+
+		add_filter( 'pre_http_request', static fn () => new \WP_Error( 'http_request_failed', 'Could not resolve host' ) );
+		Governing_Data_Handler::deregister_from_governing_site();
+		remove_all_filters( 'pre_http_request' );
+
+		Settings::set_parent_site_url( 'https://new-governing.example.com' );
+
+		$requested_urls = [];
+		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requested_urls[] = $url;
+			return [
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
+				],
+				'body'     => '{"success":true}',
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$resolved = Governing_Data_Handler::retry_pending_governing_disconnect();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertTrue( $resolved );
+		$this->assertSame(
+			[ 'https://old-governing.example.com/wp-json/onesearch/v1/site-connection/brand/remove' ],
+			$requested_urls
+		);
+	}
+
+	/**
+	 * Each removed brand site gets an authenticated disconnection notice.
+	 */
+	public function test_notify_brand_sites_of_disconnection_notifies_each_site(): void {
+		$requests = [];
+		$filter   = static function ( $preempt, $args, $url ) use ( &$requests ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requests[ $url ] = $args;
+
+			return [
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
+				],
+				'body'     => '{"success":true}',
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		Governing_Data_Handler::notify_brand_sites_of_disconnection(
+			[
+				'https://a.example.com/' => 'key-a',
+				'https://b.example.com/' => 'key-b',
+			]
+		);
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertSame(
+			[
+				'https://a.example.com/wp-json/onesearch/v1/site-connection/governing/remove',
+				'https://b.example.com/wp-json/onesearch/v1/site-connection/governing/remove',
+			],
+			array_keys( $requests )
+		);
+		$this->assertSame( 'DELETE', $requests['https://a.example.com/wp-json/onesearch/v1/site-connection/governing/remove']['method'] );
+		$this->assertSame( 'key-b', $requests['https://b.example.com/wp-json/onesearch/v1/site-connection/governing/remove']['headers']['X-OneSearch-Token'] );
+	}
+
+	/**
+	 * A brand site that could not be reached is reported rather than dropped silently.
+	 */
+	public function test_notify_brand_sites_of_disconnection_reports_unreachable_site(): void {
+		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( false === strpos( $url, 'a.example.com' ) ) {
+				return $preempt;
+			}
+
+			return new \WP_Error( 'http_request_failed', 'cURL error 6: Could not resolve host' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$failures = [];
+		$listener = static function ( $site_url, $error ) use ( &$failures ): void {
+			$failures[ $site_url ] = $error;
+		};
+		add_action( 'onesearch_brand_disconnect_notice_failed', $listener, 10, 2 );
+
+		Governing_Data_Handler::notify_brand_sites_of_disconnection( [ 'https://a.example.com/' => 'key-a' ] );
+
+		remove_action( 'onesearch_brand_disconnect_notice_failed', $listener, 10 );
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertSame( [ 'https://a.example.com/' => 'cURL error 6: Could not resolve host' ], $failures );
+	}
+
+	/**
+	 * A brand site that refuses the notice is reported with the status it returned.
+	 */
+	public function test_notify_brand_sites_of_disconnection_reports_refused_notice(): void {
+		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( false === strpos( $url, 'a.example.com' ) ) {
+				return $preempt;
+			}
+
+			return [
+				'response' => [
+					'code'    => 401,
+					'message' => 'Unauthorized',
+				],
+				'body'     => '{"code":"rest_forbidden"}',
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$failures = [];
+		$listener = static function ( $site_url, $error ) use ( &$failures ): void {
+			$failures[ $site_url ] = $error;
+		};
+		add_action( 'onesearch_brand_disconnect_notice_failed', $listener, 10, 2 );
+
+		Governing_Data_Handler::notify_brand_sites_of_disconnection( [ 'https://a.example.com/' => 'key-a' ] );
+
+		remove_action( 'onesearch_brand_disconnect_notice_failed', $listener, 10 );
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertSame( [ 'https://a.example.com/' => 'HTTP 401' ], $failures );
+	}
+
+	/**
+	 * A failed notice is kept around for the admin to retry manually - it is never
+	 * retried on its own. Without a display name it falls back to the URL.
+	 */
+	public function test_notify_brand_sites_of_disconnection_records_a_pending_notice(): void {
+		add_filter( 'pre_http_request', static fn () => new \WP_Error( 'blocked', 'Intercepted' ) );
+
+		Governing_Data_Handler::notify_brand_sites_of_disconnection( [ 'https://a.example.com/' => 'key-a' ] );
+
+		$pending = Governing_Data_Handler::get_pending_disconnect_notices();
+
+		$this->assertArrayHasKey( 'https://a.example.com/', $pending );
+		$this->assertSame( 'https://a.example.com/', $pending['https://a.example.com/']['name'] );
+		$this->assertSame( 1, $pending['https://a.example.com/']['attempts'] );
+		$this->assertSame( 'Intercepted', $pending['https://a.example.com/']['last_error'] );
+	}
+
+	/**
+	 * A retry that succeeds clears the pending notice.
+	 */
+	public function test_retry_pending_disconnect_notice_clears_notice_on_success(): void {
+		add_filter( 'pre_http_request', static fn () => new \WP_Error( 'blocked', 'Intercepted' ) );
+		Governing_Data_Handler::notify_brand_sites_of_disconnection( [ 'https://a.example.com/' => 'key-a' ] );
+		remove_all_filters( 'pre_http_request' );
+
+		add_filter(
+			'pre_http_request',
+			static fn () => [
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
+				],
+				'body'     => '{"success":true}',
+				'headers'  => [],
+				'cookies'  => [],
+			]
+		);
+
+		$resolved = Governing_Data_Handler::retry_pending_disconnect_notice( 'https://a.example.com/' );
+
+		$this->assertTrue( $resolved );
+		$this->assertEmpty( Governing_Data_Handler::get_pending_disconnect_notices() );
+	}
+
+	/**
+	 * A retry that fails again keeps the notice and bumps its attempt count - there is no
+	 * cap, since it is only ever retried when the admin asks.
+	 */
+	public function test_retry_pending_disconnect_notice_keeps_notice_on_continued_failure(): void {
+		add_filter( 'pre_http_request', static fn () => new \WP_Error( 'blocked', 'Still unreachable' ) );
+		Governing_Data_Handler::notify_brand_sites_of_disconnection( [ 'https://a.example.com/' => 'key-a' ] );
+
+		$resolved = Governing_Data_Handler::retry_pending_disconnect_notice( 'https://a.example.com/' );
+
+		$pending = Governing_Data_Handler::get_pending_disconnect_notices();
+		$this->assertFalse( $resolved );
+		$this->assertSame( 2, $pending['https://a.example.com/']['attempts'] );
+		$this->assertSame( 'Still unreachable', $pending['https://a.example.com/']['last_error'] );
+	}
+
+	/**
+	 * Adding a brand site back makes a pending notice for it moot: replaying the stored
+	 * disconnect would tear down the new pairing and leave it one-sided.
+	 */
+	public function test_retry_pending_disconnect_notice_refuses_after_the_brand_reconnects(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+
+		add_filter( 'pre_http_request', static fn () => new \WP_Error( 'blocked', 'Intercepted' ) );
+		Governing_Data_Handler::notify_brand_sites_of_disconnection( [ 'https://a.example.com/' => 'key-a' ] );
+		remove_all_filters( 'pre_http_request' );
+
+		// The brand was added back before the admin got around to retrying.
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Brand A',
+					'url'     => 'https://a.example.com',
+					'api_key' => 'key-a',
+				],
+			]
+		);
+
+		$requested_urls = [];
+		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requested_urls[] = $url;
+			return new \WP_Error( 'blocked', 'Intercepted' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$resolved = Governing_Data_Handler::retry_pending_disconnect_notice( 'https://a.example.com/' );
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertTrue( $resolved );
+		$this->assertEmpty( $requested_urls, 'A live pairing must not be torn down by a stale retry.' );
+		$this->assertEmpty( Governing_Data_Handler::get_pending_disconnect_notices() );
+	}
+
+	/**
+	 * A reconnected brand's stale notice is not put in front of the admin either.
+	 */
+	public function test_get_pending_disconnect_notices_hides_reconnected_sites(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+
+		add_filter( 'pre_http_request', static fn () => new \WP_Error( 'blocked', 'Intercepted' ) );
+		Governing_Data_Handler::notify_brand_sites_of_disconnection(
+			[
+				'https://a.example.com/' => 'key-a',
+				'https://b.example.com/' => 'key-b',
+			]
+		);
+		remove_all_filters( 'pre_http_request' );
+
+		$this->assertCount( 2, Governing_Data_Handler::get_pending_disconnect_notices() );
+
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Brand A',
+					'url'     => 'https://a.example.com',
+					'api_key' => 'key-a',
+				],
+			]
+		);
+
+		$this->assertSame(
+			[ 'https://b.example.com/' ],
+			array_keys( Governing_Data_Handler::get_pending_disconnect_notices() )
+		);
+	}
+
+	/**
+	 * Sites without an API key cannot be authenticated against, so they are skipped.
+	 */
+	public function test_notify_brand_sites_of_disconnection_skips_sites_without_key(): void {
+		$requested_urls = [];
+		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requested_urls[] = $url;
+			return new \WP_Error( 'blocked', 'Intercepted' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		Governing_Data_Handler::notify_brand_sites_of_disconnection( [ 'https://a.example.com/' => '' ] );
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertEmpty( $requested_urls );
+	}
+
+	/**
+	 * A site that disconnected itself is not notified back about its own removal.
+	 */
+	public function test_notify_brand_sites_of_disconnection_skips_suppressed_site(): void {
+		$requested_urls = [];
+		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requested_urls[] = $url;
+			return new \WP_Error( 'blocked', 'Intercepted' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		Governing_Data_Handler::suppress_disconnect_notice( 'https://a.example.com/' );
+		Governing_Data_Handler::notify_brand_sites_of_disconnection(
+			[
+				'https://a.example.com/' => 'key-a',
+				'https://b.example.com/' => 'key-b',
+			]
+		);
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertSame( [ 'https://b.example.com/wp-json/onesearch/v1/site-connection/governing/remove' ], $requested_urls );
+	}
+
+	/**
+	 * Suppression only covers the removal it was recorded for.
+	 */
+	public function test_suppression_does_not_persist_beyond_one_removal(): void {
+		$requested_urls = [];
+		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requested_urls[] = $url;
+			return new \WP_Error( 'blocked', 'Intercepted' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		Governing_Data_Handler::suppress_disconnect_notice( 'https://a.example.com/' );
+		Governing_Data_Handler::notify_brand_sites_of_disconnection( [ 'https://a.example.com/' => 'key-a' ] );
+		Governing_Data_Handler::notify_brand_sites_of_disconnection( [ 'https://a.example.com/' => 'key-a' ] );
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertSame( [ 'https://a.example.com/wp-json/onesearch/v1/site-connection/governing/remove' ], $requested_urls );
+	}
 }

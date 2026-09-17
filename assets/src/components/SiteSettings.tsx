@@ -4,24 +4,26 @@
 /**
  * External dependencies
  */
-import { useEffect, useState, useCallback } from 'react';
 import {
-	TextareaControl,
 	Button,
 	Card,
-	Notice,
-	Spinner,
-	CardHeader,
 	CardBody,
-	TextControl,
+	CardHeader,
 	Modal,
+	Notice,
+	Snackbar,
+	Spinner,
+	TextareaControl,
+	TextControl,
 } from '@wordpress/components';
-import { __ } from '@wordpress/i18n';
+import { __, sprintf } from '@wordpress/i18n';
+import { useCallback, useEffect, useState } from 'react';
 
 /**
  * Internal dependencies
  */
 import type { NoticeType } from '@/admin/settings/page';
+import type { OneSearchPendingDisconnect } from '@/types/global';
 
 const API_NAMESPACE = window.OneSearchSettings.restUrl + 'onesearch/v1';
 const NONCE = window.OneSearchSettings.nonce as string;
@@ -34,6 +36,9 @@ const SiteSettings = () => {
 	const [ governingSite, setGoverningSite ] = useState( '' );
 	const [ showDisconnectionModal, setShowDisconnectionModal ] =
 		useState( false );
+	const [ pendingDisconnects, setPendingDisconnects ] = useState<
+		OneSearchPendingDisconnect[]
+	>( () => window.OneSearchSettings.pendingDisconnects ?? [] );
 
 	const fetchApiKey = useCallback( async () => {
 		setIsLoading( true );
@@ -139,7 +144,57 @@ const SiteSettings = () => {
 		}
 	}, [ apiKey ] );
 
+	const retryDisconnect = useCallback( async ( siteUrl: string ) => {
+		try {
+			const response = await fetch(
+				`${ API_NAMESPACE }/retry-disconnect`,
+				{
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						'X-WP-Nonce': NONCE,
+					},
+					body: JSON.stringify( { site_url: siteUrl } ),
+				}
+			);
+
+			if ( ! response.ok ) {
+				throw new Error( 'Network response was not ok' );
+			}
+
+			const data = await response.json();
+
+			// The response carries whatever is still undelivered, so it replaces the list.
+			setPendingDisconnects( data?.pending ?? [] );
+
+			setNotice(
+				data?.success
+					? {
+							type: 'success',
+							message: __( 'Disconnection sent.', 'onesearch' ),
+					  }
+					: {
+							type: 'error',
+							message: __(
+								'The site still could not be notified. Please try again later.',
+								'onesearch'
+							),
+					  }
+			);
+		} catch {
+			setNotice( {
+				type: 'error',
+				message: __(
+					'Failed to retry the disconnection. Please try again later.',
+					'onesearch'
+				),
+			} );
+		}
+	}, [] );
+
 	const deleteGoverningSiteConnection = useCallback( async () => {
+		const previousGoverningSite = governingSite;
+
 		try {
 			const response = await fetch( `${ API_NAMESPACE }/governing-site`, {
 				method: 'DELETE',
@@ -152,7 +207,30 @@ const SiteSettings = () => {
 			if ( ! response.ok ) {
 				throw new Error( 'Network response was not ok' );
 			}
+			const data = await response.json();
+
 			setGoverningSite( '' );
+			setShowDisconnectionModal( false );
+
+			if ( ! data?.remote_disconnected ) {
+				setPendingDisconnects( [
+					{
+						site_url: '',
+						message:
+							data?.message ||
+							sprintf(
+								/* translators: %s: governing site URL. */
+								__(
+									'The governing site "%s" could not be notified that this site disconnected, and may still list this site as connected.',
+									'onesearch'
+								),
+								previousGoverningSite
+							),
+					},
+				] );
+				return;
+			}
+
 			setNotice( {
 				type: 'success',
 				message: __(
@@ -168,10 +246,9 @@ const SiteSettings = () => {
 					'onesearch'
 				),
 			} );
-		} finally {
 			setShowDisconnectionModal( false );
 		}
-	}, [ apiKey ] );
+	}, [ apiKey, governingSite ] );
 
 	const handleDisconnectGoverningSite = useCallback( async () => {
 		setShowDisconnectionModal( true );
@@ -188,14 +265,35 @@ const SiteSettings = () => {
 
 	return (
 		<>
-			{ notice && (
+			{ pendingDisconnects.map( ( pending ) => (
 				<Notice
-					status={ notice.type }
-					isDismissible
+					key={ pending.site_url || 'governing' }
+					className="onesearch-disconnect-notice"
+					status="warning"
+					isDismissible={ false }
+					actions={ [
+						{
+							label: __( 'Retry', 'onesearch' ),
+							onClick: () => retryDisconnect( pending.site_url ),
+						},
+					] }
+				>
+					{ pending.message }
+				</Notice>
+			) ) }
+
+			{ notice && (
+				<Snackbar
+					explicitDismiss={ false }
 					onRemove={ () => setNotice( null ) }
+					className={
+						notice.type === 'error'
+							? 'onesearch-error-notice'
+							: 'onesearch-success-notice'
+					}
 				>
 					{ notice.message }
-				</Notice>
+				</Snackbar>
 			) }
 
 			<Card style={ { marginTop: '30px' } }>
