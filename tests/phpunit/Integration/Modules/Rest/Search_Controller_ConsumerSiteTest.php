@@ -169,4 +169,43 @@ class Search_Controller_ConsumerSiteTest extends TestCase {
 		$this->assertArrayHasKey( 'success', $data );
 		$this->assertArrayHasKey( 'message', $data );
 	}
+
+	/**
+	 * GET /re-index/status returns inactive when no reindex is running.
+	 */
+	public function test_reindex_status_returns_inactive_when_no_state(): void {
+		delete_transient( Search_Controller::REINDEX_STATE_TRANSIENT );
+
+		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/re-index/status' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertTrue( $data['success'] );
+		$this->assertFalse( $data['active'] );
+	}
+
+	/**
+	 * POST /re-index returns 409 when a reindex is already active.
+	 */
+	public function test_reindex_returns_409_when_active_reindex_exists(): void {
+		$jobs = [
+			[
+				'site_name'   => 'Test Site',
+				'site_url'    => get_site_url(),
+				'job_id'      => 'test_job_789',
+				'batch_count' => 2,
+			],
+		];
+		set_transient( Search_Controller::REINDEX_STATE_TRANSIENT, $jobs, 3600 );
+
+		$request  = new WP_REST_Request( 'POST', '/onesearch/v1/re-index' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 409, $response->get_status() );
+		$this->assertSame( 'onesearch_reindex_active', $data['code'] );
+
+		delete_transient( Search_Controller::REINDEX_STATE_TRANSIENT );
+	}
 }

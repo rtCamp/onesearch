@@ -336,6 +336,26 @@ body {
 .onesearch-entities-controls {
 	display: flex;
 	gap: 8px;
+	align-items: center;
+}
+
+.onesearch-btn-spinner {
+	display: inline-block;
+	width: 14px;
+	height: 14px;
+	border: 2px solid rgba(0, 0, 0, 0.2);
+	border-top-color: currentcolor;
+	border-radius: 50%;
+	animation: onesearch-spin 0.6s linear infinite;
+	margin-right: 4px;
+	vertical-align: middle;
+}
+
+@keyframes onesearch-spin {
+
+	to {
+		transform: rotate(360deg);
+	}
 }
 
 /* Individual sites */
@@ -440,4 +460,490 @@ body:has(.onesearch-setup-overlay) .onesearch-search-content {
 
 .onesearch-button-group {
 	margin-right: 8px;
+}
+
+/* Job Progress */
+.onesearch-job-progress {
+	margin: 16px 0;
+}
+
+.onesearch-job-progress-bar {
+	width: 100%;
+	height: 12px;
+	background: #dcdcde;
+	border-radius: 6px;
+	overflow: hidden;
+}
+
+.onesearch-job-progress-fill {
+	height: 100%;
+	background: #007cba;
+	border-radius: 6px;
+	transition: width 0.3s ease;
+	min-width: 0;
+}
+
+.onesearch-job-progress-info {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-top: 8px;
+}
+
+.onesearch-job-status {
+	display: inline-block;
+	padding: 2px 8px;
+	border-radius: 8px;
+	font-size: 11px;
+	font-weight: 600;
+	text-transform: uppercase;
+	line-height: 1.4;
+}
+
+.onesearch-job-status--pending {
+	background: #f0b849;
+	color: #1e1e1e;
+}
+
+.onesearch-job-status--running {
+	background: #007cba;
+	color: #fff;
+}
+
+.onesearch-job-status--completed {
+	background: #16a32d;
+	color: #fff;
+}
+
+.onesearch-job-status--failed {
+	background: #e11d1d;
+	color: #fff;
+}
+
+.onesearch-job-status--cancelled {
+	background: #9ca3af;
+	color: #fff;
+}
+
+.onesearch-job-progress-text {
+	font-size: 13px;
+	color: #666;
+}
+
+.onesearch-job-error {
+	margin: 8px 0 0;
+	padding: 8px 12px;
+	background: #fce4e4;
+	border-left: 4px solid #e11d1d;
+	color: #a11d1d;
+	font-size: 13px;
+	border-radius: 2px;
+}
+
+/* ─── Hierarchical Job Panel ─── */
+
+.onesearch-modal-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 24px;
+}
+
+.onesearch-modal-actions .onesearch-btn-cancel,
+.onesearch-job-panel-header .onesearch-btn-cancel {
+	background: #d63638 !important;
+	border-color: #d63638 !important;
+	color: #fff !important;
+	box-shadow: none !important;
+}
+
+.onesearch-modal-actions .onesearch-btn-cancel:hover,
+.onesearch-job-panel-header .onesearch-btn-cancel:hover {
+	background: #a02a2c !important;
+	border-color: #a02a2c !important;
+	color: #fff !important;
+}
+
+// Re-index loading screen inside the modal.
+.onesearch-reindex-loading {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	padding: 48px 24px;
+	gap: 16px;
+}
+
+.onesearch-reindex-spinner {
+	width: 36px;
+	height: 36px;
+	border: 3px solid #e0e0e0;
+	border-top-color: var(--wp-components-color-accent, var(--wp-admin-theme-color, #3858e9));
+	border-radius: 50%;
+	animation: onesearch-spin 0.7s linear infinite;
+}
+
+@keyframes onesearch-spin {
+
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+.onesearch-reindex-loading-text {
+	margin: 0;
+	font-size: 13px;
+	color: #757575;
+}
+
+.onesearch-job-panel {
+	margin: 0 -24px;
+}
+
+.onesearch-job-panel-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 12px 24px;
+	border-bottom: 1px solid #e0e0e0;
+	background: #f8f9fa;
+}
+
+.onesearch-job-panel-header h3 {
+	margin: 0;
+	font-size: 15px;
+}
+
+.onesearch-job-panel-header code {
+	font-size: 12px;
+	color: #666;
+}
+
+.onesearch-job-panel-total {
+	font-size: 13px;
+	color: #555;
+	font-weight: 500;
+	margin-left: auto;
+	margin-right: 12px;
+}
+
+.onesearch-job-panel-body {
+	padding: 0;
+}
+
+/* Site row */
+.onesearch-job-site-row {
+	border-bottom: 1px solid #eee;
+}
+
+.onesearch-job-site-row:last-child {
+	border-bottom: none;
+}
+
+.onesearch-job-site-header {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 10px 24px;
+}
+
+.onesearch-job-site-header[role="button"]:hover {
+	background: #f0f6fc;
+}
+
+.onesearch-job-site-name {
+	font-weight: 600;
+	font-size: 14px;
+	min-width: 140px;
+}
+
+.onesearch-job-expand-icon {
+	display: inline-block;
+	width: 14px;
+	font-size: 12px;
+}
+
+.onesearch-job-site-url {
+	flex: 1;
+	font-size: 12px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.onesearch-job-site-status {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+/* Batch list */
+.onesearch-batch-list {
+	padding: 4px 24px 8px 48px;
+	background: #fafafa;
+}
+
+.onesearch-batch-row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 4px 0;
+	font-size: 13px;
+}
+
+.onesearch-batch-label {
+	font-family: monospace;
+	font-size: 12px;
+	color: #666;
+	min-width: 60px;
+}
+
+.onesearch-batch-error {
+	color: #e11d1d;
+	font-size: 12px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	max-width: 200px;
+}
+
+/* Small status badges */
+.onesearch-job-status--small {
+	font-size: 10px;
+	padding: 1px 6px;
+}
+
+/* Small progress bar */
+.onesearch-job-progress-bar--small {
+	height: 6px;
+	min-width: 60px;
+	flex: 0 0 60px;
+	border-radius: 3px;
+}
+
+/* History section */
+.onesearch-job-history {
+	margin-top: 16px;
+	border-top: 1px solid #e0e0e0;
+	padding-top: 12px;
+}
+
+.onesearch-job-history-header {
+	font-size: 14px;
+	font-weight: 600;
+	cursor: pointer;
+	padding: 4px 0;
+	color: #1d2327;
+}
+
+.onesearch-history-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 13px;
+
+	thead th {
+		text-align: left;
+		padding: 8px 12px;
+		font-weight: 600;
+		color: #1d2327;
+		border-bottom: 1px solid #e0e0e0;
+		font-size: 12px;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		white-space: nowrap;
+	}
+
+	tbody td {
+		padding: 10px 12px;
+		vertical-align: middle;
+		white-space: nowrap;
+
+		code {
+			font-size: 11px;
+		}
+	}
+
+	tbody tr + tr td {
+		border-top: 1px solid #f0f0f0;
+	}
+
+	tbody tr.onesearch-history-table-row {
+		cursor: pointer;
+	}
+
+	tbody tr.onesearch-history-table-row:hover,
+	tbody tr.onesearch-history-table-row:focus {
+		background: #f0f6fc;
+		outline: none;
+	}
+
+	td:first-child,
+	th:first-child {
+		padding-left: 0;
+	}
+
+	td:last-child,
+	th:last-child {
+		padding-right: 0;
+	}
+}
+
+.onesearch-history-details-summary {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 12px;
+	margin-bottom: 16px;
+
+	> div {
+		border: 1px solid #e0e0e0;
+		border-radius: 4px;
+		padding: 10px 12px;
+		background: #f8f9fa;
+	}
+
+	span {
+		display: block;
+		font-size: 11px;
+		font-weight: 600;
+		text-transform: uppercase;
+		color: #646970;
+		margin-bottom: 4px;
+	}
+
+	strong {
+		display: block;
+		font-size: 18px;
+		line-height: 1.3;
+	}
+}
+
+.onesearch-history-details-view {
+	display: grid;
+	gap: 16px;
+}
+
+.onesearch-history-details-toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.onesearch-history-details-back.components-button {
+	justify-self: start;
+	min-height: 30px;
+	padding-left: 0;
+}
+
+.onesearch-history-details-content {
+	min-height: 220px;
+	transition: opacity 0.18s ease;
+}
+
+.onesearch-history-details-content--loading {
+	display: grid;
+	place-items: center;
+}
+
+.onesearch-history-details-loading {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 12px;
+	min-height: 220px;
+}
+
+.onesearch-history-details-sites {
+	display: grid;
+	gap: 12px;
+	animation: onesearch-details-in 0.18s ease-out;
+}
+
+@keyframes onesearch-details-in {
+
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+.onesearch-history-details-site {
+	border: 1px solid #e0e0e0;
+	border-radius: 4px;
+	overflow: hidden;
+}
+
+.onesearch-history-details-site-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 12px 16px;
+	background: #fff;
+
+	strong {
+		display: block;
+		font-size: 14px;
+		margin-bottom: 2px;
+	}
+}
+
+.onesearch-history-details-site-meta {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	white-space: nowrap;
+}
+
+.onesearch-history-details-empty {
+	display: block;
+	padding: 10px 16px 14px;
+	background: #fafafa;
+}
+
+.onesearch-job-history .onesearch-job-panel-body {
+	max-height: 400px;
+	overflow-y: auto;
+	padding: 0 4px;
+}
+
+// History pagination.
+.onesearch-history-pagination {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 4px;
+	padding: 12px 0 4px;
+
+	.components-button {
+		min-width: 32px;
+		height: 32px;
+		padding: 0 8px;
+		justify-content: center;
+		font-size: 13px;
+		border-radius: 4px;
+	}
+
+	& &-current.components-button {
+		background: var(--wp-components-color-accent, var(--wp-admin-theme-color, #3858e9));
+		color: #fff;
+		pointer-events: none;
+	}
+
+	& &-ellipsis {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 32px;
+		height: 32px;
+		font-size: 14px;
+		color: #757575;
+		user-select: none;
+	}
 }
