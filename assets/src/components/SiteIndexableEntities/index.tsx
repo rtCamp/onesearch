@@ -68,7 +68,6 @@ const SiteIndexableEntities = ( {
 		handleHistoryDetailsBack,
 		handleRetryHistoryJob,
 		openHistoryDetails,
-		toggleExpand,
 		fetchHistory,
 	} = useReindexJob( { currentSiteUrl, setNotice } );
 
@@ -274,7 +273,6 @@ const SiteIndexableEntities = ( {
 					onClose={ handleModalClose }
 					onReIndex={ () => void handleReIndex() }
 					onCancelJob={ () => void handleCancelJob() }
-					onToggleExpand={ toggleExpand }
 					onOpenHistoryDetails={ ( job ) =>
 						void openHistoryDetails( job )
 					}

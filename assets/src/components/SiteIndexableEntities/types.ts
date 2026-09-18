@@ -70,5 +70,4 @@ export interface SiteJobState {
 	site: SiteJob;
 	reindexJob: JobStatus | null;
 	children: JobStatus[];
-	expanded: boolean;
 }

@@ -26,7 +26,6 @@ interface ReindexModalProps {
 	onClose: () => void;
 	onReIndex: () => void;
 	onCancelJob: () => void;
-	onToggleExpand: ( siteUrl: string ) => void;
 	onOpenHistoryDetails: ( job: JobStatus ) => void;
 	onPageChange: ( page: number ) => void;
 	onHistoryDetailsBack: () => void;
@@ -62,7 +61,6 @@ const ReindexModal = ( {
 	onClose,
 	onReIndex,
 	onCancelJob,
-	onToggleExpand,
 	onOpenHistoryDetails,
 	onPageChange,
 	onHistoryDetailsBack,
@@ -95,7 +93,6 @@ const ReindexModal = ( {
 				historyTotalPages={ historyTotalPages }
 				onReIndex={ onReIndex }
 				onCancelJob={ onCancelJob }
-				onToggleExpand={ onToggleExpand }
 				onOpenHistoryDetails={ onOpenHistoryDetails }
 				onPageChange={ onPageChange }
 			/>

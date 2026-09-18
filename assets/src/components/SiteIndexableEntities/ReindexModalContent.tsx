@@ -20,7 +20,6 @@ interface ReindexModalContentProps {
 	historyTotalPages: number;
 	onReIndex: () => void;
 	onCancelJob: () => void;
-	onToggleExpand: ( siteUrl: string ) => void;
 	onOpenHistoryDetails: ( job: JobStatus ) => void;
 	onPageChange: ( page: number ) => void;
 }
@@ -34,7 +33,6 @@ const ReindexModalContent = ( {
 	historyTotalPages,
 	onReIndex,
 	onCancelJob,
-	onToggleExpand,
 	onOpenHistoryDetails,
 	onPageChange,
 }: ReindexModalContentProps ) => (
@@ -128,11 +126,7 @@ const ReindexModalContent = ( {
 
 				<div className="onesearch-job-panel-body">
 					{ siteStates.map( ( s ) => (
-						<SiteRow
-							key={ s.site.site_url }
-							state={ s }
-							onToggleExpand={ onToggleExpand }
-						/>
+						<SiteRow key={ s.site.site_url } state={ s } />
 					) ) }
 				</div>
 			</div>

@@ -46,7 +46,6 @@ export interface UseReindexJobReturn {
 	handleHistoryDetailsBack: () => void;
 	handleRetryHistoryJob: () => Promise< void >;
 	openHistoryDetails: ( job: JobStatus ) => Promise< void >;
-	toggleExpand: ( siteUrl: string ) => void;
 	fetchHistory: ( page?: number ) => Promise< void >;
 }
 
@@ -211,15 +210,7 @@ export const useReindexJob = ( {
 			} )
 		);
 
-		setSiteStates( ( prev ) => {
-			const expandedMap = new Map(
-				prev.map( ( s ) => [ s.site.site_url, s.expanded ] )
-			);
-			return updated.map( ( s ) => ( {
-				...s,
-				expanded: expandedMap.get( s.site.site_url ) ?? s.expanded,
-			} ) );
-		} );
+		setSiteStates( updated );
 
 		const allTerminal = updated.every( ( s ) => {
 			if ( ! s.reindexJob ) {
@@ -279,7 +270,6 @@ export const useReindexJob = ( {
 							site,
 							reindexJob: null,
 							children: [],
-							expanded: false,
 						} )
 					);
 					setReindexing( true );
@@ -341,7 +331,6 @@ export const useReindexJob = ( {
 						site,
 						reindexJob: null,
 						children: [],
-						expanded: true,
 					};
 				}
 
@@ -355,7 +344,6 @@ export const useReindexJob = ( {
 						result?.reindexJob ||
 						( site.job_id === job.id ? job : null ),
 					children: result?.children || [],
-					expanded: true,
 				};
 			} )
 		);
@@ -481,17 +469,6 @@ export const useReindexJob = ( {
 		void refreshHistoryRetryDetails( selectedHistoryJob );
 	};
 
-	const toggleExpand = ( siteUrl: string ) => {
-		const normalized = withTrailingSlash( siteUrl );
-		setSiteStates( ( prev ) =>
-			prev.map( ( s ) =>
-				withTrailingSlash( s.site.site_url ) === normalized
-					? { ...s, expanded: ! s.expanded }
-					: s
-			)
-		);
-	};
-
 	const handleReIndex = async (): Promise< boolean > => {
 		try {
 			setReindexing( true );
@@ -513,7 +490,6 @@ export const useReindexJob = ( {
 					site,
 					reindexJob: null,
 					children: [],
-					expanded: false,
 				} ) );
 				setSiteStates( initial );
 				siteStatesRef.current = initial;
@@ -615,7 +591,6 @@ export const useReindexJob = ( {
 		handleHistoryDetailsBack,
 		handleRetryHistoryJob,
 		openHistoryDetails,
-		toggleExpand,
 		fetchHistory,
 	};
 };
