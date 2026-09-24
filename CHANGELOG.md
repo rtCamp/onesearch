@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.1.3](https://github.com/rtCamp/onesearch/compare/v1.1.2...v1.1.3) (2026-09-24)
+
+
+### Bug Fixes
+
+* remove stale posts when publish status changes ([#305](https://github.com/rtCamp/onesearch/issues/305)) ([adf5ed7](https://github.com/rtCamp/onesearch/commit/adf5ed73eac1bb12bc8a1264a668e92c5ac552e6))
+* update Composer deps and remediate PHPStan lints ([#307](https://github.com/rtCamp/onesearch/issues/307)) ([992bb13](https://github.com/rtCamp/onesearch/commit/992bb13aa4d73112dcf4c04bb390edfd039622f4))
+
+
+### Miscellaneous Chores
+
+* Bump node to 24, min npm to 11; update deps ([#315](https://github.com/rtCamp/onesearch/issues/315)) ([82b520d](https://github.com/rtCamp/onesearch/commit/82b520df79f03db2115f678db72df82b504c6e97))
+* **deps-dev:** bump browserslist from 4.28.6 to 4.28.9 ([#309](https://github.com/rtCamp/onesearch/issues/309)) ([d911fd2](https://github.com/rtCamp/onesearch/commit/d911fd25a402aeac0d2bf4141503cc598a394031))
+* **deps-dev:** bump fast-uri from 3.1.5 to 3.1.7 ([#304](https://github.com/rtCamp/onesearch/issues/304)) ([ab78bf2](https://github.com/rtCamp/onesearch/commit/ab78bf299dea69cee12406f6dad6e25a33f0a034))
+* **deps-dev:** bump svgo from 3.3.4 to 3.3.5 ([#313](https://github.com/rtCamp/onesearch/issues/313)) ([f3dd7fc](https://github.com/rtCamp/onesearch/commit/f3dd7fc0f2deae0fb99d2570ab9cd350df220ec8))
+* **deps-dev:** bump wp-phpunit/wp-phpunit ([#317](https://github.com/rtCamp/onesearch/issues/317)) ([c166ce4](https://github.com/rtCamp/onesearch/commit/c166ce46ee6e17781bfa97b582fc16dd84de9e14))
+* **deps:** bump adm-zip from 0.6.0 to 0.6.1 ([#316](https://github.com/rtCamp/onesearch/issues/316)) ([fef5cc1](https://github.com/rtCamp/onesearch/commit/fef5cc1e2a71355d19930bc3da4e33dbd283438c))
+* **deps:** bump colord from 2.9.3 to 2.10.0 ([#314](https://github.com/rtCamp/onesearch/issues/314)) ([0bbb02f](https://github.com/rtCamp/onesearch/commit/0bbb02ff73433a332aa2d00e1e7439f8c2402949))
+* **deps:** bump the github-actions-updates group with 3 updates ([#318](https://github.com/rtCamp/onesearch/issues/318)) ([8065902](https://github.com/rtCamp/onesearch/commit/806590249649ad0e2ff9eba3529a2603750e104e))
+
 ## [1.1.2](https://github.com/rtCamp/onesearch/compare/v1.1.1...v1.1.2) (2026-08-26)
 
 
