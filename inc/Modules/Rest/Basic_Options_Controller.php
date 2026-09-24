@@ -10,6 +10,7 @@ declare(strict_types = 1);
 namespace OneSearch\Modules\Rest;
 
 use OneSearch\Modules\Settings\Settings;
+use OneSearch\Utils;
 use WP_REST_Request;
 use WP_REST_Response;
 use WP_REST_Server;
@@ -112,6 +113,27 @@ class Basic_Options_Controller extends Abstract_REST_Controller {
 						);
 					},
 					'permission_callback' => static fn () => current_user_can( 'manage_options' ),
+				],
+			]
+		);
+
+		/**
+		 * Register a route to retry an undelivered disconnection.
+		 */
+		register_rest_route(
+			self::NAMESPACE,
+			'/retry-disconnect',
+			[
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => [ $this, 'retry_disconnect' ],
+				'permission_callback' => static fn () => current_user_can( 'manage_options' ),
+				'args'                => [
+					'site_url' => [
+						'required'          => false,
+						'type'              => 'string',
+						'default'           => '',
+						'sanitize_callback' => 'esc_url_raw',
+					],
 				],
 			]
 		);
@@ -233,20 +255,68 @@ class Basic_Options_Controller extends Abstract_REST_Controller {
 	}
 
 	/**
+	 * Retries one undelivered disconnection, and returns whatever is still pending.
+	 *
+	 * @param \WP_REST_Request<array<string,mixed>> $request The request object.
+	 *
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public function retry_disconnect( $request ): WP_REST_Response|\WP_Error {
+		$site_url = (string) $request->get_param( 'site_url' );
+		$site_url = '' !== $site_url ? Utils::normalize_url( $site_url ) : '';
+
+		$retried = Governing_Data_Handler::retry_pending_disconnect( $site_url );
+
+		return rest_ensure_response(
+			[
+				'success' => $retried,
+				'pending' => Governing_Data_Handler::get_pending_disconnects_for_admin(),
+			]
+		);
+	}
+
+	/**
 	 * Remove governing site url.
 	 *
 	 * @return \WP_REST_Response|\WP_Error
 	 */
 	public function remove_governing_site(): WP_REST_Response|\WP_Error {
-		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
+		$parent_url   = Settings::get_parent_site_url();
+		$remote_error = '';
 
-		// Clear cached brand configuration.
-		Governing_Data_Handler::clear_brand_config_cache();
+		// Without a governing site there is nothing to propagate, and nothing local to tear down.
+		if ( ! empty( $parent_url ) ) {
+			// Reads the parent URL, so it has to run before the option is deleted.
+			$deregistered = Governing_Data_Handler::deregister_from_governing_site();
+
+			if ( is_wp_error( $deregistered ) ) {
+				$remote_error = $deregistered->get_error_message();
+			}
+
+			delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
+			Governing_Data_Handler::clear_brand_config_cache();
+		}
+
+		if ( '' !== $remote_error ) {
+			return rest_ensure_response(
+				[
+					'success'             => true,
+					'remote_disconnected' => false,
+					'message'             => sprintf(
+						/* translators: %s: governing site URL. */
+						__( 'The governing site "%s" could not be notified that this site disconnected, and may still list this site as connected.', 'onesearch' ),
+						$parent_url
+					),
+					'error'               => $remote_error,
+				]
+			);
+		}
 
 		return rest_ensure_response(
 			[
-				'success' => true,
-				'message' => __( 'Governing site removed successfully.', 'onesearch' ),
+				'success'             => true,
+				'remote_disconnected' => true,
+				'message'             => __( 'Governing site removed successfully.', 'onesearch' ),
 			]
 		);
 	}

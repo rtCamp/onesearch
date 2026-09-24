@@ -225,6 +225,92 @@ final class SettingsTest extends TestCase {
 		$this->assertNull( Settings::get_shared_site_by_url( 'https://unknown.example' ) );
 	}
 
+	/** Removing a site returns its (decrypted) data and leaves the rest untouched. */
+	public function test_remove_shared_site_removes_only_the_target(): void {
+		Settings::set_shared_sites(
+			[
+				[
+					'id'      => 'brand-1',
+					'name'    => 'Brand One',
+					'url'     => 'https://brand-one.example',
+					'api_key' => 'brand-one-key',
+				],
+				[
+					'id'      => 'brand-2',
+					'name'    => 'Brand Two',
+					'url'     => 'https://brand-two.example',
+					'api_key' => 'brand-two-key',
+				],
+			]
+		);
+
+		$removed = Settings::remove_shared_site( 'https://brand-one.example' );
+
+		$this->assertSame(
+			[
+				'api_key' => 'brand-one-key',
+				'id'      => 'brand-1',
+				'logo'    => '',
+				'logo_id' => 0,
+				'name'    => 'Brand One',
+				'url'     => 'https://brand-one.example/',
+			],
+			$removed
+		);
+		$this->assertSame( [ 'https://brand-two.example/' ], array_keys( Settings::get_shared_sites() ) );
+	}
+
+	/**
+	 * A concurrent write between the read and the write must not resurrect a site removed
+	 * by that other write, nor stop this removal from going through: it should retry
+	 * against fresh data instead of blindly overwriting.
+	 */
+	public function test_remove_shared_site_retries_past_a_concurrent_write(): void {
+		Settings::set_shared_sites(
+			[
+				[
+					'id'      => 'brand-1',
+					'name'    => 'Brand One',
+					'url'     => 'https://brand-one.example',
+					'api_key' => 'brand-one-key',
+				],
+				[
+					'id'      => 'brand-2',
+					'name'    => 'Brand Two',
+					'url'     => 'https://brand-two.example',
+					'api_key' => 'brand-two-key',
+				],
+			]
+		);
+
+		$reads  = 0;
+		$filter = static function ( $value ) use ( &$reads ) {
+			++$reads;
+
+			// Only the first read is stale, simulating another request's write landing in between.
+			if ( 1 === $reads && is_array( $value ) ) {
+				foreach ( $value as &$site ) {
+					if ( ( $site['url'] ?? '' ) === 'https://brand-one.example/' ) {
+						$site['name'] = 'Renamed-By-Concurrent-Write';
+					}
+				}
+				unset( $site );
+			}
+
+			return $value;
+		};
+		add_filter( 'option_' . Settings::OPTION_GOVERNING_SHARED_SITES, $filter );
+
+		$removed = Settings::remove_shared_site( 'https://brand-two.example' );
+
+		remove_filter( 'option_' . Settings::OPTION_GOVERNING_SHARED_SITES, $filter );
+
+		$this->assertIsArray( $removed );
+		$this->assertSame( 'https://brand-two.example/', $removed['url'] );
+		$this->assertGreaterThan( 1, $reads, 'Expected a retry after the simulated concurrent write.' );
+		$this->assertSame( [ 'https://brand-one.example/' ], array_keys( Settings::get_shared_sites() ) );
+	}
+
 	/** Ensures parent site URL can be stored and retrieved. */
 	public function test_set_parent_site_url_and_get(): void {
 		$this->assertTrue( Settings::set_parent_site_url( 'https://governing.example/' ) );
@@ -274,5 +360,142 @@ final class SettingsTest extends TestCase {
 		global $new_allowed_options;
 
 		$this->assertContains( $setting_name, $new_allowed_options[ Settings::SETTING_GROUP ] ?? [] );
+	}
+
+	/**
+	 * A brand site removed from the governing site is told to drop its own pairing.
+	 */
+	public function test_on_brand_site_removed_notifies_dropped_sites(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+
+		$requests = [];
+		$filter   = static function ( $preempt, $args, $url ) use ( &$requests ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requests[ $url ] = $args;
+			return new \WP_Error( 'blocked', 'Intercepted' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$this->settings->on_brand_site_removed(
+			[
+				[
+					'url'     => 'https://removed.example.com',
+					'api_key' => Encryptor::encrypt( 'removed-key' ),
+				],
+				[
+					'url'     => 'https://kept.example.com',
+					'api_key' => Encryptor::encrypt( 'kept-key' ),
+				],
+			],
+			[
+				[
+					'url'     => 'https://kept.example.com',
+					'api_key' => Encryptor::encrypt( 'kept-key' ),
+				],
+			]
+		);
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertSame( [ 'https://removed.example.com/wp-json/onesearch/v1/site-connection/governing/remove' ], array_keys( $requests ) );
+		$this->assertSame( 'removed-key', $requests['https://removed.example.com/wp-json/onesearch/v1/site-connection/governing/remove']['headers']['X-OneSearch-Token'] );
+	}
+
+	/**
+	 * Nothing is sent when the update did not drop any site.
+	 */
+	public function test_on_brand_site_removed_ignores_unrelated_updates(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+
+		$requested_urls = [];
+		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requested_urls[] = $url;
+			return new \WP_Error( 'blocked', 'Intercepted' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		// Renaming a site keeps it connected.
+		$this->settings->on_brand_site_removed(
+			[
+				[
+					'name'    => 'Old Name',
+					'url'     => 'https://kept.example.com',
+					'api_key' => Encryptor::encrypt( 'kept-key' ),
+				],
+			],
+			[
+				[
+					'name'    => 'New Name',
+					'url'     => 'https://kept.example.com/',
+					'api_key' => Encryptor::encrypt( 'kept-key' ),
+				],
+			]
+		);
+
+		// There was nothing connected to begin with.
+		$this->settings->on_brand_site_removed( [], [] );
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertEmpty( $requested_urls );
+	}
+
+	/**
+	 * Deleting the last brand site still notifies it.
+	 */
+	public function test_on_brand_site_removed_handles_emptied_list(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+
+		$requested_urls = [];
+		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requested_urls[] = $url;
+			return new \WP_Error( 'blocked', 'Intercepted' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$this->settings->on_brand_site_removed(
+			[
+				[
+					'url'     => 'https://removed.example.com',
+					'api_key' => Encryptor::encrypt( 'removed-key' ),
+				],
+			],
+			[]
+		);
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertSame( [ 'https://removed.example.com/wp-json/onesearch/v1/site-connection/governing/remove' ], $requested_urls );
+	}
+
+	/**
+	 * Removing a brand site through the option notifies it, end to end.
+	 */
+	public function test_removing_a_shared_site_notifies_it(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		$this->settings->register_hooks();
+
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Brand Site',
+					'url'     => 'https://brand.example.com',
+					'api_key' => 'brand-key',
+				],
+			]
+		);
+
+		$requested_urls = [];
+		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requested_urls[] = $url;
+			return new \WP_Error( 'blocked', 'Intercepted' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		Settings::set_shared_sites( [] );
+
+		remove_filter( 'pre_http_request', $filter );
+		remove_action( 'update_option_' . Settings::OPTION_GOVERNING_SHARED_SITES, [ $this->settings, 'on_brand_site_removed' ], 10 );
+
+		$this->assertContains( 'https://brand.example.com/wp-json/onesearch/v1/site-connection/governing/remove', $requested_urls );
 	}
 }

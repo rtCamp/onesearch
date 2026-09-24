@@ -11,6 +11,7 @@ namespace OneSearch\Modules\Core;
 
 use OneSearch\Contracts\Interfaces\Registrable;
 use OneSearch\Modules\Rest\Abstract_REST_Controller;
+use OneSearch\Modules\Rest\Governing_Data_Handler;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 
@@ -72,6 +73,7 @@ final class Assets implements Registrable {
 				'hasAlgoliaCredentials' => ! empty( $algolia_creds['app_id'] ) && ! empty( $algolia_creds['write_key'] ),
 				'indexableEntities'     => Search_Settings::get_indexable_entities(),
 				'nonce'                 => wp_create_nonce( 'wp_rest' ),
+				'pendingDisconnects'    => Governing_Data_Handler::get_pending_disconnects_for_admin(),
 				'api_key'               => Settings::get_api_key(),
 				'restNamespace'         => Abstract_REST_Controller::NAMESPACE,
 				'restUrl'               => esc_url( home_url( '/wp-json/' ) ),

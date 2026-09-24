@@ -11,7 +11,6 @@ namespace OneSearch\Modules\Rest;
 
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
-use OneSearch\Utils;
 use WP_REST_Response;
 use WP_REST_Server;
 
@@ -19,6 +18,16 @@ use WP_REST_Server;
  * Class Governing_Data_Controller
  */
 class Governing_Data_Controller extends Abstract_REST_Controller {
+	/**
+	 * Route a brand site calls on its governing site to remove itself.
+	 */
+	public const ROUTE_REMOVE_BRAND = '/site-connection/brand/remove';
+
+	/**
+	 * Route a governing site calls on a brand site to clear the pairing.
+	 */
+	public const ROUTE_REMOVE_GOVERNING = '/site-connection/governing/remove';
+
 	/**
 	 * {@inheritDoc}
 	 */
@@ -34,6 +43,16 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 					'permission_callback' => [ $this, 'check_api_permissions' ],
 				]
 			);
+
+			register_rest_route(
+				self::NAMESPACE,
+				self::ROUTE_REMOVE_BRAND,
+				[
+					'methods'             => WP_REST_Server::DELETABLE,
+					'callback'            => [ $this, 'remove_brand_site' ],
+					'permission_callback' => [ $this, 'check_api_permissions' ],
+				]
+			);
 		}
 
 		// Only on consumer sites.
@@ -45,6 +64,16 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 				[
 					'methods'             => WP_REST_Server::DELETABLE,
 					'callback'            => [ $this, 'delete_brand_config_cache' ],
+					'permission_callback' => [ $this, 'check_api_permissions' ],
+				]
+			);
+
+			register_rest_route(
+				self::NAMESPACE,
+				self::ROUTE_REMOVE_GOVERNING,
+				[
+					'methods'             => WP_REST_Server::DELETABLE,
+					'callback'            => [ $this, 'remove_governing_site_connection' ],
 					'permission_callback' => [ $this, 'check_api_permissions' ],
 				]
 			);
@@ -63,15 +92,30 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 	}
 
 	/**
+	 * Resolves the normalized URL of the site making the request.
+	 *
+	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
+	 *
+	 * @return string The normalized site URL, or an empty string when it is unknown.
+	 */
+	protected function get_request_site_url( $request ): string {
+		$site_url = $this->parse_origin( $request->get_header( 'origin' ) )['url'];
+
+		if ( empty( $site_url ) ) {
+			$site_url = $this->parse_origin( $request->get_header( 'X-OneSearch-Site-URL' ) )['url'];
+		}
+
+		return $site_url;
+	}
+
+	/**
 	 * Get consolidated configuration for a brand site.
 	 *
 	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
 	 */
 	public function get_brand_config( $request ): WP_REST_Response|\WP_Error {
 		// Get the origin from the request headers and confirm it's a known site.
-		$origin   = $request->get_header( 'origin' );
-		$origin   = ! empty( $origin ) ? esc_url_raw( wp_unslash( $origin ) ) : '';
-		$site_url = Utils::normalize_url( $origin );
+		$site_url = $this->get_request_site_url( $request );
 
 		if ( empty( $site_url ) || ! $this->is_allowed_site( $site_url ) ) {
 			return new \WP_Error(
@@ -131,6 +175,66 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 			[
 				'success' => true,
 				'message' => __( 'Brand configuration cache cleared successfully.', 'onesearch' ),
+			]
+		);
+	}
+
+	/**
+	 * Removes the requesting brand site from current governing site.
+	 *
+	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
+	 */
+	public function remove_brand_site( $request ): WP_REST_Response|\WP_Error {
+		$site_url = $this->get_request_site_url( $request );
+
+		if ( empty( $site_url ) ) {
+			return new \WP_Error(
+				'onesearch_unknown_site',
+				__( 'The requesting site could not be identified.', 'onesearch' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		// The brand site already disconnected locally, so don't notify it back.
+		$removed_site = Settings::remove_shared_site( $site_url, true );
+
+		if ( false === $removed_site ) {
+			return new \WP_Error(
+				'onesearch_disconnect_failed',
+				__( 'The brand site could not be removed from the governing site.', 'onesearch' ),
+				[ 'status' => 500 ]
+			);
+		}
+
+		if ( null === $removed_site ) {
+			return rest_ensure_response(
+				[
+					'success' => true,
+					'message' => __( 'The brand site is not connected to this governing site.', 'onesearch' ),
+				]
+			);
+		}
+
+		return rest_ensure_response(
+			[
+				'success' => true,
+				'message' => __( 'Brand site disconnected successfully.', 'onesearch' ),
+			]
+		);
+	}
+
+	/**
+	 * Clears the governing site pairing on current brand site.
+	 */
+	public function remove_governing_site_connection(): WP_REST_Response {
+		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
+
+		Governing_Data_Handler::clear_brand_config_cache();
+
+		return rest_ensure_response(
+			[
+				'success' => true,
+				'message' => __( 'Governing site disconnected successfully.', 'onesearch' ),
 			]
 		);
 	}

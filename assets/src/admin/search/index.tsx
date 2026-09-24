@@ -231,11 +231,6 @@ const OneSearchSettingsPage = () => {
 				body: JSON.stringify( { sites_data: updated } ),
 			} );
 			if ( ! response.ok ) {
-				/* eslint-disable-next-line no-console */
-				console.error(
-					'Error saving Brand site:',
-					response.statusText
-				);
 				return false;
 			}
 
