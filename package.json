@@ -67,7 +67,7 @@
 		"@wordpress/env": "^11.15.0",
 		"@wordpress/eslint-plugin": "^26.0.0",
 		"@wordpress/prettier-config": "^4.55.0",
-		"@wordpress/scripts": "^35.0.0",
+		"@wordpress/scripts": "^36.0.0",
 		"@wordpress/stylelint-config": "^25.0.0",
 		"cross-env": "^10.1.0",
 		"eslint-plugin-jest": "^29.16.6",
