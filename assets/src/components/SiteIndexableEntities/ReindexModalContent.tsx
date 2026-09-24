@@ -40,8 +40,8 @@ const ReindexModalContent = ( {
 }: ReindexModalContentProps ) => (
 	<>
 		{ ! reindexing && siteStates.length === 0 && (
-			<>
-				<p>
+			<div className="onesearch-reindex-intro">
+				<p className="onesearch-reindex-intro-text">
 					{ __(
 						'Re-indexing will only index the entities you have previously saved. To re-index modified entities, please make sure you have saved them.',
 						'onesearch'
@@ -52,7 +52,7 @@ const ReindexModalContent = ( {
 						{ __( 'Re-index', 'onesearch' ) }
 					</Button>
 				</div>
-			</>
+			</div>
 		) }
 
 		{ reindexing && siteStates.length === 0 && (

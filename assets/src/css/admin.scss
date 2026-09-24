@@ -549,6 +549,25 @@ body:has(.onesearch-setup-overlay) .onesearch-search-content {
 	margin-top: 24px;
 }
 
+// Keeps the notice and its action button on one row, so the text wraps
+// instead of pushing the button onto a line of its own.
+.onesearch-reindex-intro {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+}
+
+.onesearch-reindex-intro-text {
+	flex: 1;
+	min-width: 0;
+	margin: 0;
+}
+
+.onesearch-reindex-intro .onesearch-modal-actions {
+	flex-shrink: 0;
+	margin-top: 0;
+}
+
 .onesearch-modal-actions .onesearch-btn-cancel,
 .onesearch-job-panel-header .onesearch-btn-cancel {
 	background: #d63638 !important;
