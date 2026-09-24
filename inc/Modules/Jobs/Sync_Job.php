@@ -11,10 +11,8 @@ namespace OneSearch\Modules\Jobs;
 
 use OneSearch\Modules\Search\Index;
 use OneSearch\Modules\Search\Post_Record;
-use OneSearch\Utils;
 use function esc_html;
 use function get_post;
-use function get_site_url;
 use function is_wp_error;
 
 /**
@@ -85,7 +83,6 @@ final class Sync_Job extends Abstract_Job {
 		$errors         = [];
 		$batch_records  = [];
 		$delete_filters = [];
-		$site_url       = Utils::normalize_url( get_site_url() );
 
 		foreach ( $post_ids as $i => $post_id ) {
 			$post = get_post( $post_id );
@@ -99,7 +96,7 @@ final class Sync_Job extends Abstract_Job {
 			$should_index = in_array( $post->post_status, Post_Record::get_allowed_statuses( $post_types ), true );
 
 			if ( ! $should_index ) {
-				$delete_filters[] = sprintf( 'site_post_id:"%s_%d"', $site_url, $post_id );
+				$delete_filters[] = sprintf( 'site_post_id:"%s"', $post_record->get_site_post_id( (int) $post_id ) );
 			} else {
 				$records = $post_record->to_records( $post );
 
