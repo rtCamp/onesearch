@@ -157,5 +157,110 @@ abstract class TestCase extends WP_UnitTestCase {
 		);
 	}
 
-	// Add any common setup or utility methods for tests here.
+	/**
+	 * Reads the `site_post_id` the intercepted records were actually written with.
+	 *
+	 * Asserting against the stored value, rather than rebuilding it, is what makes
+	 * a drift between the write format and the delete filter visible.
+	 *
+	 * @see \OneSearch\Modules\Search\Post_Record::get_site_post_id()
+	 *
+	 * @param array<int, array{path: string, body: string}> $requests The intercepted requests.
+	 * @param int                                           $expected_count How many distinct IDs the write traffic should carry.
+	 *
+	 * @return list<string> The distinct site_post_id values, in the order first seen.
+	 */
+	protected function get_indexed_site_post_ids( array $requests, int $expected_count = 1 ): array {
+		$ids = [];
+
+		foreach ( $requests as $request ) {
+			if ( ! str_contains( $request['path'], '/batch' ) ) {
+				continue;
+			}
+
+			$body = json_decode( $request['body'], true );
+			foreach ( $body['requests'] ?? [] as $operation ) {
+				if ( isset( $operation['body']['site_post_id'] ) ) {
+					$ids[] = (string) $operation['body']['site_post_id'];
+				}
+			}
+		}
+
+		$ids = array_values( array_unique( $ids ) );
+		$this->assertCount( $expected_count, $ids, 'Unexpected number of site_post_id values in the write traffic.' );
+
+		return $ids;
+	}
+
+	/**
+	 * Reads the single `site_post_id` the intercepted records were written with.
+	 *
+	 * @param array<int, array{path: string, body: string}> $requests The intercepted requests.
+	 */
+	protected function get_indexed_site_post_id( array $requests ): string {
+		return $this->get_indexed_site_post_ids( $requests )[0];
+	}
+
+	/**
+	 * Collects the `filters` argument of every deleteByQuery request that was sent.
+	 *
+	 * @param array<int, array{path: string, body: string}> $requests The intercepted requests.
+	 *
+	 * @return list<string>
+	 */
+	protected function get_delete_filters( array $requests ): array {
+		$filters = [];
+
+		foreach ( $requests as $request ) {
+			if ( ! str_contains( $request['path'], '/deleteByQuery' ) ) {
+				continue;
+			}
+
+			$body = json_decode( $request['body'], true );
+			if ( is_array( $body ) && isset( $body['filters'] ) ) {
+				$filters[] = (string) $body['filters'];
+			}
+		}
+
+		return $filters;
+	}
+
+	/**
+	 * Configures the current site as a governing site with credentials and indexable entities.
+	 *
+	 * @param string[] $entities The indexable post types.
+	 */
+	protected function set_up_governing_site( array $entities = [ 'post' ] ): void {
+		update_option( \OneSearch\Modules\Settings\Settings::OPTION_SITE_TYPE, \OneSearch\Modules\Settings\Settings::SITE_TYPE_GOVERNING );
+		\OneSearch\Modules\Search\Settings::set_algolia_credentials(
+			[
+				'app_id'    => 'test-app',
+				'write_key' => 'test-key',
+			]
+		);
+		update_option(
+			\OneSearch\Modules\Search\Settings::OPTION_GOVERNING_INDEXABLE_SITES,
+			[
+				'entities' => [
+					\OneSearch\Utils::normalize_url( get_site_url() ) => $entities,
+				],
+			]
+		);
+	}
+
+	/**
+	 * Restores the Algolia and site-type state that set_up_governing_site() changed.
+	 */
+	protected function tear_down_governing_site(): void {
+		\OneSearch\Vendor\Algolia\AlgoliaSearch\Algolia::resetHttpClient();
+
+		delete_option( \OneSearch\Modules\Settings\Settings::OPTION_SITE_TYPE );
+		delete_option( \OneSearch\Modules\Search\Settings::OPTION_GOVERNING_INDEXABLE_SITES );
+		\OneSearch\Modules\Search\Settings::set_algolia_credentials(
+			[
+				'app_id'    => '',
+				'write_key' => '',
+			]
+		);
+	}
 }
