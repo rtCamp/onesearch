@@ -57,17 +57,11 @@ const SiteIndexableEntities = ( {
 		history,
 		historyPage,
 		historyTotalPages,
-		selectedHistoryJob,
-		historyDetails,
-		historyDetailsLoading,
-		hasFailedHistoryDetails,
-		retryingHistoryJob,
+		retryingJobId,
 		handleReIndex,
 		handleCancelJob,
 		handleModalClose,
-		handleHistoryDetailsBack,
 		handleRetryHistoryJob,
-		openHistoryDetails,
 		fetchHistory,
 	} = useReindexJob( { currentSiteUrl, setNotice } );
 
@@ -264,21 +258,14 @@ const SiteIndexableEntities = ( {
 					history={ history }
 					historyPage={ historyPage }
 					historyTotalPages={ historyTotalPages }
-					selectedHistoryJob={ selectedHistoryJob }
-					historyDetails={ historyDetails }
-					historyDetailsLoading={ historyDetailsLoading }
-					hasFailedHistoryDetails={ hasFailedHistoryDetails }
-					retryingHistoryJob={ retryingHistoryJob }
-					currentSiteUrl={ currentSiteUrl }
+					retryingJobId={ retryingJobId }
 					onClose={ handleModalClose }
 					onReIndex={ () => void handleReIndex() }
 					onCancelJob={ () => void handleCancelJob() }
-					onOpenHistoryDetails={ ( job ) =>
-						void openHistoryDetails( job )
+					onRetryHistoryJob={ ( job ) =>
+						void handleRetryHistoryJob( job )
 					}
 					onPageChange={ fetchHistory }
-					onHistoryDetailsBack={ handleHistoryDetailsBack }
-					onRetryHistoryJob={ () => void handleRetryHistoryJob() }
 				/>
 			) }
 		</>

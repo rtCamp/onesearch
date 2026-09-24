@@ -20,7 +20,8 @@ interface ReindexModalContentProps {
 	historyTotalPages: number;
 	onReIndex: () => void;
 	onCancelJob: () => void;
-	onOpenHistoryDetails: ( job: JobStatus ) => void;
+	retryingJobId: string | null;
+	onRetryHistoryJob: ( job: JobStatus ) => void;
 	onPageChange: ( page: number ) => void;
 }
 
@@ -33,7 +34,8 @@ const ReindexModalContent = ( {
 	historyTotalPages,
 	onReIndex,
 	onCancelJob,
-	onOpenHistoryDetails,
+	retryingJobId,
+	onRetryHistoryJob,
 	onPageChange,
 }: ReindexModalContentProps ) => (
 	<>
@@ -139,7 +141,8 @@ const ReindexModalContent = ( {
 			<div className="onesearch-job-panel-body">
 				<HistoryTable
 					history={ history }
-					onOpenDetails={ onOpenHistoryDetails }
+					retryingJobId={ retryingJobId }
+					onRetry={ onRetryHistoryJob }
 				/>
 				<HistoryPagination
 					historyPage={ historyPage }

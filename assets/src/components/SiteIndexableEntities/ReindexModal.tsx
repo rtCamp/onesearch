@@ -7,7 +7,6 @@ import { __ } from '@wordpress/i18n';
  * Internal dependencies
  */
 import type { JobStatus, SiteJobState } from './types';
-import HistoryDetailsView from './HistoryDetailsView';
 import ReindexModalContent from './ReindexModalContent';
 
 interface ReindexModalProps {
@@ -17,33 +16,13 @@ interface ReindexModalProps {
 	history: JobStatus[];
 	historyPage: number;
 	historyTotalPages: number;
-	selectedHistoryJob: JobStatus | null;
-	historyDetails: SiteJobState[];
-	historyDetailsLoading: boolean;
-	hasFailedHistoryDetails: boolean;
-	retryingHistoryJob: boolean;
-	currentSiteUrl: string;
+	retryingJobId: string | null;
 	onClose: () => void;
 	onReIndex: () => void;
 	onCancelJob: () => void;
-	onOpenHistoryDetails: ( job: JobStatus ) => void;
+	onRetryHistoryJob: ( job: JobStatus ) => void;
 	onPageChange: ( page: number ) => void;
-	onHistoryDetailsBack: () => void;
-	onRetryHistoryJob: () => void;
 }
-
-const getTitle = (
-	selectedHistoryJob: JobStatus | null,
-	reindexing: boolean
-): string => {
-	if ( selectedHistoryJob ) {
-		return __( 'Sync Job Details', 'onesearch' );
-	}
-	if ( reindexing ) {
-		return __( 'Indexing Progress', 'onesearch' );
-	}
-	return __( 'Re-index saved entities', 'onesearch' );
-};
 
 const ReindexModal = ( {
 	reindexing,
@@ -52,51 +31,36 @@ const ReindexModal = ( {
 	history,
 	historyPage,
 	historyTotalPages,
-	selectedHistoryJob,
-	historyDetails,
-	historyDetailsLoading,
-	hasFailedHistoryDetails,
-	retryingHistoryJob,
-	currentSiteUrl,
+	retryingJobId,
 	onClose,
 	onReIndex,
 	onCancelJob,
-	onOpenHistoryDetails,
-	onPageChange,
-	onHistoryDetailsBack,
 	onRetryHistoryJob,
+	onPageChange,
 }: ReindexModalProps ) => (
 	<Modal
-		title={ getTitle( selectedHistoryJob, reindexing ) }
+		title={
+			reindexing
+				? __( 'Indexing Progress', 'onesearch' )
+				: __( 'Re-index saved entities', 'onesearch' )
+		}
 		onRequestClose={ onClose }
 		shouldCloseOnClickOutside={ false }
 		size="large"
 	>
-		{ selectedHistoryJob ? (
-			<HistoryDetailsView
-				selectedHistoryJob={ selectedHistoryJob }
-				historyDetails={ historyDetails }
-				historyDetailsLoading={ historyDetailsLoading }
-				hasFailedHistoryDetails={ hasFailedHistoryDetails }
-				retryingHistoryJob={ retryingHistoryJob }
-				currentSiteUrl={ currentSiteUrl }
-				onBack={ onHistoryDetailsBack }
-				onRetry={ onRetryHistoryJob }
-			/>
-		) : (
-			<ReindexModalContent
-				reindexing={ reindexing }
-				siteStates={ siteStates }
-				cancelling={ cancelling }
-				history={ history }
-				historyPage={ historyPage }
-				historyTotalPages={ historyTotalPages }
-				onReIndex={ onReIndex }
-				onCancelJob={ onCancelJob }
-				onOpenHistoryDetails={ onOpenHistoryDetails }
-				onPageChange={ onPageChange }
-			/>
-		) }
+		<ReindexModalContent
+			reindexing={ reindexing }
+			siteStates={ siteStates }
+			cancelling={ cancelling }
+			history={ history }
+			historyPage={ historyPage }
+			historyTotalPages={ historyTotalPages }
+			retryingJobId={ retryingJobId }
+			onReIndex={ onReIndex }
+			onCancelJob={ onCancelJob }
+			onRetryHistoryJob={ onRetryHistoryJob }
+			onPageChange={ onPageChange }
+		/>
 	</Modal>
 );
 

@@ -35,17 +35,11 @@ export interface UseReindexJobReturn {
 	history: JobStatus[];
 	historyPage: number;
 	historyTotalPages: number;
-	selectedHistoryJob: JobStatus | null;
-	historyDetails: SiteJobState[];
-	historyDetailsLoading: boolean;
-	hasFailedHistoryDetails: boolean;
-	retryingHistoryJob: boolean;
+	retryingJobId: string | null;
 	handleReIndex: () => Promise< boolean >;
 	handleCancelJob: () => Promise< void >;
 	handleModalClose: () => void;
-	handleHistoryDetailsBack: () => void;
-	handleRetryHistoryJob: () => Promise< void >;
-	openHistoryDetails: ( job: JobStatus ) => Promise< void >;
+	handleRetryHistoryJob: ( job: JobStatus ) => Promise< void >;
 	fetchHistory: ( page?: number ) => Promise< void >;
 }
 
@@ -59,14 +53,9 @@ export const useReindexJob = ( {
 	const [ history, setHistory ] = useState< JobStatus[] >( [] );
 	const [ historyPage, setHistoryPage ] = useState( 1 );
 	const [ historyTotalPages, setHistoryTotalPages ] = useState( 0 );
-	const [ selectedHistoryJob, setSelectedHistoryJob ] =
-		useState< JobStatus | null >( null );
-	const [ historyDetails, setHistoryDetails ] = useState< SiteJobState[] >(
-		[]
+	const [ retryingJobId, setRetryingJobId ] = useState< string | null >(
+		null
 	);
-	const [ historyDetailsLoading, setHistoryDetailsLoading ] =
-		useState( false );
-	const [ retryingHistoryJob, setRetryingHistoryJob ] = useState( false );
 	const [ cancelling, setCancelling ] = useState( false );
 
 	const intervalRef = useRef< ReturnType< typeof setInterval > | null >(
@@ -76,7 +65,6 @@ export const useReindexJob = ( {
 		typeof setInterval
 	> | null >( null );
 	const siteStatesRef = useRef< SiteJobState[] >( [] );
-	const selectedHistoryJobRef = useRef< JobStatus | null >( null );
 
 	const stopPolling = useCallback( () => {
 		if ( intervalRef.current ) {
@@ -246,10 +234,6 @@ export const useReindexJob = ( {
 	}, [ siteStates ] );
 
 	useEffect( () => {
-		selectedHistoryJobRef.current = selectedHistoryJob;
-	}, [ selectedHistoryJob ] );
-
-	useEffect( () => {
 		return () => {
 			stopPolling();
 			stopHistoryRetryPolling();
@@ -348,28 +332,8 @@ export const useReindexJob = ( {
 			} )
 		);
 
-	const openHistoryDetails = async ( job: JobStatus ) => {
-		setSelectedHistoryJob( job );
-		setHistoryDetailsLoading( true );
-		const siteDetails = await fetchHistoryDetailsForJob( job );
-		setHistoryDetails( siteDetails );
-		setHistoryDetailsLoading( false );
-	};
-
-	const hasFailedHistoryDetails = historyDetails.some(
-		( state ) =>
-			state.reindexJob?.status === 'failed' ||
-			state.children.some( ( child ) => child.status === 'failed' )
-	);
-
 	const refreshHistoryRetryDetails = async ( job: JobStatus ) => {
 		const siteDetails = await fetchHistoryDetailsForJob( job );
-		setHistoryDetails( siteDetails );
-
-		const updatedSelectedJob =
-			siteDetails.find( ( state ) => state.site.job_id === job.id )
-				?.reindexJob || job;
-		setSelectedHistoryJob( updatedSelectedJob );
 
 		const allTerminal = siteDetails.every( ( state ) => {
 			if ( state.children.length > 0 ) {
@@ -384,17 +348,22 @@ export const useReindexJob = ( {
 
 		if ( allTerminal ) {
 			stopHistoryRetryPolling();
-			setRetryingHistoryJob( false );
+			setRetryingJobId( null );
 			fetchHistory( historyPage );
 		}
 	};
 
-	const handleRetryHistoryJob = async () => {
-		if ( ! selectedHistoryJob || retryingHistoryJob ) {
+	const handleRetryHistoryJob = async ( job: JobStatus ) => {
+		if ( retryingJobId ) {
 			return;
 		}
 
-		const jobsToRetry = historyDetails.filter(
+		setRetryingJobId( job.id );
+
+		// The list row only carries the top-level job, so resolve the per-site
+		// jobs here to find which ones actually have failures to retry.
+		const siteDetails = await fetchHistoryDetailsForJob( job );
+		const jobsToRetry = siteDetails.filter(
 			( state ) =>
 				state.site.job_id &&
 				( state.reindexJob?.status === 'failed' ||
@@ -404,10 +373,14 @@ export const useReindexJob = ( {
 		);
 
 		if ( jobsToRetry.length === 0 ) {
+			setRetryingJobId( null );
+			setNotice( {
+				type: 'error',
+				message: __( 'No failed batches to retry.', 'onesearch' ),
+			} );
 			return;
 		}
 
-		setRetryingHistoryJob( true );
 		const results = await Promise.all(
 			jobsToRetry.map( ( state ) =>
 				retryJob( state.site.job_id, state.site.site_url )
@@ -416,7 +389,7 @@ export const useReindexJob = ( {
 
 		const failedResult = results.find( ( result ) => ! result.success );
 		if ( failedResult ) {
-			setRetryingHistoryJob( false );
+			setRetryingJobId( null );
 			setNotice( {
 				type: 'error',
 				message:
@@ -430,43 +403,11 @@ export const useReindexJob = ( {
 			message: __( 'Failed batches retry scheduled.', 'onesearch' ),
 		} );
 
-		setHistoryDetails( ( prev ) =>
-			prev.map( ( state ) => {
-				if (
-					! jobsToRetry.some(
-						( job ) => job.site.job_id === state.site.job_id
-					)
-				) {
-					return state;
-				}
-				return {
-					...state,
-					reindexJob: state.reindexJob
-						? { ...state.reindexJob, status: 'running', error: '' }
-						: state.reindexJob,
-					children: state.children.map( ( child ) =>
-						child.status === 'failed'
-							? { ...child, status: 'pending', error: '' }
-							: child
-					),
-				};
-			} )
-		);
-
-		setSelectedHistoryJob( {
-			...selectedHistoryJob,
-			status: 'running',
-			error: '',
-			children_failed: 0,
-		} );
-
 		stopHistoryRetryPolling();
 		historyRetryIntervalRef.current = setInterval( () => {
-			void refreshHistoryRetryDetails(
-				selectedHistoryJobRef.current ?? selectedHistoryJob
-			);
+			void refreshHistoryRetryDetails( job );
 		}, 2000 );
-		void refreshHistoryRetryDetails( selectedHistoryJob );
+		void refreshHistoryRetryDetails( job );
 	};
 
 	const handleReIndex = async (): Promise< boolean > => {
@@ -515,15 +456,7 @@ export const useReindexJob = ( {
 	};
 
 	const handleModalClose = () => {
-		setSelectedHistoryJob( null );
-		setHistoryDetails( [] );
 		setShowReindexingModal( false );
-	};
-
-	const handleHistoryDetailsBack = () => {
-		setSelectedHistoryJob( null );
-		setHistoryDetails( [] );
-		setHistoryDetailsLoading( false );
 	};
 
 	const handleCancelJob = async () => {
@@ -580,17 +513,11 @@ export const useReindexJob = ( {
 		history,
 		historyPage,
 		historyTotalPages,
-		selectedHistoryJob,
-		historyDetails,
-		historyDetailsLoading,
-		hasFailedHistoryDetails,
-		retryingHistoryJob,
+		retryingJobId,
 		handleReIndex,
 		handleCancelJob,
 		handleModalClose,
-		handleHistoryDetailsBack,
 		handleRetryHistoryJob,
-		openHistoryDetails,
 		fetchHistory,
 	};
 };

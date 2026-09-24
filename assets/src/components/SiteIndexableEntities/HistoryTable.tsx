@@ -1,7 +1,7 @@
 /**
  * WordPress dependencies
  */
-import { __experimentalText as Text } from '@wordpress/components';
+import { Button, __experimentalText as Text } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
 /**
  * Internal dependencies
@@ -12,10 +12,25 @@ import { formatDuration, formatTimestamp } from './utils';
 
 interface HistoryTableProps {
 	history: JobStatus[];
-	onOpenDetails: ( job: JobStatus ) => void;
+	retryingJobId: string | null;
+	onRetry: ( job: JobStatus ) => void;
 }
 
-const HistoryTable = ( { history, onOpenDetails }: HistoryTableProps ) => {
+/**
+ * A job is worth retrying when it failed outright, or when it finished with
+ * some batches still in a failed state.
+ *
+ * @param {JobStatus} job The job to check.
+ * @return {boolean} Whether a retry should be offered.
+ */
+const isRetryable = ( job: JobStatus ): boolean =>
+	job.status === 'failed' || ( job.children_failed ?? 0 ) > 0;
+
+const HistoryTable = ( {
+	history,
+	retryingJobId,
+	onRetry,
+}: HistoryTableProps ) => {
 	if ( history.length === 0 ) {
 		return (
 			<Text variant="muted">{ __( 'No past jobs.', 'onesearch' ) }</Text>
@@ -32,6 +47,11 @@ const HistoryTable = ( { history, onOpenDetails }: HistoryTableProps ) => {
 					<th>{ __( 'Duration', 'onesearch' ) }</th>
 					<th>{ __( 'Status', 'onesearch' ) }</th>
 					<th>{ __( 'Batches', 'onesearch' ) }</th>
+					<th className="onesearch-history-actions-col">
+						<span className="screen-reader-text">
+							{ __( 'Actions', 'onesearch' ) }
+						</span>
+					</th>
 				</tr>
 			</thead>
 			<tbody>
@@ -52,21 +72,12 @@ const HistoryTable = ( { history, onOpenDetails }: HistoryTableProps ) => {
 							? job.finished_at - job.created_at
 							: null;
 
-					const handleKeyDown = ( e: React.KeyboardEvent ) => {
-						if ( e.key === 'Enter' || e.key === ' ' ) {
-							e.preventDefault();
-							void onOpenDetails( job );
-						}
-					};
+					const retrying = retryingJobId === job.id;
 
 					return (
 						<tr
 							key={ job.id }
 							className="onesearch-history-table-row"
-							onClick={ () => void onOpenDetails( job ) }
-							onKeyDown={ handleKeyDown }
-							role="button"
-							tabIndex={ 0 }
 						>
 							<td>
 								<code title={ job.id }>
@@ -98,6 +109,20 @@ const HistoryTable = ( { history, onOpenDetails }: HistoryTableProps ) => {
 							</td>
 							<td>
 								<Text variant="muted">{ batchDisplay }</Text>
+							</td>
+							<td className="onesearch-history-actions-col">
+								{ isRetryable( job ) && (
+									<Button
+										variant="link"
+										isBusy={ retrying }
+										disabled={ retryingJobId !== null }
+										onClick={ () => onRetry( job ) }
+									>
+										{ retrying
+											? __( 'Retrying…', 'onesearch' )
+											: __( 'Retry', 'onesearch' ) }
+									</Button>
+								) }
 							</td>
 						</tr>
 					);
