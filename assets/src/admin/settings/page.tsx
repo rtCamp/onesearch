@@ -5,8 +5,8 @@
  * External dependencies
  */
 import { useState, useEffect } from 'react';
-import { __ } from '@wordpress/i18n';
-import { Snackbar } from '@wordpress/components';
+import { __, sprintf } from '@wordpress/i18n';
+import { Notice, Snackbar } from '@wordpress/components';
 import apiFetch from '@wordpress/api-fetch';
 
 /**
@@ -16,6 +16,7 @@ import SiteTable from '@/components/SiteTable';
 import SiteModal from '@/components/SiteModal';
 import SiteSettings from '@/components/SiteSettings';
 import AlgoliaSettings from '@/components/AlgoliaSettings';
+import { REST_NAMESPACE, withTrailingSlash } from '@/js/utils';
 import type { SiteType } from '../onboarding/page';
 
 export interface NoticeType {
@@ -47,12 +48,80 @@ const SHARED_SITES_ENDPOINT = '/onesearch/v1/shared-sites';
  */
 apiFetch.use( apiFetch.createNonceMiddleware( NONCE ) );
 
+/**
+ * Tells a removed brand site to disconnect from this governing site.
+ *
+ * @param site The removed brand site.
+ *
+ * @return A notice for the admin if the brand site wasn't disconnected, otherwise null.
+ */
+const disconnectRemovedBrandSite = async (
+	site: BrandSite
+): Promise< NoticeType | null > => {
+	const siteUrl = withTrailingSlash( site.url );
+	let status = 0;
+
+	try {
+		const response = await fetch(
+			`${ siteUrl }wp-json/${ REST_NAMESPACE }/brand-site`,
+			{
+				method: 'DELETE',
+				headers: {
+					'Content-Type': 'application/json',
+					'X-OneSearch-Token': site.api_key,
+					'X-OneSearch-Site-URL':
+						window.OneSearchSettings.currentSiteUrl,
+				},
+			}
+		);
+
+		if ( response.ok ) {
+			return null;
+		}
+
+		status = response.status;
+	} catch {
+		// The brand site couldn't be reached.
+	}
+
+	// The brand site only authenticates the governing site it is connected to.
+	if ( status === 401 || status === 403 ) {
+		return {
+			type: 'warning',
+			message: sprintf(
+				/* translators: %s: brand site name. */
+				__(
+					'%s was removed, but it did not recognize this site, so it may already be disconnected. If it still shows this site under Governing Site Connection, disconnect it there.',
+					'onesearch'
+				),
+				site.name
+			),
+		};
+	}
+
+	return {
+		type: 'warning',
+		message: sprintf(
+			/* translators: %s: brand site name. */
+			__(
+				'%s was removed, but it could not be notified. To finish disconnecting, click Disconnect Governing Site in its OneSearch settings.',
+				'onesearch'
+			),
+			site.name
+		),
+	};
+};
+
 const SettingsPage = () => {
 	const [ showModal, setShowModal ] = useState( false );
 	const [ editingIndex, setEditingIndex ] = useState< EditingIndex >( null );
 	const [ sites, setSites ] = useState< BrandSite[] >( [] );
 	const [ formData, setFormData ] = useState< BrandSite >( defaultBrandSite );
 	const [ notice, setNotice ] = useState< NoticeType | null >( null );
+	// Kept until dismissed, since each one asks the admin to finish disconnecting a brand site.
+	const [ disconnectNotices, setDisconnectNotices ] = useState<
+		NoticeType[]
+	>( [] );
 
 	useEffect( () => {
 		apiFetch< { shared_sites?: BrandSite[] } >( {
@@ -126,6 +195,7 @@ const SettingsPage = () => {
 	};
 
 	const handleDelete = async ( index: number | null ): Promise< void > => {
+		const removedSite = index !== null ? sites[ index ] : undefined;
 		const updated: BrandSite[] = sites.filter( ( _, i ) => i !== index );
 
 		apiFetch< { shared_sites?: BrandSite[] } >( {
@@ -133,23 +203,44 @@ const SettingsPage = () => {
 			method: 'POST',
 			data: { sites_data: updated },
 		} )
-			.then( ( data ) => {
+			.then( async ( data ) => {
 				if ( ! data?.shared_sites ) {
 					throw new Error( 'No shared sites in response' );
 				}
 				setSites( data.shared_sites );
 
-				if ( data.shared_sites.length === 0 ) {
-					// Reloading causes the menus etc to reflect the missing sites.
-					window.location.reload();
-				} else {
+				const disconnectNotice = removedSite
+					? await disconnectRemovedBrandSite( removedSite )
+					: null;
+
+				if ( disconnectNotice ) {
+					setDisconnectNotices( ( notices ) => [
+						...notices.filter(
+							( item ) =>
+								item.message !== disconnectNotice.message
+						),
+						disconnectNotice,
+					] );
+				}
+
+				if ( data.shared_sites.length > 0 ) {
 					document.body.classList.remove(
 						'onesearch-missing-brand-sites'
 					);
+				} else if ( ! disconnectNotice ) {
+					/*
+					 * Reloading causes the menus etc to reflect the missing sites.
+					 *
+					 * Skipped when there's a notice to show, since reloading would clear it.
+					 */
+					window.location.reload();
 				}
 			} )
 			.catch( () => {
-				throw new Error( 'Failed to update shared sites' );
+				setNotice( {
+					type: 'error',
+					message: __( 'Failed to update shared sites', 'onesearch' ),
+				} );
 			} );
 	};
 
@@ -168,6 +259,23 @@ const SettingsPage = () => {
 					{ notice?.message }
 				</Snackbar>
 			) }
+
+			{ disconnectNotices.map( ( disconnectNotice ) => (
+				<Notice
+					key={ disconnectNotice.message }
+					status={ disconnectNotice.type }
+					isDismissible
+					onRemove={ () =>
+						setDisconnectNotices( ( notices ) =>
+							notices.filter(
+								( item ) => item !== disconnectNotice
+							)
+						)
+					}
+				>
+					{ disconnectNotice.message }
+				</Notice>
+			) ) }
 
 			{ SITE_TYPE === 'brand-site' && <SiteSettings /> }
 
