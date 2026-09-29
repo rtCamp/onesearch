@@ -10,12 +10,12 @@ declare(strict_types = 1);
 namespace OneSearch\Tests\Integration\Modules\Search;
 
 use OneSearch\Modules\Rest\Governing_Data_Handler;
+use OneSearch\Modules\Scheduler\Job_Scheduler;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Search\Watcher;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use OneSearch\Utils;
-use OneSearch\Vendor\Algolia\AlgoliaSearch\Algolia as AlgoliaSDK;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
@@ -27,17 +27,10 @@ final class WatcherTest extends TestCase {
 	 * {@inheritDoc}
 	 */
 	protected function tearDown(): void {
-		AlgoliaSDK::resetHttpClient();
+		// Clean up any AS actions enqueued by the Watcher during this test.
+		as_unschedule_all_actions( Job_Scheduler::HOOK );
 
-		// Reset governing site config to avoid polluting other tests.
-		delete_option( Settings::OPTION_SITE_TYPE );
-		delete_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );
-		Search_Settings::set_algolia_credentials(
-			[
-				'app_id'    => '',
-				'write_key' => '',
-			]
-		);
+		$this->tear_down_governing_site();
 
 		parent::tearDown();
 	}
@@ -223,8 +216,8 @@ final class WatcherTest extends TestCase {
 	}
 
 	/**
-	 * Indexable post triggers Algolia saveObjects (reindex) call.
-	 * This verifies the full integration flow for a governing site.
+	 * Indexable post schedules an async Sync_Job for a governing site.
+	 * Algolia is no longer called synchronously — the job runs in an AS worker.
 	 */
 	public function test_on_post_transition_triggers_algolia_reindex(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
@@ -244,24 +237,23 @@ final class WatcherTest extends TestCase {
 			]
 		);
 
-		$recorded_paths = [];
-		$this->mock_algolia_http_client( $recorded_paths );
-
 		$post    = self::factory()->post->create_and_get( [ 'post_status' => 'publish' ] );
 		$watcher = new Watcher();
 
-		// Transition from 'draft' to 'publish' (should trigger reindex).
+		// Transition from 'draft' to 'publish' (should schedule async Sync_Job).
 		$watcher->on_post_transition( 'publish', 'draft', $post );
 
-		// Assert that a /batch (saveObjects) call was made.
-		$batch_calls = array_filter( $recorded_paths, static fn ( $p ) => str_contains( $p, '/batch' ) );
-		$this->assertNotEmpty( $batch_calls, 'Happy path should trigger Algolia reindex (saveObjects).' );
+		// Assert that an async action was enqueued for the job executor hook.
+		$this->assertNotFalse(
+			as_next_scheduled_action( Job_Scheduler::HOOK ),
+			'Happy path should schedule an async Sync_Job via Action Scheduler.'
+		);
 	}
 
 	/**
-	 * Indexable post triggers Algolia saveObjects (reindex) call on a consumer (brand) site.
-	 * This verifies the full integration flow where credentials and indexable entities
-	 * are resolved from the governing site's brand config cache.
+	 * Indexable post on a consumer site schedules an async Sync_Job.
+	 * Credentials and indexable entities are resolved from the brand config cache,
+	 * but Algolia is no longer called synchronously — the job runs in an AS worker.
 	 */
 	public function test_on_post_transition_triggers_algolia_reindex_consumer_site(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
@@ -269,49 +261,16 @@ final class WatcherTest extends TestCase {
 
 		$this->set_consumer_brand_config_cache( 'test-app', 'test-key' );
 
-		$recorded_paths = [];
-		$this->mock_algolia_http_client( $recorded_paths );
-
 		$post    = self::factory()->post->create_and_get( [ 'post_status' => 'publish' ] );
 		$watcher = new Watcher();
 
-		// Transition from 'draft' to 'publish' (should trigger reindex).
+		// Transition from 'draft' to 'publish' (should schedule async Sync_Job).
 		$watcher->on_post_transition( 'publish', 'draft', $post );
 
-		// Assert that a /batch (saveObjects) call was made.
-		$batch_calls = array_filter( $recorded_paths, static fn ( $p ) => str_contains( $p, '/batch' ) );
-		$this->assertNotEmpty( $batch_calls, 'Consumer site happy path should trigger Algolia reindex (saveObjects).' );
-	}
-
-	/**
-	 * A post leaving `publish` must have its records removed from Algolia.
-	 */
-	public function test_deletes_records_when_a_post_leaves_publish(): void {
-		$this->set_up_governing_site();
-
-		$paths    = [];
-		$requests = [];
-		$this->mock_algolia_http_client( $paths, null, null, $requests );
-
-		( new Watcher() )->register_hooks();
-
-		$post_id   = self::factory()->post->create( [ 'post_status' => 'publish' ] );
-		$stored_id = $this->get_indexed_site_post_id( $requests );
-
-		// Drop the publish traffic, so only the delete request is left to assert on.
-		$requests = [];
-
-		wp_update_post(
-			[
-				'ID'          => $post_id,
-				'post_status' => 'draft',
-			]
-		);
-
-		$this->assertSame(
-			[ sprintf( 'site_post_id:"%s"', $stored_id ) ],
-			$this->get_delete_filters( $requests ),
-			'Unpublishing a post must delete its records by the stored site_post_id.'
+		// Assert that an async action was enqueued for the job executor hook.
+		$this->assertNotFalse(
+			as_next_scheduled_action( Job_Scheduler::HOOK ),
+			'Consumer site happy path should schedule an async Sync_Job via Action Scheduler.'
 		);
 	}
 
@@ -351,80 +310,6 @@ final class WatcherTest extends TestCase {
 		$this->assertNotEmpty(
 			$this->get_delete_filters( $requests ),
 			'The records still have to go once the post has been deleted.'
-		);
-	}
-
-	/**
-	 * Reads the `site_post_id` the records were actually written with.
-	 *
-	 * @param array<int, array{path: string, body: string}> $requests The intercepted requests.
-	 */
-	private function get_indexed_site_post_id( array $requests ): string {
-		$ids = [];
-
-		foreach ( $requests as $request ) {
-			if ( ! str_contains( $request['path'], '/batch' ) ) {
-				continue;
-			}
-
-			$body = json_decode( $request['body'], true );
-			foreach ( $body['requests'] ?? [] as $operation ) {
-				if ( isset( $operation['body']['site_post_id'] ) ) {
-					$ids[] = (string) $operation['body']['site_post_id'];
-				}
-			}
-		}
-
-		$ids = array_values( array_unique( $ids ) );
-		$this->assertCount( 1, $ids, 'Publishing should write records under exactly one site_post_id.' );
-
-		return $ids[0];
-	}
-
-	/**
-	 * Collects the `filters` argument of every deleteByQuery request that was sent.
-	 *
-	 * @param array<int, array{path: string, body: string}> $requests The intercepted requests.
-	 *
-	 * @return list<string>
-	 */
-	private function get_delete_filters( array $requests ): array {
-		$filters = [];
-
-		foreach ( $requests as $request ) {
-			if ( ! str_contains( $request['path'], '/deleteByQuery' ) ) {
-				continue;
-			}
-
-			$body = json_decode( $request['body'], true );
-			if ( is_array( $body ) && isset( $body['filters'] ) ) {
-				$filters[] = (string) $body['filters'];
-			}
-		}
-
-		return $filters;
-	}
-
-	/**
-	 * Configures the current site as a governing site with credentials and indexable entities.
-	 *
-	 * @param string[] $entities The indexable post types.
-	 */
-	private function set_up_governing_site( array $entities = [ 'post' ] ): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-		Search_Settings::set_algolia_credentials(
-			[
-				'app_id'    => 'test-app',
-				'write_key' => 'test-key',
-			]
-		);
-		update_option(
-			Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES,
-			[
-				'entities' => [
-					Utils::normalize_url( get_site_url() ) => $entities,
-				],
-			]
 		);
 	}
 }

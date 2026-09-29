@@ -26,6 +26,12 @@ final class IndexTest extends TestCase {
 	 * {@inheritDoc}
 	 */
 	protected function tearDown(): void {
+		// Reset private static flag so earlier tests don't short-circuit set_settings() calls.
+		$prop = new \ReflectionProperty( Index::class, 'settings_initialized' );
+		$prop->setAccessible( true );
+		$prop->setValue( null, false );
+		delete_transient( 'onesearch_index_settings_initialized' );
+
 		AlgoliaSDK::resetHttpClient();
 
 		parent::tearDown();

@@ -22,6 +22,19 @@ use PHPUnit\Framework\Attributes\CoversClass;
 #[CoversClass( \OneSearch\Modules\Search\Algolia::class )]
 final class AlgoliaTest extends TestCase {
 	/**
+	 * Ensures a clean state before each test.
+	 */
+	protected function setUp(): void {
+		parent::setUp();
+
+		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
+		delete_option( Settings::OPTION_SITE_TYPE );
+		delete_option( Settings::OPTION_CONSUMER_API_KEY );
+		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
+		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
+	}
+
+	/**
 	 * Cleans up Algolia test state.
 	 */
 	protected function tearDown(): void {

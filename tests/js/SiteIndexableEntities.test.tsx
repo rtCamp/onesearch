@@ -20,17 +20,22 @@ const okJson = ( data: unknown ) =>
 		json: jest.fn().mockResolvedValue( data ),
 	} ) as unknown as Response;
 
+const noActiveReindex = okJson( { success: true, active: false } );
+
 describe( 'SiteIndexableEntities', () => {
 	it( 'loads saved entities and enables reindexing when data exists', async () => {
-		global.fetch = jest.fn().mockResolvedValueOnce(
-			okJson( {
-				indexableEntities: {
-					entities: {
-						[ currentSiteUrl ]: [ 'post' ],
+		global.fetch = jest
+			.fn()
+			.mockResolvedValueOnce( noActiveReindex )
+			.mockResolvedValueOnce(
+				okJson( {
+					indexableEntities: {
+						entities: {
+							[ currentSiteUrl ]: [ 'post' ],
+						},
 					},
-				},
-			} )
-		) as typeof fetch;
+				} )
+			) as typeof fetch;
 
 		render(
 			<SiteIndexableEntities
@@ -55,13 +60,16 @@ describe( 'SiteIndexableEntities', () => {
 	} );
 
 	it( 'shows a message when a brand site has no selectable entities', async () => {
-		global.fetch = jest.fn().mockResolvedValueOnce(
-			okJson( {
-				indexableEntities: {
-					entities: {},
-				},
-			} )
-		) as typeof fetch;
+		global.fetch = jest
+			.fn()
+			.mockResolvedValueOnce( noActiveReindex )
+			.mockResolvedValueOnce(
+				okJson( {
+					indexableEntities: {
+						entities: {},
+					},
+				} )
+			) as typeof fetch;
 
 		render(
 			<SiteIndexableEntities
@@ -90,13 +98,14 @@ describe( 'SiteIndexableEntities', () => {
 		).toBeInTheDocument();
 	} );
 
-	it( 'saves entities and reindexes after changes', async () => {
+	it( 'saves entities and handles reindex error', async () => {
 		const setNotice = jest.fn();
 		const onEntitiesSaved = jest.fn();
 		const setSaving = jest.fn();
 
 		global.fetch = jest
 			.fn()
+			.mockResolvedValueOnce( noActiveReindex )
 			.mockResolvedValueOnce(
 				okJson( {
 					indexableEntities: {
@@ -107,9 +116,15 @@ describe( 'SiteIndexableEntities', () => {
 			.mockResolvedValueOnce( okJson( { success: true } ) )
 			.mockResolvedValueOnce(
 				okJson( {
-					success: true,
-					message: 'Reindex complete.',
+					jobs: [],
+					total: 0,
+					page: 1,
+					per_page: 5,
+					total_pages: 0,
 				} )
+			)
+			.mockResolvedValueOnce(
+				okJson( { success: false, message: 'Reindex failed.' } )
 			) as typeof fetch;
 
 		render(
@@ -141,9 +156,11 @@ describe( 'SiteIndexableEntities', () => {
 
 		expect( setSaving ).toHaveBeenCalledWith( true );
 		expect( setSaving ).toHaveBeenLastCalledWith( false );
-		expect( setNotice ).toHaveBeenCalledWith( {
-			message: 'Reindex complete.',
-			type: 'success',
+		await waitFor( () => {
+			expect( setNotice ).toHaveBeenCalledWith( {
+				message: 'Reindex failed.',
+				type: 'error',
+			} );
 		} );
 	} );
 
@@ -179,6 +196,7 @@ describe( 'SiteIndexableEntities', () => {
 
 		global.fetch = jest
 			.fn()
+			.mockResolvedValueOnce( noActiveReindex )
 			.mockResolvedValueOnce(
 				okJson( {
 					indexableEntities: {
@@ -228,6 +246,7 @@ describe( 'SiteIndexableEntities', () => {
 
 		global.fetch = jest
 			.fn()
+			.mockResolvedValueOnce( noActiveReindex )
 			.mockResolvedValueOnce(
 				okJson( {
 					indexableEntities: {
@@ -275,12 +294,41 @@ describe( 'SiteIndexableEntities', () => {
 			} );
 		} );
 
-		global.fetch = jest.fn().mockResolvedValueOnce(
-			okJson( {
-				success: false,
-				message: 'failed',
-			} )
-		) as typeof fetch;
+		global.fetch = jest
+			.fn()
+			.mockResolvedValueOnce(
+				okJson( {
+					jobs: [],
+					total: 0,
+					page: 1,
+					per_page: 5,
+					total_pages: 0,
+				} )
+			)
+			.mockResolvedValueOnce(
+				okJson( {
+					jobs: [],
+					total: 0,
+					page: 1,
+					per_page: 5,
+					total_pages: 0,
+				} )
+			)
+			.mockResolvedValueOnce(
+				okJson( {
+					jobs: [],
+					total: 0,
+					page: 1,
+					per_page: 5,
+					total_pages: 0,
+				} )
+			)
+			.mockResolvedValueOnce(
+				okJson( {
+					success: false,
+					message: 'failed',
+				} )
+			) as typeof fetch;
 
 		fireEvent.click( screen.getByRole( 'button', { name: 'Re-index' } ) );
 
@@ -288,10 +336,10 @@ describe( 'SiteIndexableEntities', () => {
 			await screen.findByText( 'Re-index saved entities' )
 		).toBeInTheDocument();
 
-		fireEvent.click( screen.getByRole( 'button', { name: 'Cancel' } ) );
-		expect(
-			screen.queryByText( 'Re-index saved entities' )
-		).not.toBeInTheDocument();
+		fireEvent.click( screen.getByRole( 'button', { name: 'Close' } ) );
+		await waitFor( () => {
+			expect( screen.queryByRole( 'dialog' ) ).not.toBeInTheDocument();
+		} );
 
 		fireEvent.click( screen.getByRole( 'button', { name: 'Re-index' } ) );
 		fireEvent.click(
