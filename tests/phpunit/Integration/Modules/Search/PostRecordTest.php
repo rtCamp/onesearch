@@ -201,6 +201,26 @@ final class PostRecordTest extends TestCase {
 	}
 
 	/**
+	 * Joining the chunks restores the content they were split from, whatever order they're in.
+	 */
+	public function test_join_content_reverses_chunking(): void {
+		$content = trim( str_repeat( 'Chunked content for Algolia records. ', 80 ) );
+
+		$method = new \ReflectionMethod( Post_Record::class, 'split_content_into_chunks' );
+		$chunks = $method->invoke( new Post_Record(), $content, 120 );
+
+		$records = [];
+		foreach ( $chunks as $index => $chunk ) {
+			$records[] = [
+				'chunk_index' => $index,
+				'content'     => $chunk,
+			];
+		}
+
+		$this->assertSame( $content, Post_Record::join_content( array_reverse( $records ) ) );
+	}
+
+	/**
 	 * Tests that to_records cleans block markup from post content.
 	 */
 	public function test_to_records_cleans_block_markup_from_post_content(): void {

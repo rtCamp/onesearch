@@ -107,6 +107,11 @@ final class Post_Record {
 	private const DEFAULT_ALGOLIA_RECORD_LIMIT = 9000; // 10kb is getting overflowed sometimes.
 
 	/**
+	 * The prefix marking a content chunk as the continuation of the previous one.
+	 */
+	private const CONTINUATION_PREFIX = '… ';
+
+	/**
 	 * The (normalized) Site URL
 	 *
 	 * @var string
@@ -143,7 +148,7 @@ final class Post_Record {
 	/**
 	 * Gets the `site_post_id` value used to identify a post's records.
 	 *
-	 * @see Watcher::on_post_transition() for the delete-by-filter counterpart.
+	 * @see Indexer::delete_post() for the delete-by-filter counterpart.
 	 *
 	 * @param int $post_id The post ID.
 	 */
@@ -299,6 +304,33 @@ final class Post_Record {
 
 		/** @var list<PostRecord> $records */
 		return $records;
+	}
+
+	/**
+	 * Joins a post's records back into its full content.
+	 *
+	 * Reverses the chunking done by `to_records()`. Chunks are split on whitespace, so they're joined with a space.
+	 *
+	 * @param PostRecord[] $records The post's records, in any order.
+	 */
+	public static function join_content( array $records ): string {
+		usort(
+			$records,
+			static fn ( array $a, array $b ): int => (int) ( $a['chunk_index'] ?? 0 ) <=> (int) ( $b['chunk_index'] ?? 0 )
+		);
+
+		$chunks = array_map(
+			static function ( array $record ): string {
+				$content = (string) ( $record['content'] ?? '' );
+
+				return (int) ( $record['chunk_index'] ?? 0 ) > 0 && str_starts_with( $content, self::CONTINUATION_PREFIX )
+					? substr( $content, strlen( self::CONTINUATION_PREFIX ) )
+					: $content;
+			},
+			$records
+		);
+
+		return implode( ' ', $chunks );
 	}
 
 	/**
@@ -549,7 +581,7 @@ final class Post_Record {
 			// Prepare remaining content and set prefix for next.
 			$content             = trim( mb_substr( $content, $cut_position, null, 'UTF-8' ) );
 			$content_length      = mb_strlen( $content, 'UTF-8' );
-			$continuation_prefix = '… ';
+			$continuation_prefix = self::CONTINUATION_PREFIX;
 		}
 
 		// Add the final chunk.

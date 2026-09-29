@@ -22,21 +22,14 @@ use OneSearch\Utils;
  */
 final class Search implements Registrable {
 	/**
-	 * The number of items to refetch when hydrating records to posts.
-	 */
-	private const CHUNK_BATCH_SIZE = 20;
-
-	/**
 	 * Option key storing the ID of the shared "proxy" attachment.
 	 */
 	private const PROXY_ATTACHMENT_OPTION = 'onesearch_proxy_attachment_id';
 
 	/**
-	 * The instance of our Index
-	 *
-	 * @var \OneSearch\Modules\Search\Index|null
+	 * The indexer, once instantiated.
 	 */
-	private ?\OneSearch\Modules\Search\Index $index = null;
+	private ?Indexer $indexer = null;
 
 	/**
 	 * Whether to filter the search results.
@@ -742,16 +735,14 @@ final class Search implements Registrable {
 	}
 
 	/**
-	 * Gets the Algolia SearchIndex from our Index class.
-	 *
-	 * @todo this is likely temporary until this class is refactored.
+	 * Gets the indexer, instantiating it if needed.
 	 */
-	private function get_index(): \OneSearch\Modules\Search\Index {
-		if ( ! $this->index instanceof \OneSearch\Modules\Search\Index ) {
-			$this->index = new \OneSearch\Modules\Search\Index();
+	private function get_indexer(): Indexer {
+		if ( ! $this->indexer instanceof Indexer ) {
+			$this->indexer = new Indexer();
 		}
 
-		return $this->index;
+		return $this->indexer;
 	}
 
 	/**
@@ -804,7 +795,7 @@ final class Search implements Registrable {
 
 		$params = $this->prepare_search_params( $query, $site_urls );
 
-		$results = $this->get_index()->search( $query->get( 's' ), $params );
+		$results = $this->get_indexer()->search( $query->get( 's' ), $params );
 
 		if ( is_wp_error( $results ) || empty( $results['hits'] ) || ! is_array( $results['hits'] ) ) {
 			return [];
@@ -845,21 +836,13 @@ final class Search implements Registrable {
 
 		// Add the Post Type filters.
 		if ( ! empty( $query->get( 'post_type' ) ) && 'any' !== $query->get( 'post_type' ) ) {
-			$post_types        = is_string( $query->get( 'post_type' ) ) ? [ $query->get( 'post_type' ) ] : (array) $query->get( 'post_type' );
-			$post_type_filters = array_map(
-				static fn ( string $post_type ) => sprintf( 'post_type:"%s"', $post_type ),
-				$post_types
-			);
+			$post_types = is_string( $query->get( 'post_type' ) ) ? [ $query->get( 'post_type' ) ] : (array) $query->get( 'post_type' );
 
-			$default_params['filters'] = implode( ' OR ', $post_type_filters );
+			$default_params['filters'] = Indexer::filter_any_of( 'post_type', $post_types );
 		}
 
 		// Add Site URL filters.
-		$site_url_filters     = array_map(
-			static fn ( string $site_url ) => sprintf( 'site_url:"%s"', Utils::normalize_url( $site_url ) ),
-			$searchable_sites
-		);
-		$site_url_filters_str = implode( ' OR ', $site_url_filters );
+		$site_url_filters_str = Indexer::filter_any_of( 'site_url', array_map( [ Utils::class, 'normalize_url' ], $searchable_sites ) );
 
 		$default_params['filters'] = isset( $default_params['filters'] )
 			? '(' . $default_params['filters'] . ') AND (' . $site_url_filters_str . ')'
@@ -975,103 +958,46 @@ final class Search implements Registrable {
 	}
 
 	/**
-	 * Gets all the related chunks for the given records.
+	 * Gives the records of remote posts that were split into chunks their full content.
+	 *
+	 * Local posts are skipped, since they're hydrated from the database. If the chunks can't be fetched, the matched chunk is kept.
 	 *
 	 * @param PostRecord[] $records Algolia records.
 	 * @return PostRecord[]
 	 */
 	private function get_all_chunks_for_records( array $records ): array {
-		$records_to_return = [];
-		$ids_to_fetch      = [];
-		$site_url          = Utils::normalize_url( get_site_url() );
+		$site_url      = Utils::normalize_url( get_site_url() );
+		$site_post_ids = [];
 
-		// Go through the records and see which need chunking.
 		foreach ( $records as $record ) {
-			if ( ! isset( $record['site_url'], $record['site_post_id'] ) ) {
-				continue;
-			}
-
-			// If the record is local, we'll use the local copy later.
-			if ( Utils::normalize_url( $record['site_url'] ) === $site_url ) {
-				$records_to_return[ $record['site_post_id'] ] = $record;
-				continue;
-			}
-
-			// If there's no chunking, just add the record.
-			if ( empty( $record['total_chunks'] ) || 1 >= (int) $record['total_chunks'] ) {
-				$records_to_return[ $record['site_post_id'] ] = $record;
-				continue;
-			}
-
-			// Preserve the order of the record that needs chunking.
-			$records_to_return[ $record['site_post_id'] ] = null;
-			$ids_to_fetch[]                               = $record['site_post_id'];
-		}
-
-		// Return early if no chunking is needed.
-		$ids = array_filter( array_unique( $ids_to_fetch ) );
-		if ( empty( $ids ) ) {
-			return array_values( array_filter( $records_to_return ) );
-		}
-
-		// Split into chunks and fetch.
-		$groups       = array_chunk( $ids, self::CHUNK_BATCH_SIZE );
-		$grouped_hits = [];
-		foreach ( $groups as $group ) {
-			// Build the filter.
-			$filters    = array_map(
-				static fn ( string $id ) => sprintf( 'site_post_id:%s', $id ),
-				$group
-			);
-			$filter_str = implode( ' OR ', $filters );
-
-			$results = $this->get_index()->search(
-				'',
-				[
-					'filters'     => $filter_str,
-					'hitsPerPage' => 1000,
-					'distinct'    => false,
-				]
-			);
-
-			if ( is_wp_error( $results ) || empty( $results['hits'] ) || ! is_array( $results['hits'] ) ) {
-				// Skip this group on error and continue with others.
-				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- @todo we need visibility until we have a proper Logger.
-				error_log( 'OneSearch: Error fetching chunks from Algolia: ' . ( is_wp_error( $results ) ? $results->get_error_message() : 'No hits returned' ) );
-				continue;
-			}
-
-			$hits = $results['hits'];
-			foreach ( $hits as $hit ) {
-				if ( ! isset( $hit['site_post_id'] ) ) {
-					continue;
-				}
-				$grouped_hits[ $hit['site_post_id'] ][] = $hit;
+			if (
+				isset( $record['site_url'], $record['site_post_id'] )
+				&& Utils::normalize_url( $record['site_url'] ) !== $site_url
+				&& (int) ( $record['total_chunks'] ?? 0 ) > 1
+			) {
+				$site_post_ids[] = $record['site_post_id'];
 			}
 		}
 
-		// Merge the chunks.
-		foreach ( $grouped_hits as $hits ) {
-			usort(
-				$hits,
-				static function ( $a, $b ) {
-					return ( (int) $a['chunk_index'] ) <=> ( (int) $b['chunk_index'] );
-				}
-			);
-
-			$full_record  = $hits[0];
-			$full_content = '';
-
-			foreach ( $hits as $hit ) {
-				$full_content .= $hit['content'] ?? '';
-			}
-
-			$full_record['content'] = $full_content;
-
-			$records_to_return[ $full_record['site_post_id'] ] = $full_record;
+		if ( empty( $site_post_ids ) ) {
+			return $records;
 		}
 
-		return array_values( $records_to_return );
+		$post_records = $this->get_indexer()->get_post_records( array_values( array_unique( $site_post_ids ) ) );
+
+		if ( is_wp_error( $post_records ) ) {
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- @todo we need visibility until we have a proper Logger.
+			error_log( 'OneSearch: Error fetching chunks from Algolia: ' . $post_records->get_error_message() );
+			return $records;
+		}
+
+		foreach ( $records as $i => $record ) {
+			if ( isset( $record['site_post_id'] ) && ! empty( $post_records[ $record['site_post_id'] ] ) ) {
+				$records[ $i ]['content'] = Post_Record::join_content( $post_records[ $record['site_post_id'] ] );
+			}
+		}
+
+		return $records;
 	}
 
 	/**

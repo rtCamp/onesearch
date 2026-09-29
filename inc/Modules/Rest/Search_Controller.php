@@ -9,10 +9,9 @@ declare(strict_types = 1);
 
 namespace OneSearch\Modules\Rest;
 
-use OneSearch\Modules\Search\Index;
+use OneSearch\Modules\Search\Indexer;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
-use OneSearch\Utils;
 use WP_REST_Response;
 use WP_REST_Server;
 
@@ -132,8 +131,7 @@ class Search_Controller extends Abstract_REST_Controller {
 			);
 		}
 
-		$is_valid = $this->validate_algolia_key( $app_id, $write_key );
-		if ( ! $is_valid ) {
+		if ( ! Indexer::validate_credentials( $app_id, $write_key ) ) {
 			return new \WP_Error(
 				'onesearch_algolia_credentials_invalid',
 				__( 'The provided Algolia credentials are invalid or lack necessary permissions.', 'onesearch' ),
@@ -221,14 +219,8 @@ class Search_Controller extends Abstract_REST_Controller {
 			}
 		}
 
-		$post_types = $this->get_post_types_to_index();
-
-		if ( is_wp_error( $post_types ) ) {
-			return $post_types;
-		}
-
 		// Index the current site.
-		$indexed = ( new Index() )->index_all_posts( $post_types );
+		$indexed = ( new Indexer() )->reindex();
 
 		if ( is_wp_error( $indexed ) ) {
 			$errors[] = [
@@ -245,65 +237,6 @@ class Search_Controller extends Abstract_REST_Controller {
 					: __( 'Re-indexing was unsuccessful. Please try again later.', 'onesearch' ),
 			]
 		);
-	}
-
-	/**
-	 * Validate the Algolia Key before saving.
-	 *
-	 * @param string $app_id    The Algolia Application ID.
-	 * @param string $write_key The Algolia Write Key.
-	 */
-	private function validate_algolia_key( string $app_id, string $write_key ): bool {
-		try {
-			$client = \OneSearch\Vendor\Algolia\AlgoliaSearch\SearchClient::create( $app_id, $write_key );
-			// Try to get API key information to check permissions (ACL).
-			$key_info = $client->getApiKey( $write_key );
-
-			// Check if key has required write permissions.
-			$acl = $key_info['acl'] ?? [];
-
-			// Required permissions for write operations.
-			$required_permissions = [ 'addObject', 'deleteObject' ];
-			foreach ( $required_permissions as $permission ) {
-				if ( ! in_array( $permission, $acl, true ) ) {
-					return false;
-				}
-			}
-
-			return true;
-		} catch ( \Throwable $e ) {
-			return false;
-		}
-	}
-
-	/**
-	 * Get the post types to index for the site.
-	 *
-	 * @return \WP_Error|string[]
-	 */
-	private function get_post_types_to_index(): array|\WP_Error {
-		// For governing sets, get it from the local options.
-		if ( Settings::is_governing_site() ) {
-			$opt        = Search_Settings::get_indexable_entities();
-			$site_url   = Utils::normalize_url( get_site_url() );
-			$post_types = $opt['entities'][ $site_url ] ?? null;
-
-			return is_array( $post_types ) ? array_values( array_unique( array_map( 'strval', $post_types ) ) ) : [];
-		}
-
-		// For consumer sites, fetch from parent.
-		$parent_url = Settings::get_parent_site_url();
-		if ( empty( $parent_url ) ) {
-			return new \WP_Error( 'no_parent_url', __( 'Parent site URL not configured.', 'onesearch' ), [ 'status' => 400 ] );
-		}
-
-		$brand_config = Governing_Data_Handler::get_brand_config();
-
-		if ( is_wp_error( $brand_config ) ) {
-			return $brand_config;
-		}
-
-		return $brand_config['indexable_entities'] ?? [];
 	}
 
 	/**
@@ -373,6 +306,13 @@ class Search_Controller extends Abstract_REST_Controller {
 					'message'  => __( 'The site returned an invalid response.', 'onesearch' ),
 				];
 				continue;
+			}
+
+			if ( empty( $response_data['success'] ) ) {
+				$errors[] = [
+					'site_url' => $site_data['url'],
+					'message'  => __( 'The site failed to re-index.', 'onesearch' ),
+				];
 			}
 		}
 

@@ -14,6 +14,7 @@ use OneSearch\Modules\Rest\Search_Controller;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
+use OneSearch\Vendor\Algolia\AlgoliaSearch\Algolia as AlgoliaSDK;
 use PHPUnit\Framework\Attributes\CoversClass;
 use WP_REST_Request;
 
@@ -259,9 +260,7 @@ class Search_Controller_GoverningSiteTest extends TestCase {
 
 	/**
 	 * POST /re-index on a governing site with no Algolia credentials returns a
-	 * failure response: get_post_types_to_index() yields [] (no WP_Error), then
-	 * index_all_posts() collects an error from the missing-credentials delete_by()
-	 * call and reports success: false.
+	 * failure response, since clearing the site's old records fails.
 	 */
 	public function test_reindex_returns_failure_without_algolia(): void {
 		delete_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );
@@ -405,5 +404,70 @@ class Search_Controller_GoverningSiteTest extends TestCase {
 		remove_filter( 'pre_http_request', $filter );
 
 		$this->assertFalse( $data['success'] );
+	}
+
+	/**
+	 * A child site that responds but reports `success: false` flips `success` to false on the governing response.
+	 */
+	public function test_reindex_records_child_unsuccessful_response_as_failure(): void {
+		delete_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );
+		Search_Settings::set_algolia_credentials(
+			[
+				'app_id'    => 'APP',
+				'write_key' => 'KEY',
+			]
+		);
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Site A',
+					'url'     => 'https://site-a.example.com/',
+					'api_key' => 'key-a',
+				],
+			]
+		);
+
+		// The governing site's own reindex succeeds.
+		$recorded_paths = [];
+		$this->mock_algolia_http_client( $recorded_paths );
+
+		$succeeded = $this->reindex_with_child_response( [ 'success' => true ] );
+		$failed    = $this->reindex_with_child_response( [ 'success' => false ] );
+
+		AlgoliaSDK::resetHttpClient();
+
+		$this->assertTrue( $succeeded['success'] );
+		$this->assertFalse( $failed['success'] );
+	}
+
+	/**
+	 * Reindexes with every child site responding with the given body.
+	 *
+	 * @param array<string, mixed> $child_body The child response body.
+	 *
+	 * @return array<string, mixed> The governing site's response data.
+	 */
+	private function reindex_with_child_response( array $child_body ): array {
+		$filter = static function ( $preempt, $args, $url ) use ( $child_body ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( false === strpos( $url, '/re-index' ) ) {
+				return $preempt;
+			}
+			return [
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
+				],
+				'body'     => wp_json_encode( $child_body ),
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$data = $this->server->dispatch( new WP_REST_Request( 'POST', '/onesearch/v1/re-index' ) )->get_data();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		return $data;
 	}
 }

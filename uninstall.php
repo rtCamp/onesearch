@@ -123,8 +123,15 @@ function cleanup_algolia_index(): void {
 		return;
 	}
 
-	$indexer = new \OneSearch\Modules\Search\Index();
-	$indexer->delete_index();
+	$indexer = new \OneSearch\Modules\Search\Indexer();
+
+	// The index is shared by all sites, so brand sites only delete their own records.
+	if ( \OneSearch\Modules\Settings\Settings::is_governing_site() ) {
+		$indexer->delete_index();
+		return;
+	}
+
+	$indexer->delete_site_records( [ get_site_url() ] );
 }
 
 /**

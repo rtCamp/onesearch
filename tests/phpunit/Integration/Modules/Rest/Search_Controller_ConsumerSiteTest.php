@@ -70,10 +70,9 @@ class Search_Controller_ConsumerSiteTest extends TestCase {
 	}
 
 	/**
-	 * POST /re-index on a consumer site with no parent URL configured returns
-	 * a 400 with the `no_parent_url` error code.
+	 * POST /re-index on a consumer site with no parent URL configured reports failure.
 	 */
-	public function test_reindex_returns_error_without_parent_url(): void {
+	public function test_reindex_fails_without_parent_url(): void {
 		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
 		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
 
@@ -81,15 +80,14 @@ class Search_Controller_ConsumerSiteTest extends TestCase {
 		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
-		$this->assertSame( 400, $response->get_status() );
-		$this->assertSame( 'no_parent_url', $data['code'] );
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertFalse( $data['success'] );
 	}
 
 	/**
-	 * Consumer reindex propagates a non-200 brand-config response from the parent
-	 * as a `onesearch_rest_failed_to_connect` error.
+	 * Consumer reindex reports failure when the parent's brand-config request fails.
 	 */
-	public function test_reindex_propagates_brand_config_failure_from_parent(): void {
+	public function test_reindex_fails_when_brand_config_fails(): void {
 		Settings::set_parent_site_url( 'https://governing.example.com' );
 		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
 		Settings::regenerate_api_key();
@@ -116,8 +114,8 @@ class Search_Controller_ConsumerSiteTest extends TestCase {
 
 		remove_filter( 'pre_http_request', $filter );
 
-		$this->assertSame( 500, $response->get_status() );
-		$this->assertSame( 'onesearch_rest_failed_to_connect', $data['code'] );
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertFalse( $data['success'] );
 	}
 
 	/**
