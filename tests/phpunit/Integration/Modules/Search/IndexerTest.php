@@ -205,6 +205,20 @@ final class IndexerTest extends TestCase {
 	}
 
 	/**
+	 * Deleting doesn't touch the index settings, which would create the index if it's missing.
+	 */
+	public function test_deleting_does_not_push_settings(): void {
+		$this->set_up_governing_site();
+		$this->mock_algolia_http_client( $this->paths );
+
+		$indexer = new Indexer();
+		$indexer->delete_post( 42 );
+		$indexer->delete_site_records( [ 'https://a.example.com/' ] );
+
+		$this->assertSame( [], array_filter( $this->paths, static fn ( string $path ): bool => str_ends_with( $path, '/settings' ) ) );
+	}
+
+	/**
 	 * Deleting no sites' records doesn't call Algolia.
 	 */
 	public function test_delete_site_records_without_sites(): void {
@@ -293,6 +307,7 @@ final class IndexerTest extends TestCase {
 		$this->mock_algolia_http_client( $this->paths, null, null, $this->requests );
 
 		$this->assertTrue( ( new Indexer() )->reindex() );
+		$this->assertSame( self::INDEX_PATH . '/settings', $this->paths[0], 'The index should be set up before anything else.' );
 		$this->assertSame(
 			[ sprintf( 'site_url:"%s"', Utils::normalize_url( get_site_url() ) ) ],
 			$this->get_delete_filters()

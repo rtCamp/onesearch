@@ -109,7 +109,7 @@ final class Post_Record {
 	/**
 	 * The prefix marking a content chunk as the continuation of the previous one.
 	 */
-	private const CONTINUATION_PREFIX = '… ';
+	private const CONTINUATION_PREFIX = '…';
 
 	/**
 	 * The (normalized) Site URL
@@ -309,28 +309,38 @@ final class Post_Record {
 	/**
 	 * Joins a post's records back into its full content.
 	 *
-	 * Reverses the chunking done by `to_records()`. Chunks are split on whitespace, so they're joined with a space.
+	 * Reverses the chunking done by `to_records()`.
 	 *
 	 * @param PostRecord[] $records The post's records, in any order.
+	 *
+	 * @return ?string The content, or null if any of the post's chunks are missing.
 	 */
-	public static function join_content( array $records ): string {
+	public static function join_content( array $records ): ?string {
 		usort(
 			$records,
 			static fn ( array $a, array $b ): int => (int) ( $a['chunk_index'] ?? 0 ) <=> (int) ( $b['chunk_index'] ?? 0 )
 		);
 
-		$chunks = array_map(
-			static function ( array $record ): string {
-				$content = (string) ( $record['content'] ?? '' );
+		$total_chunks  = (int) ( $records[0]['total_chunks'] ?? 0 );
+		$chunk_indexes = array_map( static fn ( array $record ): int => (int) ( $record['chunk_index'] ?? 0 ), $records );
 
-				return (int) ( $record['chunk_index'] ?? 0 ) > 0 && str_starts_with( $content, self::CONTINUATION_PREFIX )
-					? substr( $content, strlen( self::CONTINUATION_PREFIX ) )
-					: $content;
-			},
-			$records
-		);
+		if ( $total_chunks < 1 || range( 0, $total_chunks - 1 ) !== $chunk_indexes ) {
+			return null;
+		}
 
-		return implode( ' ', $chunks );
+		$content = (string) ( $records[0]['content'] ?? '' );
+
+		foreach ( array_slice( $records, 1 ) as $record ) {
+			$chunk = (string) ( $record['content'] ?? '' );
+
+			$content .= match ( true ) {
+				str_starts_with( $chunk, self::CONTINUATION_PREFIX . ' ' ) => ' ' . substr( $chunk, strlen( self::CONTINUATION_PREFIX . ' ' ) ),
+				str_starts_with( $chunk, self::CONTINUATION_PREFIX )       => substr( $chunk, strlen( self::CONTINUATION_PREFIX ) ),
+				default                                                    => ' ' . $chunk,
+			};
+		}
+
+		return $content;
 	}
 
 	/**
@@ -579,9 +589,12 @@ final class Post_Record {
 			$chunks[] = $continuation_prefix . mb_substr( $content, 0, $cut_position, 'UTF-8' );
 
 			// Prepare remaining content and set prefix for next.
-			$content             = trim( mb_substr( $content, $cut_position, null, 'UTF-8' ) );
-			$content_length      = mb_strlen( $content, 'UTF-8' );
-			$continuation_prefix = self::CONTINUATION_PREFIX;
+			$remaining      = mb_substr( $content, $cut_position, null, 'UTF-8' );
+			$content        = trim( $remaining );
+			$content_length = mb_strlen( $content, 'UTF-8' );
+
+			// Use whitespace to indicate continuation where content was trimmed.
+			$continuation_prefix = self::CONTINUATION_PREFIX . ( $content === $remaining ? '' : ' ' );
 		}
 
 		// Add the final chunk.

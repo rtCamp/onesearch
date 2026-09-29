@@ -178,6 +178,12 @@ final class Indexer {
 			return $post_types;
 		}
 
+		// Set up the index first, since it may not exist yet.
+		$index = $this->get_initialized_index();
+		if ( is_wp_error( $index ) ) {
+			return $index;
+		}
+
 		$is_deleted = $this->delete_site_records( [ get_site_url() ] );
 		if ( is_wp_error( $is_deleted ) ) {
 			return $is_deleted;
@@ -288,7 +294,7 @@ final class Indexer {
 	 * @return true|\WP_Error
 	 */
 	private function delete_by_filter( string $filter ): bool|\WP_Error {
-		$index = $this->get_initialized_index();
+		$index = $this->get_index();
 		if ( is_wp_error( $index ) ) {
 			return $index;
 		}
@@ -299,7 +305,7 @@ final class Indexer {
 	/**
 	 * Gets the index, making sure its settings are up to date.
 	 *
-	 * Needed before writing, since records can only be filtered by the attributes the settings declare as facets.
+	 * Needed before saving records, since they can only be filtered by the attributes the settings declare as facets.
 	 */
 	private function get_initialized_index(): Index|\WP_Error {
 		$index = $this->get_index();

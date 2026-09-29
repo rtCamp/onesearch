@@ -960,7 +960,7 @@ final class Search implements Registrable {
 	/**
 	 * Gives the records of remote posts that were split into chunks their full content.
 	 *
-	 * Local posts are skipped, since they're hydrated from the database. If the chunks can't be fetched, the matched chunk is kept.
+	 * Local posts are skipped, since they're hydrated from the database. If any of the chunks can't be fetched, the matched chunk is kept.
 	 *
 	 * @param PostRecord[] $records Algolia records.
 	 * @return PostRecord[]
@@ -992,8 +992,8 @@ final class Search implements Registrable {
 		}
 
 		foreach ( $records as $i => $record ) {
-			if ( isset( $record['site_post_id'] ) && ! empty( $post_records[ $record['site_post_id'] ] ) ) {
-				$records[ $i ]['content'] = Post_Record::join_content( $post_records[ $record['site_post_id'] ] );
+			if ( isset( $record['site_post_id'], $post_records[ $record['site_post_id'] ] ) ) {
+				$records[ $i ]['content'] = Post_Record::join_content( $post_records[ $record['site_post_id'] ] ) ?? ( $record['content'] ?? '' );
 			}
 		}
 

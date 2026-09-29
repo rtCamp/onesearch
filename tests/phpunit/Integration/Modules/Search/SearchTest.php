@@ -183,6 +183,32 @@ final class SearchTest extends TestCase {
 	}
 
 	/**
+	 * A remote post whose chunks are only partly fetched keeps the chunk that matched.
+	 */
+	public function test_get_algolia_results_keeps_matched_chunk_when_chunks_are_missing(): void {
+		$this->enable_search_with_credentials();
+
+		$matched = self::get_remote_chunk( 1, '… middle' );
+		$chunks  = [ self::get_remote_chunk( 0, 'first' ), $matched ];
+
+		$recorded_paths = [];
+		$this->mock_algolia_http_client(
+			$recorded_paths,
+			static function () use ( $matched, $chunks ): string {
+				static $queries = 0;
+
+				// The search, then the refetch of the post's chunks, which is missing the last one.
+				return (string) wp_json_encode( [ 'hits' => 0 === $queries++ ? [ $matched ] : $chunks ] );
+			}
+		);
+
+		$posts = $this->run_main_search_query();
+
+		$this->assertCount( 1, $posts );
+		$this->assertSame( '… middle', $posts[0]->post_content );
+	}
+
+	/**
 	 * A remote post whose chunks can't be fetched keeps the chunk that matched.
 	 */
 	public function test_get_algolia_results_keeps_matched_chunk_when_refetch_fails(): void {
