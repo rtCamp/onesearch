@@ -318,6 +318,9 @@ describe( 'SettingsPage', () => {
 					},
 				],
 			} );
+		global.fetch = jest
+			.fn()
+			.mockResolvedValue( { ok: true, status: 200 } as Response );
 
 		render( <SettingsPage /> );
 
@@ -332,5 +335,168 @@ describe( 'SettingsPage', () => {
 				)
 			).toBe( false );
 		} );
+	} );
+
+	it( 'shows an error and leaves the brand site alone when deleting fails', async () => {
+		mockedApiFetch
+			.mockResolvedValueOnce( {
+				shared_sites: [
+					{
+						name: 'Brand Site',
+						url: 'https://brand.example.com/',
+						api_key: 'brand-key',
+					},
+				],
+			} )
+			.mockRejectedValueOnce( new Error( 'delete failed' ) );
+		global.fetch = jest.fn();
+
+		render( <SettingsPage /> );
+
+		fireEvent.click(
+			await screen.findByRole( 'button', { name: 'Delete Site' } )
+		);
+
+		const notices = await screen.findAllByText(
+			'Failed to update shared sites'
+		);
+		expect( notices.length ).toBeGreaterThanOrEqual( 1 );
+		expect( global.fetch ).not.toHaveBeenCalled();
+	} );
+
+	it( 'tells a deleted brand site to disconnect from this site', async () => {
+		mockedApiFetch
+			.mockResolvedValueOnce( {
+				shared_sites: [
+					{
+						name: 'Brand Site',
+						url: 'https://brand.example.com/',
+						api_key: 'brand-key',
+					},
+					{
+						name: 'Remaining Site',
+						url: 'https://remaining.example.com/',
+						api_key: 'other-key',
+					},
+				],
+			} )
+			.mockResolvedValueOnce( {
+				shared_sites: [
+					{
+						name: 'Remaining Site',
+						url: 'https://remaining.example.com/',
+						api_key: 'other-key',
+					},
+				],
+			} );
+		global.fetch = jest
+			.fn()
+			.mockResolvedValue( { ok: true, status: 200 } as Response );
+
+		render( <SettingsPage /> );
+
+		fireEvent.click(
+			await screen.findByRole( 'button', { name: 'Delete Site' } )
+		);
+
+		await waitFor( () => {
+			expect( global.fetch ).toHaveBeenCalledWith(
+				'https://brand.example.com/wp-json/onesearch/v1/brand-site',
+				expect.objectContaining( {
+					method: 'DELETE',
+					headers: expect.objectContaining( {
+						'X-OneSearch-Token': 'brand-key',
+					} ),
+				} )
+			);
+		} );
+		expect(
+			screen.queryByText( /was removed, but/, {
+				selector: '.components-notice__content',
+			} )
+		).not.toBeInTheDocument();
+	} );
+
+	it( 'warns when a deleted brand site could not be notified', async () => {
+		mockedApiFetch
+			.mockResolvedValueOnce( {
+				shared_sites: [
+					{
+						name: 'Brand Site',
+						url: 'https://brand.example.com/',
+						api_key: 'brand-key',
+					},
+				],
+			} )
+			.mockResolvedValueOnce( { shared_sites: [] } );
+		global.fetch = jest
+			.fn()
+			.mockRejectedValue( new TypeError( 'Failed to fetch' ) );
+
+		render( <SettingsPage /> );
+
+		fireEvent.click(
+			await screen.findByRole( 'button', { name: 'Delete Site' } )
+		);
+
+		// Deleting the last site would normally reload the page, which would clear this notice.
+		const message =
+			'Brand Site was removed, but it could not be notified. To finish disconnecting, click Disconnect Governing Site in its OneSearch settings.';
+		expect(
+			await screen.findByText( message, {
+				selector: '.components-notice__content',
+			} )
+		).toBeInTheDocument();
+
+		// The admin can dismiss it once they have acted on it.
+		fireEvent.click( screen.getByRole( 'button', { name: 'Close' } ) );
+		expect(
+			screen.queryByText( message, {
+				selector: '.components-notice__content',
+			} )
+		).not.toBeInTheDocument();
+	} );
+
+	it( 'warns when a deleted brand site does not recognize this site', async () => {
+		mockedApiFetch
+			.mockResolvedValueOnce( {
+				shared_sites: [
+					{
+						name: 'Brand Site',
+						url: 'https://brand.example.com/',
+						api_key: 'brand-key',
+					},
+					{
+						name: 'Remaining Site',
+						url: 'https://remaining.example.com/',
+						api_key: 'other-key',
+					},
+				],
+			} )
+			.mockResolvedValueOnce( {
+				shared_sites: [
+					{
+						name: 'Remaining Site',
+						url: 'https://remaining.example.com/',
+						api_key: 'other-key',
+					},
+				],
+			} );
+		global.fetch = jest
+			.fn()
+			.mockResolvedValue( { ok: false, status: 401 } as Response );
+
+		render( <SettingsPage /> );
+
+		fireEvent.click(
+			await screen.findByRole( 'button', { name: 'Delete Site' } )
+		);
+
+		expect(
+			await screen.findByText(
+				/Brand Site was removed, but it did not recognize this site/,
+				{ selector: '.components-notice__content' }
+			)
+		).toBeInTheDocument();
 	} );
 } );

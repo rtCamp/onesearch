@@ -238,15 +238,42 @@ class Basic_Options_Controller extends Abstract_REST_Controller {
 	 * @return \WP_REST_Response|\WP_Error
 	 */
 	public function remove_governing_site(): WP_REST_Response|\WP_Error {
+		$governing_site_url = Settings::get_parent_site_url();
+
+		// Tell the governing site first, since this needs the stored governing site URL.
+		$deregistered = ! empty( $governing_site_url ) ? Governing_Data_Handler::deregister_from_governing_site() : true;
+
 		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
 
 		// Clear cached brand configuration.
 		Governing_Data_Handler::clear_brand_config_cache();
 
+		// If the governing site couldn't be notified, inform the admin through the response message.
+		if ( is_wp_error( $deregistered ) ) {
+			$message = 'onesearch_unrecognized_site' === $deregistered->get_error_code() ? sprintf(
+				/* translators: %s: governing site URL. */
+				__( 'This site was disconnected, but the governing site (%s) did not recognize it, so it may already have been removed there. If this site is still listed on the governing site, remove it there.', 'onesearch' ),
+				$governing_site_url
+			) : sprintf(
+				/* translators: %s: governing site URL. */
+				__( 'This site was disconnected, but the governing site (%s) could not be notified. To finish disconnecting, remove this site from the governing site.', 'onesearch' ),
+				$governing_site_url
+			);
+
+			return rest_ensure_response(
+				[
+					'success'                 => true,
+					'governing_site_notified' => false,
+					'message'                 => $message,
+				]
+			);
+		}
+
 		return rest_ensure_response(
 			[
-				'success' => true,
-				'message' => __( 'Governing site removed successfully.', 'onesearch' ),
+				'success'                 => true,
+				'governing_site_notified' => true,
+				'message'                 => __( 'Governing site removed successfully.', 'onesearch' ),
 			]
 		);
 	}

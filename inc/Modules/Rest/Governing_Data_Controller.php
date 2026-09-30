@@ -34,6 +34,17 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 					'permission_callback' => [ $this, 'check_api_permissions' ],
 				]
 			);
+
+			// Lets a brand site remove itself when it disconnects.
+			register_rest_route(
+				self::NAMESPACE,
+				'/brand-site',
+				[
+					'methods'             => WP_REST_Server::DELETABLE,
+					'callback'            => [ $this, 'remove_current_brand_site' ],
+					'permission_callback' => [ $this, 'check_api_permissions' ],
+				]
+			);
 		}
 
 		// Only on consumer sites.
@@ -45,6 +56,17 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 				[
 					'methods'             => WP_REST_Server::DELETABLE,
 					'callback'            => [ $this, 'delete_brand_config_cache' ],
+					'permission_callback' => [ $this, 'check_api_permissions' ],
+				]
+			);
+
+			// Lets the governing site disconnect this brand site when it removes it.
+			register_rest_route(
+				self::NAMESPACE,
+				'/brand-site',
+				[
+					'methods'             => WP_REST_Server::DELETABLE,
+					'callback'            => [ $this, 'remove_governing_site_from_brand' ],
 					'permission_callback' => [ $this, 'check_api_permissions' ],
 				]
 			);
@@ -69,9 +91,7 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 	 */
 	public function get_brand_config( $request ): WP_REST_Response|\WP_Error {
 		// Get the origin from the request headers and confirm it's a known site.
-		$origin   = $request->get_header( 'origin' );
-		$origin   = ! empty( $origin ) ? esc_url_raw( wp_unslash( $origin ) ) : '';
-		$site_url = Utils::normalize_url( $origin );
+		$site_url = $this->get_request_site_url( $request );
 
 		if ( empty( $site_url ) || ! $this->is_allowed_site( $site_url ) ) {
 			return new \WP_Error(
@@ -122,6 +142,38 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 	}
 
 	/**
+	 * Removes the requesting brand site from this governing site.
+	 *
+	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
+	 */
+	public function remove_current_brand_site( $request ): WP_REST_Response|\WP_Error {
+		$site_url = $this->get_request_site_url( $request );
+
+		if ( empty( $site_url ) || ! $this->is_allowed_site( $site_url ) ) {
+			return new \WP_Error(
+				'onesearch_unauthorized_site',
+				__( 'The requesting site is not a shared brand site.', 'onesearch' ),
+				[ 'status' => 403 ]
+			);
+		}
+
+		if ( ! Settings::remove_shared_site( $site_url ) ) {
+			return new \WP_Error(
+				'onesearch_remove_site_failed',
+				__( 'The brand site could not be removed.', 'onesearch' ),
+				[ 'status' => 500 ]
+			);
+		}
+
+		return rest_ensure_response(
+			[
+				'success' => true,
+				'message' => __( 'Brand site removed successfully.', 'onesearch' ),
+			]
+		);
+	}
+
+	/**
 	 * Deletes the config cache for the brand site.
 	 */
 	public function delete_brand_config_cache(): WP_REST_Response {
@@ -131,6 +183,23 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 			[
 				'success' => true,
 				'message' => __( 'Brand configuration cache cleared successfully.', 'onesearch' ),
+			]
+		);
+	}
+
+	/**
+	 * Removes the governing site from this brand site, after the governing site removed it.
+	 */
+	public function remove_governing_site_from_brand(): WP_REST_Response {
+		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
+
+		// Clear cached brand configuration, including the Algolia credentials.
+		Governing_Data_Handler::clear_brand_config_cache();
+
+		return rest_ensure_response(
+			[
+				'success' => true,
+				'message' => __( 'Governing site removed successfully.', 'onesearch' ),
 			]
 		);
 	}
@@ -171,6 +240,18 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 				'errors'  => $errors,
 			]
 		);
+	}
+
+	/**
+	 * Get the normalized URL of the site making the request, from its Origin header.
+	 *
+	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
+	 */
+	private function get_request_site_url( $request ): string {
+		$origin = $request->get_header( 'origin' );
+		$origin = ! empty( $origin ) ? esc_url_raw( wp_unslash( $origin ) ) : '';
+
+		return Utils::normalize_url( $origin );
 	}
 
 	/**

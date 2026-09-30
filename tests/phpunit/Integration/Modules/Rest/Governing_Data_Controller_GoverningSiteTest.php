@@ -14,6 +14,7 @@ use OneSearch\Modules\Rest\Governing_Data_Controller;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
+use OneSearch\Vendor\Algolia\AlgoliaSearch\Algolia as AlgoliaSDK;
 use PHPUnit\Framework\Attributes\CoversClass;
 use WP_REST_Request;
 
@@ -56,6 +57,8 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 	public function tear_down(): void {
 		global $wp_rest_server;
 		$wp_rest_server = null;
+
+		AlgoliaSDK::resetHttpClient();
 
 		parent::tear_down();
 	}
@@ -253,6 +256,143 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 		$request->set_header( 'X-OneSearch-Site-URL', $site_url );
 
 		$this->assertFalse( ( new Governing_Data_Controller() )->check_api_permissions( $request ) );
+	}
+
+	/**
+	 * Governing site registers the brand-site DELETE route brand sites use to disconnect.
+	 */
+	public function test_registers_brand_site_delete(): void {
+		$routes = $this->server->get_routes();
+		$ns     = '/' . Governing_Data_Controller::NAMESPACE;
+
+		$this->assertArrayHasKey( $ns . '/brand-site', $routes );
+		$this->assertArrayHasKey( 'DELETE', $routes[ $ns . '/brand-site' ][0]['methods'] );
+	}
+
+	/**
+	 * A brand site presenting its own token removes itself, and the removal runs the same
+	 * cleanup as deleting it from the settings screen: its records and indexable entities are purged.
+	 */
+	public function test_remove_brand_site_removes_the_requesting_site_and_its_search_data(): void {
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Brand One',
+					'url'     => 'https://brand-one.example.com',
+					'api_key' => 'brand-one-key',
+				],
+				[
+					'name'    => 'Brand Two',
+					'url'     => 'https://brand-two.example.com',
+					'api_key' => 'brand-two-key',
+				],
+			]
+		);
+		Search_Settings::set_algolia_credentials(
+			[
+				'app_id'    => 'TEST_APP',
+				'write_key' => 'TEST_KEY',
+			]
+		);
+		update_option(
+			Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES,
+			[
+				'entities' => [
+					'post' => [ 'https://brand-one.example.com/', 'https://brand-two.example.com/' ],
+					'page' => [ 'https://brand-one.example.com/' ],
+				],
+			]
+		);
+
+		$algolia_paths    = [];
+		$algolia_requests = [];
+		$this->mock_algolia_http_client( $algolia_paths, null, null, $algolia_requests );
+
+		// The shared sites listeners that purge a removed site's search data.
+		( new Search_Settings() )->register_hooks();
+
+		// Keep the cache purge for the remaining brand sites off the network.
+		$block_http = static fn () => new \WP_Error( 'http_request_blocked', 'Blocked in tests.' );
+		add_filter( 'pre_http_request', $block_http );
+
+		// Logged out, so success comes from the token rather than the manage_options fallback.
+		wp_set_current_user( 0 );
+
+		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/brand-site' );
+		$request->set_header( 'origin', 'https://brand-one.example.com' );
+		$request->set_header( 'X-OneSearch-Token', 'brand-one-key' );
+
+		$response = $this->server->dispatch( $request );
+
+		remove_filter( 'pre_http_request', $block_http );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertTrue( $response->get_data()['success'] );
+		$this->assertSame( [ 'https://brand-two.example.com/' ], array_keys( Settings::get_shared_sites() ) );
+
+		$this->assertSame(
+			[ 'post' => [ 'https://brand-two.example.com/' ] ],
+			Search_Settings::get_indexable_entities()['entities']
+		);
+
+		$delete_filters = [];
+		foreach ( $algolia_requests as $algolia_request ) {
+			if ( str_contains( $algolia_request['path'], '/deleteByQuery' ) ) {
+				$delete_filters[] = json_decode( $algolia_request['body'], true )['filters'] ?? '';
+			}
+		}
+		$this->assertCount( 1, $delete_filters );
+		$this->assertStringContainsString( 'site_url:"https://brand-one.example.com/"', $delete_filters[0] );
+		$this->assertStringNotContainsString( 'brand-two', $delete_filters[0] );
+	}
+
+	/**
+	 * A brand site cannot remove itself without its own token.
+	 */
+	public function test_remove_brand_site_rejects_wrong_token(): void {
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Brand One',
+					'url'     => 'https://brand-one.example.com',
+					'api_key' => 'brand-one-key',
+				],
+			]
+		);
+
+		wp_set_current_user( 0 );
+
+		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/brand-site' );
+		$request->set_header( 'origin', 'https://brand-one.example.com' );
+		$request->set_header( 'X-OneSearch-Token', 'wrong-key' );
+
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 401, $response->get_status() );
+		$this->assertCount( 1, Settings::get_shared_sites() );
+	}
+
+	/**
+	 * A request that is authorized but not from a listed brand site is rejected by the controller.
+	 */
+	public function test_remove_brand_site_rejects_unlisted_origin(): void {
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Brand One',
+					'url'     => 'https://brand-one.example.com',
+					'api_key' => 'brand-one-key',
+				],
+			]
+		);
+
+		// No origin, so the admin set in set_up() passes the manage_options fallback.
+		$request  = new WP_REST_Request( 'DELETE', '/onesearch/v1/brand-site' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 403, $response->get_status() );
+		$this->assertSame( 'onesearch_unauthorized_site', $response->get_data()['code'] );
+		$this->assertCount( 1, Settings::get_shared_sites() );
 	}
 
 	/**
