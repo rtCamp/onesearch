@@ -156,6 +156,86 @@ class Governing_Data_Handler {
 	}
 
 	/**
+	 * Asks the governing site to remove this brand site from its shared sites.
+	 *
+	 * @return true|\WP_Error True if the governing site removed this site.
+	 */
+	public static function deregister_from_governing_site(): true|\WP_Error {
+		// Only call on brand sites.
+		if ( ! Settings::is_consumer_site() ) {
+			return new \WP_Error(
+				'onesearch_unauthorized_site',
+				__( 'The requesting site is not a shared brand site.', 'onesearch' ),
+			);
+		}
+
+		$parent_url = Settings::get_parent_site_url();
+		if ( empty( $parent_url ) ) {
+			return new \WP_Error(
+				'onesearch_no_parent',
+				__( 'No governing site is configured.', 'onesearch' ),
+			);
+		}
+
+		// Child authenticating to the governing site.
+		$our_public_key = Settings::get_api_key();
+		if ( empty( $our_public_key ) ) {
+			return new \WP_Error(
+				'onesearch_no_key',
+				__( 'No API key is configured.', 'onesearch' ),
+			);
+		}
+
+		$endpoint = sprintf(
+			'%s/wp-json/%s/brand-site',
+			untrailingslashit( $parent_url ),
+			Abstract_REST_Controller::NAMESPACE,
+		);
+
+		$response = wp_safe_remote_request(
+			$endpoint,
+			[
+				'method'  => \WP_REST_Server::DELETABLE,
+				'headers' => [
+					'Accept'            => 'application/json',
+					'Content-Type'      => 'application/json',
+					'Origin'            => get_site_url(),
+					'X-OneSearch-Token' => $our_public_key,
+				],
+				'timeout' => 15, // phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout -- The governing site purges this site's Algolia records before responding.
+			]
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$code = wp_remote_retrieve_response_code( $response );
+
+		// The governing site only authenticates brand sites it lists with a matching key.
+		if ( 401 === $code || 403 === $code ) {
+			return new \WP_Error(
+				'onesearch_unrecognized_site',
+				__( 'The governing site does not recognize this site.', 'onesearch' ),
+				[ 'status' => $code ]
+			);
+		}
+
+		if ( 200 !== $code ) {
+			return new \WP_Error(
+				'onesearch_rest_failed_to_connect',
+				__( 'Failed to connect to the governing site.', 'onesearch' ),
+				[
+					'status' => $code,
+					'body'   => wp_remote_retrieve_body( $response ),
+				]
+			);
+		}
+
+		return true;
+	}
+
+	/**
 	 * Gets available public post types for child sites.
 	 *
 	 * @return \WP_Error|array{

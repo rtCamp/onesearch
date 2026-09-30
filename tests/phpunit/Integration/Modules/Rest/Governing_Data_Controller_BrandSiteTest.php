@@ -67,6 +67,8 @@ class Governing_Data_Controller_BrandSiteTest extends TestCase {
 		$this->assertArrayHasKey( $ns . '/brand-config', $routes );
 		$this->assertArrayHasKey( 'DELETE', $routes[ $ns . '/brand-config' ][0]['methods'] );
 		$this->assertArrayHasKey( $ns . '/all-post-types', $routes );
+		$this->assertArrayHasKey( $ns . '/brand-site', $routes );
+		$this->assertArrayHasKey( 'DELETE', $routes[ $ns . '/brand-site' ][0]['methods'] );
 	}
 
 	/**
@@ -96,5 +98,64 @@ class Governing_Data_Controller_BrandSiteTest extends TestCase {
 
 		$this->assertSame( 200, $response->get_status() );
 		$this->assertTrue( $data['success'] );
+	}
+
+	/**
+	 * The governing site, presenting this site's token, clears the pairing and the cached
+	 * brand configuration with its Algolia credentials.
+	 */
+	public function test_remove_governing_site_clears_pairing_and_cached_config(): void {
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+		set_transient( Governing_Data_Handler::TRANSIENT_KEY, [ 'algolia_credentials' => [ 'write_key' => 'cached' ] ], 3600 );
+
+		// Logged out, so success comes from the token rather than the manage_options fallback.
+		wp_set_current_user( 0 );
+
+		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/brand-site' );
+		$request->set_header( 'origin', 'https://governing.example.com' );
+		$request->set_header( 'X-OneSearch-Token', Settings::get_api_key() );
+
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertTrue( $response->get_data()['success'] );
+		$this->assertNull( Settings::get_parent_site_url() );
+		$this->assertFalse( get_transient( Governing_Data_Handler::TRANSIENT_KEY ) );
+	}
+
+	/**
+	 * Only the governing site this brand site is connected to can remove it.
+	 */
+	public function test_remove_governing_site_rejects_other_sites(): void {
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+
+		wp_set_current_user( 0 );
+
+		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/brand-site' );
+		$request->set_header( 'origin', 'https://other.example.com' );
+		$request->set_header( 'X-OneSearch-Token', Settings::get_api_key() );
+
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 401, $response->get_status() );
+		$this->assertSame( 'https://governing.example.com', Settings::get_parent_site_url() );
+	}
+
+	/**
+	 * The governing site can't remove this brand site without its token.
+	 */
+	public function test_remove_governing_site_rejects_wrong_token(): void {
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+
+		wp_set_current_user( 0 );
+
+		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/brand-site' );
+		$request->set_header( 'origin', 'https://governing.example.com' );
+		$request->set_header( 'X-OneSearch-Token', 'wrong-key' );
+
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 401, $response->get_status() );
+		$this->assertSame( 'https://governing.example.com', Settings::get_parent_site_url() );
 	}
 }
