@@ -41,7 +41,7 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 				'/brand-site',
 				[
 					'methods'             => WP_REST_Server::DELETABLE,
-					'callback'            => [ $this, 'remove_brand_site' ],
+					'callback'            => [ $this, 'remove_current_brand_site' ],
 					'permission_callback' => [ $this, 'check_api_permissions' ],
 				]
 			);
@@ -66,7 +66,7 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 				'/brand-site',
 				[
 					'methods'             => WP_REST_Server::DELETABLE,
-					'callback'            => [ $this, 'remove_governing_site' ],
+					'callback'            => [ $this, 'remove_governing_site_from_brand' ],
 					'permission_callback' => [ $this, 'check_api_permissions' ],
 				]
 			);
@@ -146,7 +146,7 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 	 *
 	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
 	 */
-	public function remove_brand_site( $request ): WP_REST_Response|\WP_Error {
+	public function remove_current_brand_site( $request ): WP_REST_Response|\WP_Error {
 		$site_url = $this->get_request_site_url( $request );
 
 		if ( empty( $site_url ) || ! $this->is_allowed_site( $site_url ) ) {
@@ -190,7 +190,7 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 	/**
 	 * Removes the governing site from this brand site, after the governing site removed it.
 	 */
-	public function remove_governing_site(): WP_REST_Response {
+	public function remove_governing_site_from_brand(): WP_REST_Response {
 		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
 
 		// Clear cached brand configuration, including the Algolia credentials.
