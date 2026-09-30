@@ -198,50 +198,53 @@ const SettingsPage = () => {
 		const removedSite = index !== null ? sites[ index ] : undefined;
 		const updated: BrandSite[] = sites.filter( ( _, i ) => i !== index );
 
-		apiFetch< { shared_sites?: BrandSite[] } >( {
-			path: SHARED_SITES_ENDPOINT,
-			method: 'POST',
-			data: { sites_data: updated },
-		} )
-			.then( async ( data ) => {
-				if ( ! data?.shared_sites ) {
-					throw new Error( 'No shared sites in response' );
-				}
-				setSites( data.shared_sites );
+		let savedSites: BrandSite[];
 
-				const disconnectNotice = removedSite
-					? await disconnectRemovedBrandSite( removedSite )
-					: null;
-
-				if ( disconnectNotice ) {
-					setDisconnectNotices( ( notices ) => [
-						...notices.filter(
-							( item ) =>
-								item.message !== disconnectNotice.message
-						),
-						disconnectNotice,
-					] );
-				}
-
-				if ( data.shared_sites.length > 0 ) {
-					document.body.classList.remove(
-						'onesearch-missing-brand-sites'
-					);
-				} else if ( ! disconnectNotice ) {
-					/*
-					 * Reloading causes the menus etc to reflect the missing sites.
-					 *
-					 * Skipped when there's a notice to show, since reloading would clear it.
-					 */
-					window.location.reload();
-				}
-			} )
-			.catch( () => {
-				setNotice( {
-					type: 'error',
-					message: __( 'Failed to update shared sites', 'onesearch' ),
-				} );
+		try {
+			const data = await apiFetch< { shared_sites?: BrandSite[] } >( {
+				path: SHARED_SITES_ENDPOINT,
+				method: 'POST',
+				data: { sites_data: updated },
 			} );
+
+			if ( ! data?.shared_sites ) {
+				throw new Error( 'No shared sites in response' );
+			}
+
+			savedSites = data.shared_sites;
+		} catch {
+			setNotice( {
+				type: 'error',
+				message: __( 'Failed to update shared sites', 'onesearch' ),
+			} );
+			return;
+		}
+
+		setSites( savedSites );
+
+		const disconnectNotice = removedSite
+			? await disconnectRemovedBrandSite( removedSite )
+			: null;
+
+		if ( disconnectNotice ) {
+			setDisconnectNotices( ( notices ) => [
+				...notices.filter(
+					( item ) => item.message !== disconnectNotice.message
+				),
+				disconnectNotice,
+			] );
+		}
+
+		if ( savedSites.length > 0 ) {
+			document.body.classList.remove( 'onesearch-missing-brand-sites' );
+		} else if ( ! disconnectNotice ) {
+			/*
+			 * Reloading causes the menus etc to reflect the missing sites.
+			 *
+			 * Skipped when there's a notice to show, since reloading would clear it.
+			 */
+			window.location.reload();
+		}
 	};
 
 	return (
