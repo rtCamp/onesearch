@@ -129,6 +129,7 @@ final class IndexTest extends TestCase {
 
 		$this->assertWPError( $result );
 		$this->assertSame( $error_code, $result->get_error_code() );
+		$this->assertNotEmpty( $result->get_error_data()['message'] );
 	}
 
 	/**
@@ -141,6 +142,7 @@ final class IndexTest extends TestCase {
 			'search'       => [ static fn ( Index $index ) => $index->search( 'hello' ), 'onesearch_algolia_search_failed' ],
 			'save_records' => [ static fn ( Index $index ) => $index->save_records( [ [ 'objectID' => 'a' ] ] ), 'onesearch_algolia_save_records_failed' ],
 			'delete_by'    => [ static fn ( Index $index ) => $index->delete_by( [ 'filters' => 'a:"b"' ] ), 'onesearch_algolia_delete_by_failed' ],
+			'get_settings' => [ static fn ( Index $index ) => $index->get_settings(), 'onesearch_algolia_get_settings_failed' ],
 			'set_settings' => [ static fn ( Index $index ) => $index->set_settings( [] ), 'onesearch_algolia_set_settings_failed' ],
 			'delete'       => [ static fn ( Index $index ) => $index->delete(), 'onesearch_algolia_delete_index_failed' ],
 		];

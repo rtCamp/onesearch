@@ -222,6 +222,18 @@ final class PostRecordTest extends TestCase {
 	}
 
 	/**
+	 * The exact whitespace where content is split is restored when it's joined.
+	 */
+	public function test_join_content_preserves_whitespace_at_chunk_boundaries(): void {
+		$content = trim( str_repeat( "Chunked  content\tfor \nAlgolia\n records. ", 40 ) );
+
+		// Vary the chunk size, so the content is split at every kind of whitespace.
+		foreach ( range( 40, 140, 7 ) as $max_size ) {
+			$this->assertSame( $content, Post_Record::join_content( $this->split_into_records( $content, $max_size ) ), "Max size: {$max_size}" );
+		}
+	}
+
+	/**
 	 * Content can't be joined when any of its chunks are missing.
 	 */
 	public function test_join_content_returns_null_when_chunks_are_missing(): void {

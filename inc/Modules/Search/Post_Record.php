@@ -333,11 +333,9 @@ final class Post_Record {
 		foreach ( array_slice( $records, 1 ) as $record ) {
 			$chunk = (string) ( $record['content'] ?? '' );
 
-			$content .= match ( true ) {
-				str_starts_with( $chunk, self::CONTINUATION_PREFIX . ' ' ) => ' ' . substr( $chunk, strlen( self::CONTINUATION_PREFIX . ' ' ) ),
-				str_starts_with( $chunk, self::CONTINUATION_PREFIX )       => substr( $chunk, strlen( self::CONTINUATION_PREFIX ) ),
-				default                                                    => ' ' . $chunk,
-			};
+			$content .= str_starts_with( $chunk, self::CONTINUATION_PREFIX )
+				? substr( $chunk, strlen( self::CONTINUATION_PREFIX ) )
+				: ' ' . $chunk;
 		}
 
 		return $content;
@@ -580,25 +578,23 @@ final class Post_Record {
 			$search_start = $content_length - $max_size;
 			$cut_position = mb_strrpos( $content, ' ', -$search_start, 'UTF-8' );
 
-			// If no space found, cut at max_size (may split words).
-			if ( false === $cut_position ) {
+			// If no space found, cut at max_size (may split words). A leading space would make an empty chunk, so it's skipped too.
+			if ( ! $cut_position ) {
 				$cut_position = $max_size;
 			}
 
 			// Add the chunk with prefix.
 			$chunks[] = $continuation_prefix . mb_substr( $content, 0, $cut_position, 'UTF-8' );
 
-			// Prepare remaining content and set prefix for next.
-			$remaining      = mb_substr( $content, $cut_position, null, 'UTF-8' );
-			$content        = trim( $remaining );
+			// Keep the whitespace at the cut in the next chunk, so joining the chunks restores it exactly.
+			$content        = mb_substr( $content, $cut_position, null, 'UTF-8' );
 			$content_length = mb_strlen( $content, 'UTF-8' );
 
-			// Use whitespace to indicate continuation where content was trimmed.
-			$continuation_prefix = self::CONTINUATION_PREFIX . ( $content === $remaining ? '' : ' ' );
+			$continuation_prefix = self::CONTINUATION_PREFIX;
 		}
 
 		// Add the final chunk.
-		if ( ! empty( $content ) ) {
+		if ( '' !== $content ) {
 			$chunks[] = $continuation_prefix . $content;
 		}
 

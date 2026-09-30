@@ -31,10 +31,8 @@ final class Indexer {
 
 	/**
 	 * The API key permissions needed by the operations below.
-	 *
-	 * `deleteIndex` also covers deleting records by filter.
 	 */
-	private const REQUIRED_ACL = [ 'search', 'addObject', 'deleteIndex', 'editSettings' ];
+	private const REQUIRED_ACL = [ 'search', 'addObject', 'deleteIndex', 'settings', 'editSettings' ];
 
 	/**
 	 * The default batch size for indexing.
@@ -199,8 +197,10 @@ final class Indexer {
 			$is_saved = $this->save_records( $records );
 
 			if ( is_wp_error( $is_saved ) ) {
+				$data = $is_saved->get_error_data();
+
 				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- @todo Surface this better with a Logger class.
-				error_log( 'Algolia indexing error: ' . $is_saved->get_error_message() );
+				error_log( sprintf( 'Algolia indexing error: %s %s', $is_saved->get_error_message(), $data['message'] ?? '' ) );
 				$errors->merge_from( $is_saved );
 			}
 		}
@@ -216,8 +216,29 @@ final class Indexer {
 	 * @return true|\WP_Error
 	 */
 	public function save_post( \WP_Post $post ): bool|\WP_Error {
-		// @todo Prune chunks left behind when a post shrinks across a chunk boundary.
-		return $this->save_records( ( new Post_Record() )->to_records( $post ) );
+		$post_record  = new Post_Record();
+		$site_post_id = $post_record->get_site_post_id( $post->ID );
+		$records      = $post_record->to_records( $post );
+
+		$is_saved = $this->save_records( $records );
+		if ( is_wp_error( $is_saved ) ) {
+			return $is_saved;
+		}
+
+		// Chunks from when the post was longer would still match searches, so delete them. Checked first, since deleting is slow.
+		$saved_records = $this->get_post_records( [ $site_post_id ] );
+		$has_stale     = is_wp_error( $saved_records ) || [] !== array_filter(
+			$saved_records[ $site_post_id ] ?? [],
+			static fn ( array $record ): bool => (int) ( $record['chunk_index'] ?? 0 ) >= count( $records )
+		);
+
+		if ( ! $has_stale ) {
+			return true;
+		}
+
+		return $this->delete_by_filter(
+			sprintf( '%s AND chunk_index >= %d', self::filter_any_of( 'site_post_id', [ $site_post_id ] ), count( $records ) )
+		);
 	}
 
 	/**
@@ -313,9 +334,16 @@ final class Indexer {
 			return $index;
 		}
 
-		$is_set = $index->set_settings( Post_Record::get_index_settings() );
-		if ( is_wp_error( $is_set ) ) {
-			return $is_set;
+		$settings = Post_Record::get_index_settings();
+
+		// Check for a change in settings before pushing them to the index.
+		$current = $index->get_settings();
+		// phpcs:ignore Universal.Operators.StrictComparisons.LooseNotEqual -- Algolia may normalize values, e.g. `distinct: true` to `1`.
+		if ( is_wp_error( $current ) || array_intersect_key( $current, $settings ) != $settings ) {
+			$is_set = $index->set_settings( $settings );
+			if ( is_wp_error( $is_set ) ) {
+				return $is_set;
+			}
 		}
 
 		$this->index_settings_initialized = true;

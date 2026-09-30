@@ -97,8 +97,10 @@ final class Watcher implements Registrable {
 			return;
 		}
 
+		$data = $result->get_error_data();
+
 		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- @todo Surface this better with a Logger class.
-		error_log( sprintf( 'OneSearch: failed to update records for post %d: %s', $post_id, $result->get_error_message() ) );
+		error_log( sprintf( 'OneSearch: failed to update records for post %d: %s %s', $post_id, $result->get_error_message(), $data['message'] ?? '' ) );
 	}
 
 	/**

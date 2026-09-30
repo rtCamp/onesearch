@@ -10,6 +10,7 @@ declare(strict_types = 1);
 namespace OneSearch\Algolia;
 
 use OneSearch\Vendor\Algolia\AlgoliaSearch\Api\SearchClient;
+use OneSearch\Vendor\Algolia\AlgoliaSearch\Support\Helpers;
 
 /**
  * Class - Index
@@ -17,6 +18,16 @@ use OneSearch\Vendor\Algolia\AlgoliaSearch\Api\SearchClient;
  * Write operations wait until Algolia has applied them before returning.
  */
 final class Index {
+	/**
+	 * The maximum number of times to poll a task before giving up, matching the client's default.
+	 */
+	private const WAIT_MAX_RETRIES = 100;
+
+	/**
+	 * The maximum delay between polls of a task, in milliseconds, matching the client's default.
+	 */
+	private const WAIT_MAX_DELAY_MS = 5000;
+
 	/**
 	 * The Algolia API client.
 	 */
@@ -69,7 +80,11 @@ final class Index {
 	 */
 	public function save_records( array $records ): bool|\WP_Error {
 		try {
-			$this->client->saveObjects( $this->name, $records, true );
+			// Wait ourselves, since the client's own wait is broken.
+			foreach ( $this->client->saveObjects( $this->name, $records ) as $response ) {
+				$this->wait_for_task( $response );
+			}
+
 			return true;
 		} catch ( \Throwable $e ) {
 			return new \WP_Error(
@@ -97,6 +112,25 @@ final class Index {
 			return new \WP_Error(
 				'onesearch_algolia_delete_by_failed',
 				__( 'Failed to delete Algolia records by given args.', 'onesearch' ),
+				[ 'message' => $e->getMessage() ]
+			);
+		}
+	}
+
+	/**
+	 * Gets the index settings.
+	 *
+	 * @see https://www.algolia.com/doc/rest-api/search/get-settings
+	 *
+	 * @return array<string,mixed>|\WP_Error
+	 */
+	public function get_settings(): array|\WP_Error {
+		try {
+			return (array) $this->client->getSettings( $this->name );
+		} catch ( \Throwable $e ) {
+			return new \WP_Error(
+				'onesearch_algolia_get_settings_failed',
+				__( 'Failed to get Algolia index settings.', 'onesearch' ),
 				[ 'message' => $e->getMessage() ]
 			);
 		}
@@ -147,6 +181,8 @@ final class Index {
 	/**
 	 * Waits until Algolia has applied the task from a write response.
 	 *
+	 * Replaces `SearchClient::waitForTask()`, since strauss doesn't correctly namespace the backoff callback.
+	 *
 	 * @param mixed $response The write response.
 	 *
 	 * @throws \UnexpectedValueException If the response has no task ID.
@@ -158,6 +194,14 @@ final class Index {
 			throw new \UnexpectedValueException( 'Algolia response is missing a task ID.' );
 		}
 
-		$this->client->waitForTask( $this->name, $task_id );
+		Helpers::retryUntil(
+			$this->client,
+			'getTask',
+			[ $this->name, $task_id ],
+			static fn ( $task ): bool => 'published' === ( $task['status'] ?? null ),
+			self::WAIT_MAX_RETRIES,
+			self::WAIT_MAX_DELAY_MS,
+			Helpers::class . '::linearTimeout'
+		);
 	}
 }

@@ -235,6 +235,7 @@ class Search_Controller extends Abstract_REST_Controller {
 				'message' => empty( $errors )
 					? __( 'Re-indexing scheduled successfully.', 'onesearch' )
 					: __( 'Re-indexing was unsuccessful. Please try again later.', 'onesearch' ),
+				'errors'  => $errors,
 			]
 		);
 	}
@@ -309,9 +310,11 @@ class Search_Controller extends Abstract_REST_Controller {
 			}
 
 			if ( empty( $response_data['success'] ) ) {
+				$site_messages = is_array( $response_data['errors'] ?? null ) ? array_filter( array_column( $response_data['errors'], 'message' ), 'is_string' ) : [];
+
 				$errors[] = [
 					'site_url' => $site_data['url'],
-					'message'  => __( 'The site failed to re-index.', 'onesearch' ),
+					'message'  => $site_messages ? implode( ' ', $site_messages ) : __( 'The site failed to re-index.', 'onesearch' ),
 				];
 			}
 		}
