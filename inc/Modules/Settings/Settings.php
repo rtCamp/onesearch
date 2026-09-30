@@ -11,6 +11,7 @@ namespace OneSearch\Modules\Settings;
 
 use OneSearch\Contracts\Interfaces\Registrable;
 use OneSearch\Encryptor;
+use OneSearch\Utils;
 
 /**
  * Class - Settings
@@ -343,11 +344,11 @@ final class Settings implements Registrable {
 		$sites = get_option( self::OPTION_GOVERNING_SHARED_SITES, [] );
 		$sites = is_array( $sites ) ? $sites : [];
 
-		$normalized_url = trailingslashit( $site_url );
+		$normalized_url = Utils::normalize_url( $site_url );
 
 		$remaining_sites = array_filter(
 			$sites,
-			static fn ( $site ): bool => empty( $site['url'] ) || trailingslashit( $site['url'] ) !== $normalized_url
+			static fn ( $site ): bool => empty( $site['url'] ) || Utils::normalize_url( $site['url'] ) !== $normalized_url
 		);
 
 		if ( count( $remaining_sites ) === count( $sites ) ) {
