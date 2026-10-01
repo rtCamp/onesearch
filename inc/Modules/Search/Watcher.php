@@ -10,15 +10,16 @@ declare(strict_types = 1);
 namespace OneSearch\Modules\Search;
 
 use OneSearch\Contracts\Interfaces\Registrable;
-use OneSearch\Modules\Rest\Governing_Data_Handler;
-use OneSearch\Modules\Search\Settings as Search_Settings;
-use OneSearch\Modules\Settings\Settings;
-use OneSearch\Utils;
 
 /**
  * Class - Watcher
  */
 final class Watcher implements Registrable {
+	/**
+	 * The indexer, once instantiated.
+	 */
+	private ?Indexer $indexer = null;
+
 	/**
 	 * {@inheritDoc}
 	 */
@@ -42,23 +43,18 @@ final class Watcher implements Registrable {
 		}
 
 		$allowed_statuses = Post_Record::get_allowed_statuses( [ $post->post_type ] );
-		$indexer          = new Index();
 
 		// Check if the new status is allowed before reindexing.
 		if ( ! in_array( $new_status, $allowed_statuses, true ) ) {
 			// Only clean up if the post was indexed under its previous status.
 			if ( in_array( $old_status, $allowed_statuses, true ) ) {
-				$this->delete_post_records( $indexer, (int) $post->ID );
+				$this->log_error( (int) $post->ID, $this->get_indexer()->delete_post( (int) $post->ID ) );
 			}
 
 			return;
 		}
 
-		$records = ( new Post_Record() )->to_records( $post );
-
-		// @todo Prune chunks left behind when a post shrinks across a chunk boundary.
-
-		$indexer->save_records( $records );
+		$this->log_error( (int) $post->ID, $this->get_indexer()->save_post( $post ) );
 	}
 
 	/**
@@ -75,34 +71,36 @@ final class Watcher implements Registrable {
 			return;
 		}
 
-		$this->delete_post_records( new Index(), (int) $post_id );
+		$this->log_error( (int) $post_id, $this->get_indexer()->delete_post( (int) $post_id ) );
 	}
 
 	/**
-	 * Deletes every record belonging to a post.
-	 *
-	 * The filter has to use the very same `site_post_id` the records were written with,
-	 * otherwise Algolia matches nothing and reports success.
-	 *
-	 * @see Post_Record::get_site_post_id()
-	 *
-	 * @param \OneSearch\Modules\Search\Index $indexer The index to delete the records from.
-	 * @param int                             $post_id The post ID.
+	 * Gets the indexer, instantiating it if needed.
 	 */
-	private function delete_post_records( Index $indexer, int $post_id ): bool|\WP_Error {
-		$deleted = $indexer->delete_by(
-			[
-				'filters' => sprintf( 'site_post_id:"%s"', ( new Post_Record() )->get_site_post_id( $post_id ) ),
-			]
-		);
-
-		// @todo this class shouldn't run if the Algolia config isn't good.
-		if ( is_wp_error( $deleted ) && ! in_array( $deleted->get_error_code(), [ 'algolia_credentials_missing', 'algolia_index_name_invalid' ], true ) ) {
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- @todo Surface this better with a Logger class.
-			error_log( sprintf( 'OneSearch: failed to remove records for post %d: %s', $post_id, $deleted->get_error_message() ) );
+	private function get_indexer(): Indexer {
+		if ( ! $this->indexer instanceof Indexer ) {
+			$this->indexer = new Indexer();
 		}
 
-		return $deleted;
+		return $this->indexer;
+	}
+
+	/**
+	 * Logs a failed index update.
+	 *
+	 * @param int            $post_id The post ID.
+	 * @param true|\WP_Error $result  The result of the index update.
+	 */
+	private function log_error( int $post_id, bool|\WP_Error $result ): void {
+		// @todo this class shouldn't run if the Algolia config isn't good.
+		if ( ! is_wp_error( $result ) || Indexer::ERROR_NOT_CONFIGURED === $result->get_error_code() ) {
+			return;
+		}
+
+		$data = $result->get_error_data();
+
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- @todo Surface this better with a Logger class.
+		error_log( sprintf( 'OneSearch: failed to update records for post %d: %s %s', $post_id, $result->get_error_message(), $data['message'] ?? '' ) );
 	}
 
 	/**
@@ -111,31 +109,8 @@ final class Watcher implements Registrable {
 	 * @param string $post_type The post type.
 	 */
 	private function is_post_type_indexable( string $post_type ): bool {
-		$allowed_post_types = $this->get_allowed_post_types();
+		$allowed_post_types = Indexer::get_indexable_post_types();
 
 		return ! is_wp_error( $allowed_post_types ) && in_array( $post_type, $allowed_post_types, true );
-	}
-
-	/**
-	 * Gets the allowed post types.
-	 *
-	 * Uses the indexable entities settings on governing site, or fetches from governing site if on child.
-	 *
-	 * @return string[]|\WP_Error
-	 */
-	private function get_allowed_post_types(): array|\WP_Error {
-		if ( Settings::is_governing_site() ) {
-			$entities = Search_Settings::get_indexable_entities();
-
-			return $entities['entities'][ Utils::normalize_url( get_site_url() ) ] ?? [];
-		}
-
-		// For brand sites, fetch from the consolidated config.
-		$config = Governing_Data_Handler::get_brand_config();
-		if ( is_wp_error( $config ) ) {
-			return $config;
-		}
-
-		return $config['indexable_entities'] ?? [];
 	}
 }

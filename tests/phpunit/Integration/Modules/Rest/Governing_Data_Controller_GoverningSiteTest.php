@@ -298,8 +298,8 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 			Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES,
 			[
 				'entities' => [
-					'post' => [ 'https://brand-one.example.com/', 'https://brand-two.example.com/' ],
-					'page' => [ 'https://brand-one.example.com/' ],
+					'https://brand-one.example.com/' => [ 'post', 'page' ],
+					'https://brand-two.example.com/' => [ 'post' ],
 				],
 			]
 		);
@@ -331,7 +331,7 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 		$this->assertSame( [ 'https://brand-two.example.com/' ], array_keys( Settings::get_shared_sites() ) );
 
 		$this->assertSame(
-			[ 'post' => [ 'https://brand-two.example.com/' ] ],
+			[ 'https://brand-two.example.com/' => [ 'post' ] ],
 			Search_Settings::get_indexable_entities()['entities']
 		);
 

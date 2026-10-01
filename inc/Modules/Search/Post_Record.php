@@ -107,6 +107,11 @@ final class Post_Record {
 	private const DEFAULT_ALGOLIA_RECORD_LIMIT = 9000; // 10kb is getting overflowed sometimes.
 
 	/**
+	 * The prefix marking a content chunk as the continuation of the previous one.
+	 */
+	private const CONTINUATION_PREFIX = '…';
+
+	/**
 	 * The (normalized) Site URL
 	 *
 	 * @var string
@@ -143,7 +148,7 @@ final class Post_Record {
 	/**
 	 * Gets the `site_post_id` value used to identify a post's records.
 	 *
-	 * @see Watcher::on_post_transition() for the delete-by-filter counterpart.
+	 * @see Indexer::delete_post() for the delete-by-filter counterpart.
 	 *
 	 * @param int $post_id The post ID.
 	 */
@@ -299,6 +304,41 @@ final class Post_Record {
 
 		/** @var list<PostRecord> $records */
 		return $records;
+	}
+
+	/**
+	 * Joins a post's records back into its full content.
+	 *
+	 * Reverses the chunking done by `to_records()`.
+	 *
+	 * @param PostRecord[] $records The post's records, in any order.
+	 *
+	 * @return ?string The content, or null if any of the post's chunks are missing.
+	 */
+	public static function join_content( array $records ): ?string {
+		usort(
+			$records,
+			static fn ( array $a, array $b ): int => (int) ( $a['chunk_index'] ?? 0 ) <=> (int) ( $b['chunk_index'] ?? 0 )
+		);
+
+		$total_chunks  = (int) ( $records[0]['total_chunks'] ?? 0 );
+		$chunk_indexes = array_map( static fn ( array $record ): int => (int) ( $record['chunk_index'] ?? 0 ), $records );
+
+		if ( $total_chunks < 1 || range( 0, $total_chunks - 1 ) !== $chunk_indexes ) {
+			return null;
+		}
+
+		$content = (string) ( $records[0]['content'] ?? '' );
+
+		foreach ( array_slice( $records, 1 ) as $record ) {
+			$chunk = (string) ( $record['content'] ?? '' );
+
+			$content .= str_starts_with( $chunk, self::CONTINUATION_PREFIX )
+				? substr( $chunk, strlen( self::CONTINUATION_PREFIX ) )
+				: ' ' . $chunk;
+		}
+
+		return $content;
 	}
 
 	/**
@@ -538,22 +578,23 @@ final class Post_Record {
 			$search_start = $content_length - $max_size;
 			$cut_position = mb_strrpos( $content, ' ', -$search_start, 'UTF-8' );
 
-			// If no space found, cut at max_size (may split words).
-			if ( false === $cut_position ) {
+			// If no space found, cut at max_size (may split words). A leading space would make an empty chunk, so it's skipped too.
+			if ( ! $cut_position ) {
 				$cut_position = $max_size;
 			}
 
 			// Add the chunk with prefix.
 			$chunks[] = $continuation_prefix . mb_substr( $content, 0, $cut_position, 'UTF-8' );
 
-			// Prepare remaining content and set prefix for next.
-			$content             = trim( mb_substr( $content, $cut_position, null, 'UTF-8' ) );
-			$content_length      = mb_strlen( $content, 'UTF-8' );
-			$continuation_prefix = '… ';
+			// Keep the whitespace at the cut in the next chunk, so joining the chunks restores it exactly.
+			$content        = mb_substr( $content, $cut_position, null, 'UTF-8' );
+			$content_length = mb_strlen( $content, 'UTF-8' );
+
+			$continuation_prefix = self::CONTINUATION_PREFIX;
 		}
 
 		// Add the final chunk.
-		if ( ! empty( $content ) ) {
+		if ( '' !== $content ) {
 			$chunks[] = $continuation_prefix . $content;
 		}
 

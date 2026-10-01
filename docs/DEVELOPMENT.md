@@ -82,6 +82,9 @@ Code contributions, bug reports, and feature requests are welcome! The following
 │
 │   # PHP source files (plugin-specific code).
 ├── inc/
+│   ├── Algolia/ # Algolia API client wrappers.
+│   │   ├── Connection.php
+│   │   └── Index.php
 │   ├── Contracts/
 │   │   ├── Interfaces/
 │   │   │   └── Registrable.php
@@ -99,8 +102,7 @@ Code contributions, bug reports, and feature requests are welcome! The following
 │   │   │   └── Search_Controller.php
 │   │   ├── Search/ # Algolia-related functionality.
 │   │   │   ├── Admin.php
-│   │   │   ├── Algolia.php
-│   │   │   ├── Index.php
+│   │   │   ├── Indexer.php # Syncs the site's content with Algolia.
 │   │   │   ├── Post_Record.php
 │   │   │   ├── Search.php
 │   │   │   ├── Settings.php

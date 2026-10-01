@@ -154,6 +154,86 @@ final class SearchTest extends TestCase {
 	}
 
 	/**
+	 * A remote post split into chunks gets its full content, and keeps the highlights of the chunk that matched.
+	 */
+	public function test_get_algolia_results_joins_chunked_remote_posts(): void {
+		$this->enable_search_with_credentials();
+
+		$matched = self::get_remote_chunk( 1, '… middle' );
+		$chunks  = [ self::get_remote_chunk( 2, '… last' ), $matched, self::get_remote_chunk( 0, 'first' ) ];
+
+		$matched['_highlightResult'] = [ 'content' => [ 'value' => '… <em>middle</em>' ] ];
+
+		$recorded_paths = [];
+		$this->mock_algolia_http_client(
+			$recorded_paths,
+			static function () use ( $matched, $chunks ): string {
+				static $queries = 0;
+
+				// The search, then the refetch of the post's chunks.
+				return (string) wp_json_encode( [ 'hits' => 0 === $queries++ ? [ $matched ] : $chunks ] );
+			}
+		);
+
+		$posts = $this->run_main_search_query();
+
+		$this->assertCount( 1, $posts );
+		$this->assertSame( 'first middle last', $posts[0]->post_content );
+		$this->assertSame( [ 'content' => '… <em>middle</em>' ], $posts[0]->onesearch_algolia_highlights );
+	}
+
+	/**
+	 * A remote post whose chunks are only partly fetched keeps the chunk that matched.
+	 */
+	public function test_get_algolia_results_keeps_matched_chunk_when_chunks_are_missing(): void {
+		$this->enable_search_with_credentials();
+
+		$matched = self::get_remote_chunk( 1, '… middle' );
+		$chunks  = [ self::get_remote_chunk( 0, 'first' ), $matched ];
+
+		$recorded_paths = [];
+		$this->mock_algolia_http_client(
+			$recorded_paths,
+			static function () use ( $matched, $chunks ): string {
+				static $queries = 0;
+
+				// The search, then the refetch of the post's chunks, which is missing the last one.
+				return (string) wp_json_encode( [ 'hits' => 0 === $queries++ ? [ $matched ] : $chunks ] );
+			}
+		);
+
+		$posts = $this->run_main_search_query();
+
+		$this->assertCount( 1, $posts );
+		$this->assertSame( '… middle', $posts[0]->post_content );
+	}
+
+	/**
+	 * A remote post whose chunks can't be fetched keeps the chunk that matched.
+	 */
+	public function test_get_algolia_results_keeps_matched_chunk_when_refetch_fails(): void {
+		$this->enable_search_with_credentials();
+
+		$matched = self::get_remote_chunk( 1, '… middle' );
+
+		$recorded_paths = [];
+		$this->mock_algolia_http_client(
+			$recorded_paths,
+			static function () use ( $matched ): string {
+				static $queries = 0;
+
+				// The search succeeds, then the refetch of the post's chunks gets an invalid response.
+				return 0 === $queries++ ? (string) wp_json_encode( [ 'hits' => [ $matched ] ] ) : 'not json';
+			}
+		);
+
+		$posts = $this->run_main_search_query();
+
+		$this->assertCount( 1, $posts );
+		$this->assertSame( '… middle', $posts[0]->post_content );
+	}
+
+	/**
 	 * Sorts hits by Algolia ranking score (descending) without raising notices.
 	 */
 	public function test_get_algolia_results_sorts_hits_by_ranking_score(): void {
@@ -1051,5 +1131,58 @@ final class SearchTest extends TestCase {
 		$wp_the_query = $wp_query; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited, SlevomatCodingStandard.Variables.UnusedVariable.UnusedVariable
 
 		$wp_query->query( [ 's' => $term ] );
+	}
+
+	/**
+	 * Enables Algolia search for the governing site, with credentials.
+	 */
+	private function enable_search_with_credentials(): void {
+		$this->enable_search_for_governing_site();
+		Search_Settings::set_algolia_credentials(
+			[
+				'app_id'    => 'TEST_APP',
+				'write_key' => 'TEST_KEY',
+			]
+		);
+	}
+
+	/**
+	 * Runs a main search query through Algolia.
+	 *
+	 * @return \WP_Post[] The results.
+	 */
+	private function run_main_search_query(): array {
+		$this->prime_main_search_query( 'remote test' );
+
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Reading query prepared by helper.
+		global $wp_query;
+
+		return ( new Search() )->get_algolia_results( [], $wp_query ) ?? [];
+	}
+
+	/**
+	 * Gets a chunk record of a remote post that's split into three chunks.
+	 *
+	 * @param int    $chunk_index The chunk index.
+	 * @param string $content     The chunk content.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private static function get_remote_chunk( int $chunk_index, string $content ): array {
+		return [
+			'objectID'          => 'remote_17_' . $chunk_index,
+			'site_post_id'      => 'remote_17',
+			'post_id'           => 17,
+			'post_title'        => 'Remote Post',
+			'post_type'         => 'post',
+			'permalink'         => 'https://remote.example.com/posts/17/',
+			'site_url'          => 'https://remote.example.com/',
+			'site_name'         => 'Remote',
+			'content'           => $content,
+			'chunk_index'       => $chunk_index,
+			'total_chunks'      => 3,
+			'post_date_gmt'     => 1710000000,
+			'post_modified_gmt' => 1710000000,
+		];
 	}
 }

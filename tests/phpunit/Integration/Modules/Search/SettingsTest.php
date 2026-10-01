@@ -103,6 +103,34 @@ final class SettingsTest extends TestCase {
 	}
 
 	/**
+	 * Ensures register_settings sanitizes the indexable entities and normalizes their site URLs.
+	 */
+	public function test_register_settings_sanitizes_indexable_entities(): void {
+		$settings = new Search_Settings();
+		$settings->register_settings();
+
+		update_option(
+			Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES,
+			[
+				'entities' => [
+					'https://example.com'         => [ 'post', 'Page', 'post', 7 ],
+					'https://invalid.example.com' => 'post',
+				],
+				'unknown'  => true,
+			]
+		);
+
+		$this->assertSame(
+			[
+				'entities' => [
+					'https://example.com/' => [ 'post', 'page' ],
+				],
+			],
+			get_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES )
+		);
+	}
+
+	/**
 	 * Returns null values when no credentials are stored.
 	 */
 	public function test_get_algolia_credentials_returns_nulls_when_empty(): void {
@@ -214,54 +242,41 @@ final class SettingsTest extends TestCase {
 	}
 
 	/**
-	 * Does nothing when new value is not consumer.
+	 * Only a governing site becoming a consumer deletes the index.
 	 */
-	public function test_on_site_type_change_skips_non_consumer(): void {
-		$settings = new Search_Settings();
-
-		// Should not throw or error out.
-		$settings->on_site_type_change( '', Settings::SITE_TYPE_GOVERNING );
-
-		$this->assertTrue( true );
-	}
-
-	/**
-	 * Deletes Algolia index when site type changes to consumer.
-	 *
-	 * When the site type is updated to 'consumer', on_site_type_change should
-	 * call delete_index() which triggers an Algolia delete request.
-	 */
-	public function test_on_site_type_change_deletes_index_for_consumer(): void {
-		// Set site type to consumer (simulates the option already being saved
-		// before the update_option_ hook fires).
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
-		update_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL, 'https://governing.example.com' );
-
-		// Prime brand config cache so Algolia credentials resolve via consumer path.
-		$cached_config = [
-			'algolia_credentials' => [
-				'app_id'    => 'test-app',
-				'write_key' => 'test-key',
-			],
-			'search_settings'     => [
-				'algolia_enabled'  => true,
-				'searchable_sites' => [],
-			],
-			'indexable_entities'  => [ 'post' ],
-			'available_sites'     => [],
-		];
-
-		$method = new \ReflectionMethod( Governing_Data_Handler::class, 'set_brand_config_cache' );
-		$method->invoke( null, $cached_config );
+	public function test_on_site_type_change_skips_other_changes(): void {
+		$this->set_up_governing_credentials();
 
 		$recorded_paths = [];
 		$this->mock_algolia_http_client( $recorded_paths );
 
 		$settings = new Search_Settings();
-		$settings->on_site_type_change( Settings::SITE_TYPE_GOVERNING, Settings::SITE_TYPE_CONSUMER );
+		$settings->on_site_type_change( Settings::OPTION_SITE_TYPE, '', Settings::SITE_TYPE_GOVERNING );
+		$settings->on_site_type_change( Settings::OPTION_SITE_TYPE, '', Settings::SITE_TYPE_CONSUMER );
+		$settings->on_site_type_change( 'blogname', Settings::SITE_TYPE_GOVERNING, Settings::SITE_TYPE_CONSUMER );
 
-		// delete_index() on a consumer site calls deleteBy, which hits Algolia.
-		$this->assertNotEmpty( $recorded_paths, 'Changing to consumer should trigger Algolia delete_index call.' );
+		$this->assertSame( [], $recorded_paths );
+	}
+
+	/**
+	 * Switching a governing site to a consumer deletes the governing site's index.
+	 *
+	 * The hook runs before the new site type is saved, so the index still resolves as the governing site's.
+	 */
+	public function test_switching_governing_site_to_consumer_deletes_its_index(): void {
+		$this->set_up_governing_credentials();
+
+		$recorded_paths = [];
+		$this->mock_algolia_http_client( $recorded_paths );
+
+		( new Search_Settings() )->register_hooks();
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+
+		$this->assertContains( '/1/indexes/onesearch_governing_example_org_wp_posts', $recorded_paths );
+		$this->assertEmpty(
+			array_filter( $recorded_paths, static fn ( string $path ) => str_contains( $path, '/deleteByQuery' ) ),
+			'The governing site should delete the whole index, not just its records.'
+		);
 	}
 
 	/**
@@ -306,10 +321,8 @@ final class SettingsTest extends TestCase {
 
 		$initial_entities = [
 			'entities' => [
-				'post' => [
-					'https://child-a.example.com/',
-					'https://child-b.example.com/',
-				],
+				'https://child-a.example.com/' => [ 'post' ],
+				'https://child-b.example.com/' => [ 'post' ],
 			],
 		];
 
@@ -327,6 +340,75 @@ final class SettingsTest extends TestCase {
 		$settings->on_shared_sites_change( $old_sites, $new_sites );
 
 		$this->assertSame( $initial_entities, get_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES ) );
+	}
+
+	/**
+	 * Removing shared sites stops them from being indexed.
+	 */
+	public function test_on_shared_sites_change_removes_removed_sites_entities(): void {
+		$this->set_up_governing_credentials();
+
+		$recorded_paths = [];
+		$this->mock_algolia_http_client( $recorded_paths );
+
+		update_option(
+			Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES,
+			[
+				'entities' => [
+					'https://child-a.example.com/' => [ 'post' ],
+					'https://child-b.example.com/' => [ 'page' ],
+				],
+			]
+		);
+
+		( new Search_Settings() )->on_shared_sites_change(
+			[
+				[ 'url' => 'https://child-a.example.com' ],
+				[ 'url' => 'https://child-b.example.com' ],
+			],
+			[
+				[ 'url' => 'https://child-b.example.com' ],
+			]
+		);
+
+		$this->assertSame(
+			[
+				'entities' => [
+					'https://child-b.example.com/' => [ 'page' ],
+				],
+			],
+			get_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES )
+		);
+	}
+
+	/**
+	 * Removing shared sites deletes their records with a valid filter.
+	 */
+	public function test_on_shared_sites_change_deletes_removed_sites_records(): void {
+		$this->set_up_governing_credentials();
+
+		$recorded_paths    = [];
+		$recorded_requests = [];
+		$this->mock_algolia_http_client( $recorded_paths, null, null, $recorded_requests );
+
+		( new Search_Settings() )->on_shared_sites_change(
+			[
+				[ 'url' => 'https://child-a.example.com' ],
+				[ 'url' => 'https://child-b.example.com/' ],
+				[ 'url' => 'https://child-c.example.com/' ],
+			],
+			[
+				[ 'url' => 'https://child-c.example.com/' ],
+			]
+		);
+
+		$delete_requests = array_values( array_filter( $recorded_requests, static fn ( array $request ) => str_contains( $request['path'], '/deleteByQuery' ) ) );
+
+		$this->assertCount( 1, $delete_requests );
+		$this->assertSame(
+			'site_url:"https://child-a.example.com/" OR site_url:"https://child-b.example.com/"',
+			json_decode( $delete_requests[0]['body'], true )['filters']
+		);
 	}
 
 	/**
@@ -375,5 +457,20 @@ final class SettingsTest extends TestCase {
 		$settings->purge_cache_on_update( [], [], 'some_unrelated_option' );
 
 		$this->assertNotFalse( get_transient( Governing_Data_Handler::TRANSIENT_KEY ) );
+	}
+
+	/**
+	 * Configures the current site as a governing site with Algolia credentials.
+	 */
+	private function set_up_governing_credentials(): void {
+		// Name the index after a known host, since the test site's URL depends on the environment.
+		add_filter( 'option_siteurl', static fn (): string => 'https://governing.example.org', 11 );
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		Search_Settings::set_algolia_credentials(
+			[
+				'app_id'    => 'test-app',
+				'write_key' => 'test-key',
+			]
+		);
 	}
 }

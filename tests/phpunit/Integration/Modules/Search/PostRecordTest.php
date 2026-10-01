@@ -201,6 +201,51 @@ final class PostRecordTest extends TestCase {
 	}
 
 	/**
+	 * Joining the chunks restores the content they were split from, whatever order they're in.
+	 */
+	public function test_join_content_reverses_chunking(): void {
+		$content = trim( str_repeat( 'Chunked content for Algolia records. ', 80 ) );
+
+		$this->assertSame( $content, Post_Record::join_content( array_reverse( $this->split_into_records( $content, 120 ) ) ) );
+	}
+
+	/**
+	 * Content split mid-word, where there's no whitespace to split on, is joined without adding any.
+	 */
+	public function test_join_content_reverses_chunking_within_words(): void {
+		$content = 'Start ' . str_repeat( 'x', 300 ) . ' end';
+
+		$records = $this->split_into_records( $content, 120 );
+
+		$this->assertGreaterThan( 2, count( $records ) );
+		$this->assertSame( $content, Post_Record::join_content( $records ) );
+	}
+
+	/**
+	 * The exact whitespace where content is split is restored when it's joined.
+	 */
+	public function test_join_content_preserves_whitespace_at_chunk_boundaries(): void {
+		$content = trim( str_repeat( "Chunked  content\tfor \nAlgolia\n records. ", 40 ) );
+
+		// Vary the chunk size, so the content is split at every kind of whitespace.
+		foreach ( range( 40, 140, 7 ) as $max_size ) {
+			$this->assertSame( $content, Post_Record::join_content( $this->split_into_records( $content, $max_size ) ), "Max size: {$max_size}" );
+		}
+	}
+
+	/**
+	 * Content can't be joined when any of its chunks are missing.
+	 */
+	public function test_join_content_returns_null_when_chunks_are_missing(): void {
+		$records = $this->split_into_records( trim( str_repeat( 'Chunked content for Algolia records. ', 80 ) ), 120 );
+
+		unset( $records[1] );
+
+		$this->assertNull( Post_Record::join_content( $records ) );
+		$this->assertNull( Post_Record::join_content( [] ) );
+	}
+
+	/**
 	 * Tests that to_records cleans block markup from post content.
 	 */
 	public function test_to_records_cleans_block_markup_from_post_content(): void {
@@ -300,5 +345,29 @@ final class PostRecordTest extends TestCase {
 		}
 
 		return $attachment;
+	}
+
+	/**
+	 * Splits content into the chunk fields of a post's records.
+	 *
+	 * @param string $content  The content.
+	 * @param int    $max_size The maximum size of each chunk.
+	 *
+	 * @return list<array{chunk_index: int, content: string, total_chunks: int}>
+	 */
+	private function split_into_records( string $content, int $max_size ): array {
+		$method = new \ReflectionMethod( Post_Record::class, 'split_content_into_chunks' );
+		$chunks = $method->invoke( new Post_Record(), $content, $max_size );
+
+		$records = [];
+		foreach ( $chunks as $index => $chunk ) {
+			$records[] = [
+				'chunk_index'  => $index,
+				'content'      => $chunk,
+				'total_chunks' => count( $chunks ),
+			];
+		}
+
+		return $records;
 	}
 }
