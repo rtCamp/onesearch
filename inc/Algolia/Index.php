@@ -186,6 +186,7 @@ final class Index {
 	 * @param mixed $response The write response.
 	 *
 	 * @throws \UnexpectedValueException If the response has no task ID.
+	 * @throws \RuntimeException If polling the task fails.
 	 */
 	private function wait_for_task( $response ): void {
 		$task_id = is_array( $response ) ? ( $response['taskID'] ?? null ) : null;
@@ -194,7 +195,7 @@ final class Index {
 			throw new \UnexpectedValueException( 'Algolia response is missing a task ID.' );
 		}
 
-		Helpers::retryUntil(
+		$task = Helpers::retryUntil(
 			$this->client,
 			'getTask',
 			[ $this->name, $task_id ],
@@ -203,5 +204,10 @@ final class Index {
 			self::WAIT_MAX_DELAY_MS,
 			Helpers::class . '::linearTimeout'
 		);
+
+		// retryUntil() swallows getTask() exceptions and returns null.
+		if ( null === $task ) {
+			throw new \RuntimeException( sprintf( 'Failed to confirm Algolia task %d was applied.', $task_id ) );
+		}
 	}
 }
