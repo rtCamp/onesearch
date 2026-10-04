@@ -152,7 +152,7 @@ jobs:
 
   phpunit:
     name: PHPUnit (PHP ${{ matrix.php }}, WP ${{ matrix.wp }})
-    needs: [detect, build-plugin-zip]
+    needs: detect
     if: needs.detect.outputs.php == 'true' || needs.detect.outputs.phpunit == 'true'
     uses: rtCamp/plugin-skeleton-d/.github/workflows/reusable-phpunit-public.yml@72dd3643b710bd84eed7c6143312c9434a95d352 # v0.2.0
     permissions:
@@ -176,7 +176,7 @@ jobs:
 
   e2e:
     name: E2E Tests
-    needs: [detect, build-plugin-zip]
+    needs: detect
     if: needs.detect.outputs.php == 'true' || needs.detect.outputs.e2e == 'true' || needs.detect.outputs.js == 'true' || needs.detect.outputs.css == 'true'
     uses: rtCamp/plugin-skeleton-d/.github/workflows/reusable-e2e-public.yml@72dd3643b710bd84eed7c6143312c9434a95d352 # v0.2.0
     permissions:
