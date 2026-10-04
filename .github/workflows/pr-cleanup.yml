@@ -10,7 +10,7 @@ permissions: {}
 jobs:
   cleanup:
     name: PR Cleanup
-    uses: rtCamp/plugin-skeleton-d/.github/workflows/reusable-pr-cleanup-public.yml@8b0eea6f9316f715a6a55f5269d77ff2c8dd2690 # dev-main
+    uses: rtCamp/plugin-skeleton-d/.github/workflows/reusable-pr-cleanup-public.yml@72dd3643b710bd84eed7c6143312c9434a95d352 # v0.2.0
     permissions:
       actions: write
       contents: write

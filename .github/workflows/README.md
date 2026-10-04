@@ -6,17 +6,18 @@ Most jobs are implemented by [rtCamp/plugin-skeleton-d](https://github.com/rtCam
 
 ### [`ci.yml`](ci.yml)
 
-Runs on pull requests, pushes to `main`, and manual dispatch. `Detect Changes` decides which checks to run from the changed files. Draft PRs skip it, so they only build the zip.
+Runs on pull requests to `main` and `release/**`, pushes to `main`, and manual dispatch. `Detect Changes` decides which checks to run from the changed files. Draft PRs skip it, so they only build the zip. PHPUnit and E2E wait for the zip to build, so a broken build skips them.
 
-| Job                | Runs when                                    | What                                                                       |
-| ------------------ | -------------------------------------------- | -------------------------------------------------------------------------- |
-| `PHPCS`            | PHP, Composer or `.phpcs.xml.dist` changes   | PHPCS coding standards                                                     |
-| `PHPStan`          | PHP, Composer or `phpstan.neon.dist` changes | PHPStan static analysis                                                    |
-| `CSS/JS Lint`      | JS, TS, CSS or their config changes          | ESLint, TypeScript, Stylelint, Prettier                                    |
-| `Jest Unit Tests`  | JS or Jest test changes                      | Jest, with coverage uploaded to Codecov                                    |
-| `PHPUnit`          | PHP or PHPUnit test changes                  | PHPUnit on PHP 8.2–8.4 with the latest WordPress, coverage on 8.4          |
-| `E2E Tests`        | PHP, JS, CSS or E2E test changes             | Playwright E2E tests against wp-env                                        |
-| `Build Plugin Zip` | Always                                       | Builds `onesearch.zip`. On PRs, also uploads it for the Playground preview |
+| Job                | Runs when                                     | What                                                                       |
+| ------------------ | --------------------------------------------- | -------------------------------------------------------------------------- |
+| `actionlint`       | Workflow or `.github/actionlint.yaml` changes | actionlint and shellcheck on the GitHub workflows                          |
+| `PHPCS`            | PHP, Composer or `.phpcs.xml.dist` changes    | PHPCS coding standards                                                     |
+| `PHPStan`          | PHP, Composer or `phpstan.neon.dist` changes  | PHPStan static analysis                                                    |
+| `CSS/JS Lint`      | JS, TS, CSS or their config changes           | ESLint, TypeScript, Stylelint, Prettier                                    |
+| `Jest Unit Tests`  | JS or Jest test changes                       | Jest, with coverage uploaded to Codecov                                    |
+| `PHPUnit`          | PHP or PHPUnit test changes                   | PHPUnit on PHP 8.2–8.5 with the latest WordPress, coverage on 8.5          |
+| `E2E Tests`        | PHP, JS, CSS or E2E test changes              | Playwright E2E tests against wp-env                                        |
+| `Build Plugin Zip` | Always                                        | Builds `onesearch.zip`. On PRs, also uploads it for the Playground preview |
 
 Changing `ci.yml` itself runs every check, so bumping the pinned workflows re-tests everything.
 
@@ -28,7 +29,7 @@ It never checks out PR code: the zip is built in `ci.yml` without write permissi
 
 ### [`pr-cleanup.yml`](pr-cleanup.yml)
 
-Runs when a PR is closed or merged. Deletes the Actions artifacts from all of the PR's runs and its zips from `ci-artifacts`, so its preview button stops working.
+Runs when a PR is closed or merged. Cancels the PR's in-progress runs and waits for them, and for any preview still publishing, to stop. It then deletes the Actions artifacts from all of the PR's runs and its zips from `ci-artifacts`, so its preview button stops working.
 
 It uses `pull_request_target` so that PRs from forks get a token that can delete artifacts, so it must never check out or run PR code.
 
