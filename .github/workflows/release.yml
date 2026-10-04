@@ -32,11 +32,11 @@ jobs:
       contents: read
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created }}
-    uses: ./.github/workflows/reusable-build.yml
+    uses: rtCamp/plugin-skeleton-d/.github/workflows/reusable-build-public.yml@8b0eea6f9316f715a6a55f5269d77ff2c8dd2690 # dev-main
     with:
       php-version: '8.3'
+      plugin-slug: onesearch
       artifact-name: onesearch
-    secrets: inherit
 
   upload:
     name: Upload release asset

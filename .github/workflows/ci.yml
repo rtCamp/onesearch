@@ -43,22 +43,25 @@ jobs:
         id: filter
         with:
           filters: |
+            actionlint:
+              - '.github/workflows/**'
+              - '.github/actionlint.yaml'
             php:
               - '**.php'
               - 'composer.*'
             phpcs:
-              - '.github/workflows/reusable-phpcs.yml'
+              - '.github/workflows/ci.yml'
               - '.phpcs.xml.dist'
             phpstan:
-              - '.github/workflows/reusable-phpstan.yml'
+              - '.github/workflows/ci.yml'
               - 'phpstan.neon.dist'
             phpunit:
               - 'tests/**/*.php'
-              - '.github/workflows/reusable-phpunit.yml'
+              - '.github/workflows/ci.yml'
               - 'phpunit.xml.dist'
               - 'package*.json'
             js:
-              - .github/workflows/reusable-lint-css-js.yml
+              - '.github/workflows/ci.yml'
               - '**.cjs'
               - '**.js'
               - '**.jsx'
@@ -71,16 +74,16 @@ jobs:
               - '.eslintrc*'
               - 'tsconfig*.json'
             css:
-              - .github/workflows/reusable-lint-css-js.yml
+              - '.github/workflows/ci.yml'
               - '**.css'
               - '**.scss'
               - '.stylelintignore'
               - '.stylelintrc*'
             e2e:
-              - '.github/workflows/reusable-e2e.yml'
+              - '.github/workflows/ci.yml'
               - 'tests/e2e/**/*'
             jest:
-              - '.github/workflows/reusable-jest.yml'
+              - '.github/workflows/ci.yml'
               - 'assets/src/**/__tests__/**/*'
               - 'assets/src/**/*.test.ts'
               - 'assets/src/**/*.test.tsx'
@@ -90,11 +93,19 @@ jobs:
               - 'jest.config.js'
               - 'package*.json'
 
+  actionlint:
+    name: actionlint
+    needs: detect
+    if: needs.detect.outputs.actionlint == 'true'
+    uses: rtCamp/plugin-skeleton-d/.github/workflows/reusable-actionlint.yml@8b0eea6f9316f715a6a55f5269d77ff2c8dd2690 # dev-main
+    permissions:
+      contents: read
+
   phpcs:
     name: PHPCS
     needs: detect
     if: needs.detect.outputs.php == 'true' || needs.detect.outputs.phpcs == 'true'
-    uses: ./.github/workflows/reusable-phpcs.yml
+    uses: rtCamp/plugin-skeleton-d/.github/workflows/reusable-phpcs-public.yml@8b0eea6f9316f715a6a55f5269d77ff2c8dd2690 # dev-main
     permissions:
       contents: read
     with:
@@ -104,7 +115,7 @@ jobs:
     name: PHPStan
     needs: detect
     if: needs.detect.outputs.php == 'true' || needs.detect.outputs.phpstan == 'true'
-    uses: ./.github/workflows/reusable-phpstan.yml
+    uses: rtCamp/plugin-skeleton-d/.github/workflows/reusable-phpstan-public.yml@8b0eea6f9316f715a6a55f5269d77ff2c8dd2690 # dev-main
     permissions:
       contents: read
     with:
@@ -114,7 +125,7 @@ jobs:
     name: CSS/JS Lint
     needs: detect
     if: needs.detect.outputs.css == 'true' || needs.detect.outputs.js == 'true'
-    uses: ./.github/workflows/reusable-lint-css-js.yml
+    uses: rtCamp/plugin-skeleton-d/.github/workflows/reusable-lint-css-js-public.yml@8b0eea6f9316f715a6a55f5269d77ff2c8dd2690 # dev-main
     permissions:
       contents: read
 
@@ -122,17 +133,19 @@ jobs:
     name: Jest Unit Tests
     needs: detect
     if: needs.detect.outputs.js == 'true' || needs.detect.outputs.jest == 'true'
-    uses: ./.github/workflows/reusable-jest.yml
+    uses: rtCamp/plugin-skeleton-d/.github/workflows/reusable-jest-public.yml@8b0eea6f9316f715a6a55f5269d77ff2c8dd2690 # dev-main
     permissions:
       contents: read
     with:
       coverage: true
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   phpunit:
     name: PHPUnit (PHP ${{ matrix.php }}, WP ${{ matrix.wp }})
     needs: detect
     if: needs.detect.outputs.php == 'true' || needs.detect.outputs.phpunit == 'true'
-    uses: ./.github/workflows/reusable-phpunit.yml
+    uses: rtCamp/plugin-skeleton-d/.github/workflows/reusable-phpunit-public.yml@8b0eea6f9316f715a6a55f5269d77ff2c8dd2690 # dev-main
     permissions:
       contents: read
     strategy:
@@ -147,39 +160,30 @@ jobs:
     with:
       php-version: ${{ matrix.php }}
       wp-version: ${{ matrix.wp }}
+      plugin-slug: onesearch
       coverage: ${{ matrix.coverage == true }}
-    secrets: inherit
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   e2e:
     name: E2E Tests
     needs: detect
     if: needs.detect.outputs.php == 'true' || needs.detect.outputs.e2e == 'true' || needs.detect.outputs.js == 'true' || needs.detect.outputs.css == 'true'
-    uses: ./.github/workflows/reusable-e2e.yml
+    uses: rtCamp/plugin-skeleton-d/.github/workflows/reusable-e2e-public.yml@8b0eea6f9316f715a6a55f5269d77ff2c8dd2690 # dev-main
     permissions:
       contents: read
     with:
       php-version: '8.3'
+      plugin-slug: onesearch
 
   build-plugin-zip:
     name: Build Plugin Zip
     permissions:
       contents: read
-    uses: ./.github/workflows/reusable-build.yml
+    uses: rtCamp/plugin-skeleton-d/.github/workflows/reusable-build-public.yml@8b0eea6f9316f715a6a55f5269d77ff2c8dd2690 # dev-main
     with:
       php-version: '8.3'
+      plugin-slug: onesearch
       artifact-name: onesearch-pr${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
-    secrets: inherit
-
-  playground-preview:
-    name: Playground Preview
-    needs: build-plugin-zip
-    if: github.event_name == 'pull_request'
-    uses: ./.github/workflows/reusable-wp-playground-pr-preview.yml
-    permissions:
-      actions: read
-      contents: write
-      pull-requests: write
-    with:
-      run-id: ${{ github.run_id }}
-      artifact-prefix: 'onesearch-pr'
-      artifact-filename: 'onesearch.zip'
+      # Published by wp-playground-pr-preview.yml once CI succeeds.
+      playground-preview: true
