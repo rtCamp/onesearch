@@ -1090,7 +1090,6 @@ final class SearchTest extends TestCase {
 	 */
 	private function set_private_property( Search $search, string $prop, $value ): void {
 		$reflection = new \ReflectionProperty( Search::class, $prop );
-		$reflection->setAccessible( true );
 		$reflection->setValue( $search, $value );
 	}
 
