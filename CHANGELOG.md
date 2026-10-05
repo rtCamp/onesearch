@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.2.0](https://github.com/rtCamp/onesearch/compare/v1.1.2...v1.2.0) (2026-10-05)
+
+
+### Added
+
+* migrate Algolia v3 to v4 and refactor internal usage ([#323](https://github.com/rtCamp/onesearch/issues/323)) ([bf7231f](https://github.com/rtCamp/onesearch/commit/bf7231f44d325c45d7d0c104d92736d3d84a2a1a))
+
+
+### Fixed
+
+* propagate disconnects between brand and governing sites ([#321](https://github.com/rtCamp/onesearch/issues/321)) ([a7214d3](https://github.com/rtCamp/onesearch/commit/a7214d3d3eb4c2f616009e51335344edee74faf3))
+* remove stale posts when publish status changes ([#305](https://github.com/rtCamp/onesearch/issues/305)) ([adf5ed7](https://github.com/rtCamp/onesearch/commit/adf5ed73eac1bb12bc8a1264a668e92c5ac552e6))
+* update Composer deps and remediate PHPStan lints ([#307](https://github.com/rtCamp/onesearch/issues/307)) ([992bb13](https://github.com/rtCamp/onesearch/commit/992bb13aa4d73112dcf4c04bb390edfd039622f4))
+
+
+### Changed
+
+* **deps-dev:** bump the npm-dev-minor-patch group with 5 updates ([#327](https://github.com/rtCamp/onesearch/issues/327)) ([391d546](https://github.com/rtCamp/onesearch/commit/391d54697c9d29bc6da68fce548bdbc93f06f410))
+* **deps-dev:** bump typescript-eslint ([#328](https://github.com/rtCamp/onesearch/issues/328)) ([99d4284](https://github.com/rtCamp/onesearch/commit/99d428419f9d00408949d10b5422a3d0f88eede6))
+
 ## [1.1.2](https://github.com/rtCamp/onesearch/compare/v1.1.1...v1.1.2) (2026-08-26)
 
 
