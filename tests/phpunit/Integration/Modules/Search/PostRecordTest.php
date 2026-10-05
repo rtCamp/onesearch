@@ -13,7 +13,6 @@ use OneSearch\Modules\Search\Post_Record;
 use OneSearch\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use function imagecreatetruecolor;
-use function imagedestroy;
 use function imagejpeg;
 
 /**
@@ -190,7 +189,6 @@ final class PostRecordTest extends TestCase {
 	public function test_split_content_into_chunks_splits_oversized_content_into_multiple_chunks(): void {
 		$record = new Post_Record();
 		$method = new \ReflectionMethod( Post_Record::class, 'split_content_into_chunks' );
-		$method->setAccessible( true );
 
 		$chunks = $method->invoke( $record, str_repeat( 'Chunked content for Algolia records. ', 80 ), 120 );
 
@@ -324,7 +322,6 @@ final class PostRecordTest extends TestCase {
 
 		$image = imagecreatetruecolor( 120, 80 );
 		imagejpeg( $image, $file_path );
-		imagedestroy( $image ); // phpcs:ignore PHPCompatibility.FunctionUse.RemovedFunctions.imagedestroyDeprecated
 
 		$attachment_id = wp_insert_attachment(
 			[

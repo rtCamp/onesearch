@@ -415,7 +415,7 @@ The project uses WordPress Playground to demo the plugin and on pull requests. T
 
 The [README.md](../README.md) and plugin preview use [`blueprint.json`](../blueprint.json) to load the latest plugin release for testing and demos.
 
-Pull requests automatically generate a Playground preview from the build artifacts of the PR branch, using the [PR preview workflow](../.github/workflows/reusable-wp-playground-pr-preview.yml).
+Pull requests automatically generate a Playground preview from the build artifacts of the PR branch, using the [PR preview workflow](../.github/workflows/wp-playground-pr-preview.yml).
 
 ### Strauss - Composer Library Namespace Prefixing
 

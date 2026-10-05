@@ -22,6 +22,9 @@ updates:
       semver-minor-days: 7
       semver-patch-days: 7
     versioning-strategy: increase
+    commit-message:
+      prefix: 'build'
+      include: 'scope'
     labels:
       - Dependencies
     groups:
@@ -43,6 +46,9 @@ updates:
       semver-minor-days: 7
       semver-patch-days: 7
     versioning-strategy: increase
+    commit-message:
+      prefix: 'build'
+      include: 'scope'
     labels:
       - Dependencies
     groups:
