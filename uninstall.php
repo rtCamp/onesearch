@@ -46,7 +46,13 @@ function run_uninstaller(): void {
  * The (site-specific) uninstall function.
  */
 function uninstall(): void {
-	cleanup_algolia_index();
+	// A remote failure shouldn't block the local cleanup below.
+	try {
+		cleanup_algolia_index();
+	} catch ( \Throwable $e ) {
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Nowhere else to report it during uninstall.
+		error_log( 'OneSearch uninstall: Algolia cleanup failed: ' . $e->getMessage() );
+	}
 	delete_proxy_attachment();
 
 	// Wait until the end to delete options and transients.
@@ -144,6 +150,11 @@ function load_dependencies(): bool {
 	$autoloader_path = __DIR__ . '/inc/Autoloader.php';
 	if ( ! file_exists( $autoloader_path ) ) {
 		return false;
+	}
+
+	// The main plugin file isn't loaded during uninstall, but the autoloader needs this.
+	if ( ! defined( 'ONESEARCH_DIR' ) ) {
+		define( 'ONESEARCH_DIR', plugin_dir_path( __FILE__ ) );
 	}
 
 	require_once $autoloader_path; // phpcs:ignore WordPressVIPMinimum.Files.IncludingFile.UsingVariable
