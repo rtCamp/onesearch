@@ -10,6 +10,7 @@ declare(strict_types = 1);
 namespace OneSearch\Tests\Integration\Modules\Scheduler;
 
 use OneSearch\Modules\Jobs\Abstract_Job;
+use OneSearch\Modules\Jobs\Reindex_Job;
 use OneSearch\Modules\Jobs\Sync_Job;
 use OneSearch\Modules\Scheduler\Job_Scheduler;
 use OneSearch\Modules\Schema\Job_Repository;
@@ -43,6 +44,15 @@ class Job_SchedulerTest extends TestCase {
 
 		$this->scheduler  = new Job_Scheduler();
 		$this->repository = new Job_Repository();
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	public function tear_down(): void {
+		$this->tear_down_governing_site();
+
+		parent::tear_down();
 	}
 
 	/**
@@ -153,6 +163,167 @@ class Job_SchedulerTest extends TestCase {
 		$row = $this->repository->get_by_id( $j->get_id() );
 		$this->assertNotNull( $row );
 		$this->assertSame( Abstract_Job::STATUS_RUNNING, $row['status'] );
+	}
+
+	/**
+	 * A reindex completes once every batch has run, its batches cover every post exactly once,
+	 * and a late failing run of a batch can't reopen it.
+	 */
+	public function test_reindex_completes_once_every_batch_completes(): void {
+		$this->set_up_governing_site();
+		$paths = [];
+		$this->mock_algolia_http_client( $paths );
+
+		$post_ids = self::factory()->post->create_many( 3, [ 'post_status' => 'publish' ] );
+
+		$parent_id = $this->start_reindex( 2 );
+		$batch_ids = $this->scheduler->get_status( $parent_id )['child_ids'];
+
+		$this->assertCount( 2, $batch_ids, '3 posts at 2 per batch make 2 batches.' );
+		$this->assertEqualsCanonicalizing( $post_ids, $this->get_batched_post_ids( $batch_ids ) );
+
+		foreach ( $batch_ids as $batch_id ) {
+			$this->scheduler->execute_job( Sync_Job::class, $batch_id );
+		}
+
+		$parent = $this->scheduler->get_status( $parent_id );
+		$this->assertSame( Abstract_Job::STATUS_COMPLETED, $parent['status'] );
+		$this->assertSame( 2, $parent['children_completed'] );
+
+		// Action Scheduler can run an action twice; a failure on the second run must not touch the finished parent.
+		$this->mock_algolia_http_client( $paths, null, '/batch' );
+		$this->scheduler->execute_job( Sync_Job::class, $batch_ids[0], 2 );
+
+		$this->assertSame( Abstract_Job::STATUS_COMPLETED, $this->scheduler->get_status( $parent_id )['status'] );
+	}
+
+	/**
+	 * A batch that runs out of retries fails the reindex.
+	 */
+	public function test_reindex_fails_when_a_batch_runs_out_of_retries(): void {
+		$this->set_up_governing_site();
+		$paths = [];
+		$this->mock_algolia_http_client( $paths );
+
+		self::factory()->post->create_many( 3, [ 'post_status' => 'publish' ] );
+
+		$parent_id                  = $this->start_reindex( 2 );
+		[ $good_batch, $bad_batch ] = $this->scheduler->get_status( $parent_id )['child_ids'];
+
+		$this->scheduler->execute_job( Sync_Job::class, $good_batch );
+
+		// Reindex_Job gives each batch 2 retries, so retry 2 is its last attempt.
+		$this->mock_algolia_http_client( $paths, null, '/batch' );
+		$this->scheduler->execute_job( Sync_Job::class, $bad_batch, 2 );
+
+		$batch = $this->scheduler->get_status( $bad_batch );
+		$this->assertSame( Abstract_Job::STATUS_FAILED, $batch['status'] );
+		$this->assertStringContainsString( 'retries exhausted', (string) $batch['error'] );
+
+		$parent = $this->scheduler->get_status( $parent_id );
+		$this->assertSame( Abstract_Job::STATUS_FAILED, $parent['status'] );
+		$this->assertSame( '1/2 child batches failed', $parent['error'] );
+	}
+
+	/**
+	 * An Algolia failure with retries left puts the job back to pending with the next attempt queued.
+	 */
+	public function test_algolia_error_leaves_job_pending_with_a_retry_scheduled(): void {
+		$this->set_up_governing_site();
+		$paths = [];
+		$this->mock_algolia_http_client( $paths, null, '/batch' );
+
+		$job = new Sync_Job();
+		$job->set_data( [ 'post_ids' => [ self::factory()->post->create( [ 'post_status' => 'publish' ] ) ] ] );
+		$job->set_max_retries( 2 );
+		$this->scheduler->persist_job( $job );
+
+		$this->scheduler->execute_job( Sync_Job::class, $job->get_id() );
+
+		$status = $this->scheduler->get_status( $job->get_id() );
+		$this->assertSame( Abstract_Job::STATUS_PENDING, $status['status'] );
+		$this->assertSame( 1, $status['retry_count'] );
+		$this->assertNotFalse(
+			as_next_scheduled_action(
+				Job_Scheduler::HOOK,
+				[
+					'job_class' => Sync_Job::class,
+					'job_id'    => $job->get_id(),
+					'retry'     => 1,
+				],
+				'onesearch_' . $job->get_group()
+			),
+			'The first retry has to be queued.'
+		);
+	}
+
+	/**
+	 * Cancelling a running reindex cancels and dequeues its unfinished batches, and leaves finished ones alone.
+	 */
+	public function test_cancelling_a_running_reindex_cancels_only_unfinished_batches(): void {
+		$this->set_up_governing_site();
+		$paths = [];
+		$this->mock_algolia_http_client( $paths );
+
+		self::factory()->post->create_many( 3, [ 'post_status' => 'publish' ] );
+
+		$parent_id                      = $this->start_reindex( 2 );
+		[ $done_batch, $pending_batch ] = $this->scheduler->get_status( $parent_id )['child_ids'];
+		$pending_action                 = [
+			'job_class' => Sync_Job::class,
+			'job_id'    => $pending_batch,
+		];
+		$batch_group                    = 'onesearch_reindex_' . $parent_id;
+
+		$this->scheduler->execute_job( Sync_Job::class, $done_batch );
+		$this->assertNotFalse( as_next_scheduled_action( Job_Scheduler::HOOK, $pending_action, $batch_group ) );
+
+		$this->scheduler->cancel( $parent_id );
+
+		$this->assertSame( Abstract_Job::STATUS_CANCELLED, $this->scheduler->get_status( $parent_id )['status'] );
+		$this->assertSame( Abstract_Job::STATUS_CANCELLED, $this->scheduler->get_status( $pending_batch )['status'] );
+		$this->assertSame( Abstract_Job::STATUS_COMPLETED, $this->scheduler->get_status( $done_batch )['status'] );
+		$this->assertFalse(
+			as_next_scheduled_action( Job_Scheduler::HOOK, $pending_action, $batch_group ),
+			'The unfinished batch must not stay queued.'
+		);
+	}
+
+	/**
+	 * Starts a reindex of all posts and returns its job ID.
+	 *
+	 * @param int $batch_size Posts per batch.
+	 */
+	private function start_reindex( int $batch_size ): string {
+		$parent = new Reindex_Job();
+		$parent->set_data(
+			[
+				'post_types' => [ 'post' ],
+				'batch_size' => $batch_size,
+			]
+		);
+		$this->scheduler->persist_job( $parent );
+
+		$this->scheduler->execute_job( Reindex_Job::class, $parent->get_id() );
+
+		return $parent->get_id();
+	}
+
+	/**
+	 * Collects the post IDs across a reindex's batches.
+	 *
+	 * @param string[] $batch_ids The batch job IDs.
+	 *
+	 * @return int[]
+	 */
+	private function get_batched_post_ids( array $batch_ids ): array {
+		$post_ids = [];
+
+		foreach ( $batch_ids as $batch_id ) {
+			$post_ids = array_merge( $post_ids, $this->scheduler->get_status( $batch_id )['data']['post_ids'] );
+		}
+
+		return $post_ids;
 	}
 
 	/**

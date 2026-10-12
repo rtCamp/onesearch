@@ -279,7 +279,8 @@ final class Job_Scheduler {
 
 		$child_as_group = 'onesearch_reindex_' . $parent_id;
 		if ( function_exists( 'as_unschedule_all_actions' ) ) {
-			as_unschedule_all_actions( self::HOOK, [], $child_as_group );
+			// With a hook set, AS matches args exactly, so an empty array would match none of the batches.
+			as_unschedule_all_actions( '', [], $child_as_group );
 		}
 
 		$now = time();

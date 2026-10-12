@@ -71,7 +71,7 @@ class Search_Controller extends Abstract_REST_Controller {
 							],
 						],
 						'callback'            => [ $this, 'update_algolia_credentials' ],
-						'permission_callback' => [ $this, 'check_api_permissions' ],
+						'permission_callback' => [ $this, 'check_api_permissions_except_brands' ],
 					],
 				]
 			);
@@ -116,7 +116,7 @@ class Search_Controller extends Abstract_REST_Controller {
 			[
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => [ $this, 'reindex' ],
-				'permission_callback' => [ $this, 'check_api_permissions' ],
+				'permission_callback' => [ $this, 'check_api_permissions_except_brands' ],
 			]
 		);
 
@@ -130,6 +130,22 @@ class Search_Controller extends Abstract_REST_Controller {
 				'permission_callback' => [ $this, 'check_api_permissions' ],
 			]
 		);
+	}
+
+	/**
+	 * Same as check_api_permissions(), except the governing site refuses brand tokens.
+	 *
+	 * Brands only call the governing site to read their config; letting their token
+	 * through here would let any brand overwrite the Algolia keys or start a reindex.
+	 *
+	 * @param \WP_REST_Request<array{}> $request Request.
+	 */
+	public function check_api_permissions_except_brands( $request ): bool {
+		if ( Settings::is_governing_site() && ! empty( $request->get_header( 'X-OneSearch-Token' ) ) ) {
+			return false;
+		}
+
+		return $this->check_api_permissions( $request );
 	}
 
 	/**
@@ -281,7 +297,6 @@ class Search_Controller extends Abstract_REST_Controller {
 			);
 		}
 
-		// Transient, not wp_schedule_single_action, which isn't guaranteed available during init; expires a crashed lock.
 		set_transient( $lock_key . '_expiry', '1', 5 * MINUTE_IN_SECONDS );
 
 		$active_state = $this->get_active_reindex_state();

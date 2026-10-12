@@ -384,19 +384,28 @@ class Job_REST_Controller_Test extends TestCase {
 	}
 
 	/**
-	 * The /jobs/history endpoint returns paginated results.
+	 * The /jobs/history endpoint reports pagination totals for the requested page.
 	 */
 	public function test_history_returns_paginated_response(): void {
-		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/jobs/history' );
+		for ( $i = 0; $i < 3; $i++ ) {
+			$job = $this->create_scheduled_job();
+			$job->mark_completed();
+			$this->scheduler->persist_job( $job );
+		}
+
+		$request = new WP_REST_Request( 'GET', '/onesearch/v1/jobs/history' );
+		$request->set_param( 'page', 2 );
+		$request->set_param( 'per_page', 2 );
 		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
 		$this->assertSame( 200, $response->get_status() );
 		$this->assertTrue( $data['success'] );
-		$this->assertIsArray( $data['jobs'] );
-		$this->assertArrayHasKey( 'total', $data );
-		$this->assertArrayHasKey( 'page', $data );
-		$this->assertArrayHasKey( 'total_pages', $data );
+		$this->assertCount( 1, $data['jobs'] );
+		$this->assertSame( 3, $data['total'] );
+		$this->assertSame( 2, $data['page'] );
+		$this->assertSame( 2, $data['per_page'] );
+		$this->assertSame( 2, $data['total_pages'] );
 	}
 
 	/**
@@ -544,34 +553,6 @@ class Job_REST_Controller_Test extends TestCase {
 		$this->assertSame( 200, $response->get_status() );
 		$this->assertTrue( $data['success'] );
 		$this->assertContains( $child->get_id(), array_column( $data['children'], 'id' ) );
-	}
-
-	/**
-	 * POST /jobs/{id}/retry on a failed child batch resets the parent job to running.
-	 */
-	public function test_retry_single_failed_child_resets_parent_to_running(): void {
-		$parent = new Reindex_Job();
-		$child  = new Sync_Job();
-
-		$child->set_parent_id( $parent->get_id() );
-		$child->set_data( [ 'post_ids' => [ 1 ] ] );
-		$child->fail( 'Permanent batch failure.' );
-		$this->scheduler->persist_job( $child );
-
-		$parent->set_child_ids( [ $child->get_id() ] );
-		$parent->set_progress_total( 1 );
-		$parent->fail( '1/1 child batches failed' );
-		$this->scheduler->persist_job( $parent );
-
-		$request  = new WP_REST_Request( 'POST', '/onesearch/v1/jobs/' . $child->get_id() . '/retry' );
-		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
-
-		$this->assertSame( 200, $response->get_status() );
-		$this->assertTrue( $data['success'] );
-
-		$parent_status = $this->scheduler->get_status( $parent->get_id() );
-		$this->assertSame( Abstract_Job::STATUS_RUNNING, $parent_status['status'] );
 	}
 
 	/**

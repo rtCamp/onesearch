@@ -14,6 +14,7 @@ use OneSearch\Modules\Search\Index;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
+use OneSearch\Utils;
 use OneSearch\Vendor\Algolia\AlgoliaSearch\Algolia as AlgoliaSDK;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -91,33 +92,41 @@ final class IndexTest extends TestCase {
 	}
 
 	/**
-	 * Returns true for delete_index with valid credentials on governing sites.
+	 * On a governing site delete_index() drops the whole index instead of filtering records.
 	 */
-	public function test_delete_index_returns_true_with_valid_credentials(): void {
+	public function test_delete_index_deletes_whole_index_on_governing(): void {
 		$this->set_credentials( Settings::SITE_TYPE_GOVERNING );
 
-		$recorded_paths = [];
-		$this->mock_algolia_http_client( $recorded_paths );
+		$recorded_paths    = [];
+		$recorded_requests = [];
+		$this->mock_algolia_http_client( $recorded_paths, null, null, $recorded_requests );
 
 		$result = ( new Index() )->delete_index();
 
 		$this->assertTrue( $result );
-		$this->assertNotEmpty( $recorded_paths );
+		// Only deleting the index itself hits the bare index path; every other call adds a segment.
+		$this->assertNotEmpty( preg_grep( '#^/1/indexes/[^/]+$#', $recorded_paths ), 'The index itself has to be deleted.' );
+		$this->assertSame( [], $this->get_delete_filters( $recorded_requests ) );
 	}
 
 	/**
-	 * Returns true for delete_index with valid credentials on consumer site.
+	 * On a consumer site delete_index() deletes only this site's records and leaves the shared index alone.
 	 */
-	public function test_delete_index_returns_true_with_valid_credentials_on_consumer(): void {
+	public function test_delete_index_deletes_only_own_records_on_consumer(): void {
 		$this->set_credentials( Settings::SITE_TYPE_CONSUMER );
 
-		$recorded_paths = [];
-		$this->mock_algolia_http_client( $recorded_paths );
+		$recorded_paths    = [];
+		$recorded_requests = [];
+		$this->mock_algolia_http_client( $recorded_paths, null, null, $recorded_requests );
 
 		$result = ( new Index() )->delete_index();
 
 		$this->assertTrue( $result );
-		$this->assertNotEmpty( $recorded_paths );
+		$this->assertSame(
+			[ sprintf( 'site_url:"%s"', Utils::normalize_url( get_site_url() ) ) ],
+			$this->get_delete_filters( $recorded_requests )
+		);
+		$this->assertSame( [], preg_grep( '#^/1/indexes/[^/]+$#', $recorded_paths ), 'A consumer site must never delete the shared index.' );
 	}
 
 	/**

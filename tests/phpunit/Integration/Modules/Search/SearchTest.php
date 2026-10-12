@@ -577,18 +577,21 @@ final class SearchTest extends TestCase {
 	}
 
 	/**
-	 * Returns mapped terms for enabled search when remote taxonomy metadata exists.
+	 * Maps a remote post's taxonomy metadata to terms when core passes its negative ID.
+	 *
+	 * Goes through get_the_terms() so the filter receives the ID exactly as core sends it.
 	 */
-	public function test_get_post_terms_returns_remote_terms_when_search_enabled(): void {
+	public function test_get_post_terms_returns_remote_terms_for_negative_id(): void {
 		$this->enable_search_for_governing_site();
 		$this->prime_main_search_query( 'test query' );
 
-		$post_id = self::factory()->post->create();
-		$post    = get_post( $post_id );
+		global $wp_query; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 
-		$this->assertInstanceOf( \WP_Post::class, $post );
-
-		$post->onesearch_remote_taxonomies = [
+		$remote_post                              = new \WP_Post( new \stdClass() );
+		$remote_post->ID                          = -23;
+		$remote_post->filter                      = 'raw';
+		$remote_post->onesearch_original_id       = 22;
+		$remote_post->onesearch_remote_taxonomies = [
 			[
 				'taxonomy'    => 'category',
 				'term_id'     => 22,
@@ -599,12 +602,23 @@ final class SearchTest extends TestCase {
 				'description' => 'Remote category',
 				'parent'      => 0,
 			],
+			[
+				'taxonomy'    => 'post_tag',
+				'term_id'     => 7,
+				'slug'        => 'remote-tag',
+				'name'        => 'Remote Tag',
+				'term_link'   => 'https://remote.example.com/tag/remote-tag/',
+				'count'       => 1,
+				'description' => '',
+				'parent'      => 0,
+			],
 		];
 
-		wp_cache_set( $post_id, $post, 'posts' );
+		$wp_query->posts = [ $remote_post ];
 
-		$search = new Search();
-		$result = $search->get_post_terms( [], $post_id, 'category' );
+		add_filter( 'get_the_terms', [ new Search(), 'get_post_terms' ], 10, 3 );
+
+		$result = get_the_terms( $remote_post, 'category' );
 
 		$this->assertIsArray( $result );
 		$this->assertCount( 1, $result );
