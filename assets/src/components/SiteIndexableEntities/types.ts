@@ -44,6 +44,7 @@ export interface HistoryResponse {
 
 export interface JobStatus {
 	id: string;
+	type?: string;
 	status: string;
 	progress: number;
 	progress_total: number;

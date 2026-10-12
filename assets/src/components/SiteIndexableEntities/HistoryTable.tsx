@@ -26,6 +26,29 @@ interface HistoryTableProps {
 const isRetryable = ( job: JobStatus ): boolean =>
 	job.status === 'failed' || ( job.children_failed ?? 0 ) > 0;
 
+/**
+ * Formats a job's batch progress as "done/total".
+ *
+ * A top-level sync job (e.g. from the Watcher) has no child batches because it
+ * is itself the one batch, and its progress counters track posts, not batches.
+ *
+ * @param {JobStatus} job The job to format.
+ * @return {string} The batch progress, or an em dash when the job has no batches.
+ */
+const formatBatches = ( job: JobStatus ): string => {
+	if ( job.type === 'sync' ) {
+		return `${ job.status === 'completed' ? 1 : 0 }/1`;
+	}
+
+	const totalBatches =
+		( job.data?.[ 'total_batches' ] as number ) ||
+		job.children_total ||
+		job.progress_total;
+	const completedBatches = job.children_completed ?? job.progress;
+
+	return totalBatches > 0 ? `${ completedBatches }/${ totalBatches }` : '—';
+};
+
 const HistoryTable = ( {
 	history,
 	retryingJobId,
@@ -56,17 +79,6 @@ const HistoryTable = ( {
 			</thead>
 			<tbody>
 				{ history.map( ( job ) => {
-					const totalBatches =
-						( job.data?.[ 'total_batches' ] as number ) ||
-						job.children_total ||
-						job.progress_total;
-					const completedBatches =
-						job.children_completed ?? job.progress;
-					const batchDisplay =
-						totalBatches > 0
-							? `${ completedBatches }/${ totalBatches }`
-							: '—';
-
 					const duration =
 						job.finished_at && job.created_at
 							? job.finished_at - job.created_at
@@ -105,7 +117,9 @@ const HistoryTable = ( {
 								/>
 							</td>
 							<td>
-								<Text variant="muted">{ batchDisplay }</Text>
+								<Text variant="muted">
+									{ formatBatches( job ) }
+								</Text>
 							</td>
 							<td className="onesearch-history-actions-col">
 								{ isRetryable( job ) && (
