@@ -22,6 +22,16 @@ use OneSearch\Modules\Search\Indexer;
  */
 final class Reindex_Job extends Abstract_Job {
 	/**
+	 * The number of posts per batch, unless the job's data sets its own.
+	 */
+	public const DEFAULT_BATCH_SIZE = 100;
+
+	/**
+	 * The most posts a batch may hold.
+	 */
+	private const MAX_BATCH_SIZE = 500;
+
+	/**
 	 * The default group for reindex jobs.
 	 *
 	 * @var string
@@ -76,8 +86,6 @@ final class Reindex_Job extends Abstract_Job {
 		// Every run rebuilds all batches; cancelled ones left by a failed earlier attempt never report back and would stall completion.
 		$this->set_child_ids( [] );
 
-		$allowed_statuses = \OneSearch\Modules\Search\Post_Record::get_allowed_statuses( $post_types );
-
 		// Clearing up front means a failed reindex leaves the site unsearchable until the next successful run.
 		$is_cleared = ( new Indexer() )->clear_site_records();
 		if ( is_wp_error( $is_cleared ) ) {
@@ -92,26 +100,14 @@ final class Reindex_Job extends Abstract_Job {
 			return;
 		}
 
-		$batch_size = $this->data['batch_size'] ?? 100;
-		$batch_size = max( 1, min( $batch_size, 500 ) );
+		$batch_size = self::get_batch_size( $this->data['batch_size'] ?? self::DEFAULT_BATCH_SIZE );
 		$scheduler  = new Job_Scheduler();
 		$group      = 'reindex_' . $this->get_id();
 		$scheduled  = 0;
 		$page       = 1;
 
 		while ( true ) {
-			$query = new \WP_Query(
-				[
-					'post_type'              => $post_types,
-					'post_status'            => $allowed_statuses,
-					'posts_per_page'         => $batch_size,
-					'paged'                  => $page,
-					'fields'                 => 'ids',
-					'no_found_rows'          => true,
-					'update_post_meta_cache' => false,
-					'update_post_term_cache' => false,
-				]
-			);
+			$query = new \WP_Query( self::get_batch_query_args( $post_types, $batch_size, $page ) );
 
 			$posts = $query->posts;
 			if ( ! is_array( $posts ) || empty( $posts ) ) {
@@ -163,16 +159,63 @@ final class Reindex_Job extends Abstract_Job {
 		// Persist the parent job with child IDs so we can track completion.
 		$scheduler->persist_job( $this );
 
-		// AS's shutdown-based dispatch only fires in wp-admin, so REST-triggered reindexes must nudge the runner directly.
-		if (
-			class_exists( '\\ActionScheduler_AsyncRequest_QueueRunner' )
-			&& class_exists( '\\ActionScheduler_Store' )
-		) {
-			$runner = new \ActionScheduler_AsyncRequest_QueueRunner( \ActionScheduler_Store::instance() );
-			$runner->maybe_dispatch();
-			return;
+		Job_Scheduler::dispatch_queue();
+	}
+
+	/**
+	 * Estimate how many batches a reindex of the given post types will create.
+	 *
+	 * Counted with the same query the batches are paged with, so it matches unless posts change in between.
+	 *
+	 * @param string[] $post_types The post types to index.
+	 * @param int      $batch_size Posts per batch.
+	 */
+	public static function count_batches( array $post_types, int $batch_size = self::DEFAULT_BATCH_SIZE ): int {
+		if ( empty( $post_types ) ) {
+			return 0;
 		}
 
-		spawn_cron();
+		$batch_size = self::get_batch_size( $batch_size );
+		$query      = new \WP_Query(
+			array_merge(
+				self::get_batch_query_args( $post_types, 1, 1 ),
+				[ 'no_found_rows' => false ]
+			)
+		);
+
+		return (int) ceil( $query->found_posts / $batch_size );
+	}
+
+	/**
+	 * Clamp a batch size to the allowed range.
+	 *
+	 * @param mixed $batch_size The requested batch size.
+	 */
+	private static function get_batch_size( $batch_size ): int {
+		return max( 1, min( (int) $batch_size, self::MAX_BATCH_SIZE ) );
+	}
+
+	/**
+	 * Get the query for one page of the posts to index.
+	 *
+	 * @param string[] $post_types The post types to index.
+	 * @param int      $batch_size Posts per page.
+	 * @param int      $page       The page number.
+	 * @return array<string, mixed>
+	 */
+	private static function get_batch_query_args( array $post_types, int $batch_size, int $page ): array {
+		return [
+			'post_type'              => $post_types,
+			'post_status'            => \OneSearch\Modules\Search\Post_Record::get_allowed_statuses( $post_types ),
+			'posts_per_page'         => $batch_size,
+			'paged'                  => $page,
+			// Paging needs a unique order; posts sharing a date could otherwise repeat across batches or be skipped.
+			'orderby'                => 'ID',
+			'order'                  => 'ASC',
+			'fields'                 => 'ids',
+			'no_found_rows'          => true,
+			'update_post_meta_cache' => false,
+			'update_post_term_cache' => false,
+		];
 	}
 }

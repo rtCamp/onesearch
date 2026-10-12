@@ -14,6 +14,7 @@ use OneSearch\Modules\Jobs\Reindex_Job;
 use OneSearch\Modules\Jobs\Sync_Job;
 use OneSearch\Modules\Scheduler\Job_Scheduler;
 use OneSearch\Modules\Schema\Job_Repository;
+use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -22,6 +23,13 @@ use PHPUnit\Framework\Attributes\CoversClass;
  */
 #[CoversClass( Job_Scheduler::class )]
 class Job_SchedulerTest extends TestCase {
+	/**
+	 * The job the mocked brand site reports, or the error its request fails with.
+	 *
+	 * @var array<string, mixed>|\WP_Error
+	 */
+	private $brand_job = [];
+
 	/**
 	 * Scheduler instance used across tests.
 	 *
@@ -226,6 +234,121 @@ class Job_SchedulerTest extends TestCase {
 	}
 
 	/**
+	 * A batch that finishes while another process holds the parent's lock still gets its parent settled.
+	 *
+	 * The counters are bumped regardless, but the status update needs the lock, so it's retried later
+	 * instead of leaving the parent running, and blocking new reindexes, after its last batch finished.
+	 */
+	public function test_parent_is_settled_later_when_its_lock_is_held(): void {
+		$this->set_up_governing_site();
+		$paths = [];
+		$this->mock_algolia_http_client( $paths );
+
+		self::factory()->post->create_many( 3, [ 'post_status' => 'publish' ] );
+
+		$parent_id                    = $this->start_reindex( 2 );
+		[ $first_batch, $last_batch ] = $this->scheduler->get_status( $parent_id )['child_ids'];
+
+		$this->scheduler->execute_job( Sync_Job::class, $first_batch );
+
+		// Another process is mid-update on the parent.
+		$lock_key = Job_Scheduler::OPTION_PREFIX . $parent_id . '_lock';
+		add_option( $lock_key, time() + 60, '', false );
+
+		$this->scheduler->execute_job( Sync_Job::class, $last_batch );
+
+		$this->assertSame( Abstract_Job::STATUS_RUNNING, $this->scheduler->get_status( $parent_id )['status'] );
+		$this->assertNotFalse(
+			as_next_scheduled_action( Job_Scheduler::SETTLE_HOOK, [ 'parent_id' => $parent_id ], 'onesearch_settle_' . $parent_id ),
+			'Settling the parent has to be retried.'
+		);
+
+		// The other process is done, and the retry runs.
+		delete_option( $lock_key );
+		$this->scheduler->settle_parent( $parent_id );
+
+		$parent = $this->scheduler->get_status( $parent_id );
+		$this->assertSame( Abstract_Job::STATUS_COMPLETED, $parent['status'] );
+		$this->assertSame( 2, $parent['children_completed'] );
+	}
+
+	/**
+	 * A governing reindex finishes once its brand site has, and records the batch totals across both.
+	 */
+	public function test_governing_parent_waits_for_its_brand_site_and_records_the_totals(): void {
+		$this->set_up_governing_site();
+		$paths = [];
+		$this->mock_algolia_http_client( $paths );
+
+		self::factory()->post->create_many( 3, [ 'post_status' => 'publish' ] );
+
+		$this->brand_job = [
+			'status'             => Abstract_Job::STATUS_RUNNING,
+			'children_total'     => 3,
+			'children_completed' => 1,
+			'children_failed'    => 0,
+		];
+		$parent_id       = $this->start_reindex_with_brand( 2, 1 );
+
+		foreach ( $this->scheduler->get_status( $parent_id )['child_ids'] as $batch_id ) {
+			$this->scheduler->execute_job( Sync_Job::class, $batch_id );
+		}
+
+		$this->assertSame( Abstract_Job::STATUS_RUNNING, $this->scheduler->get_status( $parent_id )['status'], 'The brand site is still running.' );
+		$this->assertNotFalse(
+			as_next_scheduled_action( Job_Scheduler::SETTLE_HOOK, [ 'parent_id' => $parent_id ], 'onesearch_settle_' . $parent_id ),
+			'The brand site has to be checked again, even with no one watching.'
+		);
+
+		$this->brand_job = [
+			'status'             => Abstract_Job::STATUS_COMPLETED,
+			'children_total'     => 3,
+			'children_completed' => 3,
+			'children_failed'    => 0,
+		];
+		$this->scheduler->settle_parent( $parent_id );
+
+		$parent = $this->scheduler->get_status( $parent_id );
+		$this->assertSame( Abstract_Job::STATUS_COMPLETED, $parent['status'] );
+		$this->assertEmpty( $parent['error'] ?? null );
+		$this->assertSame( 5, $parent['data']['total_batches'], '2 batches here and 3 on the brand site, which had estimated 1.' );
+		$this->assertSame( 5, $parent['children_completed'] );
+		$this->assertSame( 3, $parent['data']['sites'][1]['batch_count'] );
+		$this->assertTrue( $parent['data']['_remote_aggregated'] );
+	}
+
+	/**
+	 * A brand site that's briefly unreachable is waited out, and only fails the run once it's been unreachable a while.
+	 */
+	public function test_unreachable_brand_site_fails_the_run_only_after_a_grace_period(): void {
+		$this->set_up_governing_site();
+		$paths = [];
+		$this->mock_algolia_http_client( $paths );
+
+		self::factory()->post->create_many( 3, [ 'post_status' => 'publish' ] );
+
+		$this->brand_job = new \WP_Error( 'http_request_failed', 'cURL error 28: Operation timed out' );
+		$parent_id       = $this->start_reindex_with_brand( 2, 1 );
+
+		foreach ( $this->scheduler->get_status( $parent_id )['child_ids'] as $batch_id ) {
+			$this->scheduler->execute_job( Sync_Job::class, $batch_id );
+		}
+
+		$this->assertSame( Abstract_Job::STATUS_RUNNING, $this->scheduler->get_status( $parent_id )['status'], 'One failed request must not fail the run.' );
+
+		// Still unreachable after the grace period.
+		$parent                                  = $this->scheduler->get_status( $parent_id );
+		$parent['data']['_remote_waiting_since'] = time() - 601;
+		$this->scheduler->persist_job( Reindex_Job::from_array( $parent ) );
+
+		$this->scheduler->settle_parent( $parent_id );
+
+		$parent = $this->scheduler->get_status( $parent_id );
+		$this->assertSame( Abstract_Job::STATUS_FAILED, $parent['status'] );
+		$this->assertSame( '1 remote site(s) failed', $parent['error'] );
+	}
+
+	/**
 	 * An Algolia failure with retries left puts the job back to pending with the next attempt queued.
 	 */
 	public function test_algolia_error_leaves_job_pending_with_a_retry_scheduled(): void {
@@ -287,6 +410,80 @@ class Job_SchedulerTest extends TestCase {
 			as_next_scheduled_action( Job_Scheduler::HOOK, $pending_action, $batch_group ),
 			'The unfinished batch must not stay queued.'
 		);
+	}
+
+	/**
+	 * Starts a reindex that also ran on a brand site, and returns its job ID.
+	 *
+	 * The brand site's job is the one in $this->brand_job.
+	 *
+	 * @param int $batch_size    Posts per batch on this site.
+	 * @param int $brand_batches The batch count the brand site estimated when it started.
+	 */
+	private function start_reindex_with_brand( int $batch_size, int $brand_batches ): string {
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Brand',
+					'url'     => 'https://brand.example.com/',
+					'api_key' => 'brand-key',
+				],
+			]
+		);
+		add_filter( 'pre_http_request', [ $this, 'mock_brand_job' ], 10, 3 );
+
+		$parent_id = $this->start_reindex( $batch_size );
+		$parent    = $this->scheduler->get_status( $parent_id );
+
+		$parent['data']['sites']         = [
+			[
+				'site_url'    => get_site_url(),
+				'job_id'      => $parent_id,
+				'batch_count' => count( $parent['child_ids'] ),
+			],
+			[
+				'site_url'    => 'https://brand.example.com/',
+				'job_id'      => 'brand-job',
+				'batch_count' => $brand_batches,
+			],
+		];
+		$parent['data']['total_batches'] = count( $parent['child_ids'] ) + $brand_batches;
+		$this->scheduler->persist_job( Reindex_Job::from_array( $parent ) );
+
+		return $parent_id;
+	}
+
+	/**
+	 * Answers the brand site's job requests with $this->brand_job.
+	 *
+	 * @param false|array<string, mixed>|\WP_Error $preempt Whether to preempt the request.
+	 * @param array<string, mixed>                 $args    The request arguments.
+	 * @param string                               $url     The request URL.
+	 * @return false|array<string, mixed>|\WP_Error
+	 */
+	public function mock_brand_job( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+		if ( ! str_contains( $url, 'brand.example.com' ) ) {
+			return $preempt;
+		}
+
+		if ( is_wp_error( $this->brand_job ) ) {
+			return $this->brand_job;
+		}
+
+		return [
+			'response' => [
+				'code'    => 200,
+				'message' => 'OK',
+			],
+			'body'     => (string) wp_json_encode(
+				[
+					'success' => true,
+					'job'     => $this->brand_job,
+				]
+			),
+			'headers'  => [],
+			'cookies'  => [],
+		];
 	}
 
 	/**

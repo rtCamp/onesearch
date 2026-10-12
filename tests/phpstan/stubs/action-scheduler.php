@@ -24,9 +24,11 @@ namespace {
 	 * @param string $hook
 	 * @param array<string, mixed> $args
 	 * @param string $group
+	 * @param bool $unique
+	 * @param int $priority
 	 * @return int
 	 */
-	function as_schedule_single_action( int $timestamp, string $hook, array $args = [], string $group = '' ): int {}
+	function as_schedule_single_action( int $timestamp, string $hook, array $args = [], string $group = '', bool $unique = false, int $priority = 10 ): int {}
 
 	/**
 	 * @param string $hook

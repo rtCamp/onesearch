@@ -9,6 +9,7 @@ declare(strict_types = 1);
 
 namespace OneSearch\Modules\Rest;
 
+use OneSearch\Modules\Jobs\Abstract_Job;
 use OneSearch\Modules\Jobs\Reindex_Job;
 use OneSearch\Modules\Scheduler\Job_Scheduler;
 use OneSearch\Modules\Search\Indexer;
@@ -284,8 +285,12 @@ class Search_Controller extends Abstract_REST_Controller {
 	 * If the site is a governing site, trigger the reindex on children as well.
 	 * The parent Reindex_Job runs in this request to resolve posts and enqueue
 	 * child Sync_Jobs; the child Sync_Jobs then run asynchronously via Action Scheduler.
+	 * When a governing site starts the reindex on a brand site, the brand's parent
+	 * runs in the background too, since the governing site is waiting on the response.
+	 *
+	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
 	 */
-	public function reindex(): \WP_REST_Response|\WP_Error {
+	public function reindex( $request ): \WP_REST_Response|\WP_Error {
 		// add_option() is atomic in MySQL, so it doubles as a mutex against concurrent reindex requests.
 		$lock_key = self::REINDEX_STATE_TRANSIENT . '_lock';
 		if ( ! add_option( $lock_key, '1', '', false ) ) {
@@ -349,7 +354,7 @@ class Search_Controller extends Abstract_REST_Controller {
 		$job->set_data(
 			[
 				'post_types' => $post_types,
-				'batch_size' => 100,
+				'batch_size' => Reindex_Job::DEFAULT_BATCH_SIZE,
 			]
 		);
 		$job->set_max_retries( 2 );
@@ -358,17 +363,41 @@ class Search_Controller extends Abstract_REST_Controller {
 		$scheduler = new Job_Scheduler();
 		$job_id    = $job->get_id();
 
-		try {
-			$job->mark_running();
-			$scheduler->persist_job( $job );
-			$job->handle();
+		$local_site = [
+			'site_name'   => Settings::is_governing_site() ? __( 'Governing Site', 'onesearch' ) : get_bloginfo( 'name' ),
+			'site_url'    => get_site_url(),
+			'job_id'      => $job_id,
+			'batch_count' => 0,
+		];
 
-			// Once children exist notify_parent() owns the parent lifecycle; re-persisting here would clobber a terminal status.
-			if ( ! $job->has_pending_children() ) {
-				if ( ! $job->is_finished() ) {
-					$job->mark_completed();
-				}
+		// Recorded up front, so a batch that finishes before this request does still waits for the brand sites.
+		if ( Settings::is_governing_site() ) {
+			$job->set_data( array_merge( $job->get_data(), [ 'sites' => array_merge( [ $local_site ], $jobs ) ] ) );
+		}
+
+		// Only a governing site sends a brand site its token.
+		$is_from_governing_site = Settings::is_consumer_site() && ! empty( $request->get_header( 'X-OneSearch-Token' ) );
+
+		try {
+			if ( $is_from_governing_site ) {
+				// Clearing the old records can outlast the governing site's request timeout, which would lose track of this job.
+				$local_site['batch_count'] = Reindex_Job::count_batches( $post_types, Reindex_Job::DEFAULT_BATCH_SIZE );
+				$scheduler->schedule( $job );
+				Job_Scheduler::dispatch_queue();
+			} else {
+				$job->mark_running();
 				$scheduler->persist_job( $job );
+				$job->handle();
+
+				// Once children exist notify_parent() owns the parent lifecycle; re-persisting here would clobber a terminal status.
+				if ( ! $job->has_pending_children() ) {
+					if ( ! $job->is_finished() ) {
+						$job->mark_completed();
+					}
+					$scheduler->persist_job( $job );
+				}
+
+				$local_site['batch_count'] = count( $job->get_child_ids() );
 			}
 		} catch ( \Throwable $e ) {
 			$job->fail( $e->getMessage() );
@@ -379,29 +408,12 @@ class Search_Controller extends Abstract_REST_Controller {
 			];
 		}
 
-		$local_site_name = Settings::is_governing_site() ? __( 'Governing Site', 'onesearch' ) : get_bloginfo( 'name' );
-		$local_site_url  = get_site_url();
-		$local_batches   = count( $job->get_child_ids() );
-
-		if ( $job_id ) {
-			array_unshift(
-				$jobs,
-				[
-					'site_name'   => $local_site_name,
-					'site_url'    => $local_site_url,
-					'job_id'      => $job_id,
-					'batch_count' => $local_batches,
-				]
-			);
-		}
+		array_unshift( $jobs, $local_site );
 
 		// The history table reads the combined cross-site total from the governing job's data.
 		if ( Settings::is_governing_site() ) {
-			$total_batches      = $local_batches;
-			$child_batch_counts = $child_result['batch_counts'] ?? [];
-			foreach ( $child_batch_counts as $count ) {
-				$total_batches += $count;
-			}
+			$total_batches = (int) array_sum( array_column( $jobs, 'batch_count' ) );
+
 			// Re-read stored state so we never downgrade a terminal status notify_parent() already wrote.
 			$latest    = $scheduler->get_status( $job_id );
 			$merge_job = $latest ? Reindex_Job::from_array( $latest ) : $job;
@@ -415,6 +427,11 @@ class Search_Controller extends Abstract_REST_Controller {
 				)
 			);
 			$scheduler->persist_job( $merge_job );
+
+			// With nothing of its own to index, the run finished before its brand sites did, so it waits for them instead.
+			if ( Abstract_Job::STATUS_COMPLETED === $merge_job->get_status() && empty( $merge_job->get_child_ids() ) && count( $jobs ) > 1 ) {
+				$scheduler->await_remote_sites( $merge_job->to_array() );
+			}
 		}
 
 		// Persist the reindex state so the UI can survive page refreshes.
@@ -431,7 +448,7 @@ class Search_Controller extends Abstract_REST_Controller {
 					: implode( "\n", array_column( $errors, 'message' ) ),
 				'errors'      => $errors,
 				'job_id'      => $job_id,
-				'batch_count' => count( $job->get_child_ids() ),
+				'batch_count' => $local_site['batch_count'],
 				'jobs'        => $jobs,
 			]
 		);
@@ -529,14 +546,13 @@ class Search_Controller extends Abstract_REST_Controller {
 	/**
 	 * Trigger batch reindexing of all child sites (for governing sites).
 	 *
-	 * @return array{ jobs: array<int,array{site_name:string,site_url:string,job_id:string}>, errors: array<int,array{site_url:string,message:string}>, batch_counts: array<int,int> }
+	 * @return array{ jobs: array<int,array{site_name:string,site_url:string,job_id:string,batch_count:int}>, errors: array<int,array{site_url:string,message:string}> }
 	 */
 	private function reindex_child_sites(): array {
 		$shared_sites = Settings::get_shared_sites();
 
-		$child_jobs   = [];
-		$errors       = [];
-		$batch_counts = [];
+		$child_jobs = [];
+		$errors     = [];
 		// Build the requests array for each site.
 		foreach ( $shared_sites as $site_data ) {
 			if ( empty( $site_data['url'] ) || empty( $site_data['api_key'] ) ) {
@@ -607,20 +623,18 @@ class Search_Controller extends Abstract_REST_Controller {
 			}
 
 			if ( ! empty( $response_data['job_id'] ) ) {
-				$child_jobs[]   = [
+				$child_jobs[] = [
 					'site_name'   => $site_data['name'] ?? $site_data['url'],
 					'site_url'    => $site_data['url'],
 					'job_id'      => $response_data['job_id'],
 					'batch_count' => (int) ( $response_data['batch_count'] ?? 0 ),
 				];
-				$batch_counts[] = (int) ( $response_data['batch_count'] ?? 0 );
 			}
 		}
 
 		return [
-			'jobs'         => $child_jobs,
-			'errors'       => $errors,
-			'batch_counts' => $batch_counts,
+			'jobs'   => $child_jobs,
+			'errors' => $errors,
 		];
 	}
 }

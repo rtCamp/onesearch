@@ -48,6 +48,26 @@ final class Job_Scheduler {
 	public const HOOK = 'onesearch_execute_job';
 
 	/**
+	 * The Action Scheduler hook that settles a parent job when the child that finished last couldn't.
+	 */
+	public const SETTLE_HOOK = 'onesearch_settle_parent';
+
+	/**
+	 * Seconds to wait before settling a parent again, by when its lock has been released or has expired.
+	 */
+	private const SETTLE_RETRY_DELAY = 15;
+
+	/**
+	 * Seconds between checks on the brand sites a governing parent is waiting for.
+	 */
+	private const REMOTE_POLL_DELAY = 30;
+
+	/**
+	 * Seconds a brand site may stay unreachable before the governing parent counts it as failed.
+	 */
+	private const REMOTE_UNREACHABLE_GRACE = 600;
+
+	/**
 	 * Prefix for transient keys storing active job state.
 	 *
 	 * Main transient key: "onesearch_job_status_{jobId}" — holds the full
@@ -120,6 +140,7 @@ final class Job_Scheduler {
 		self::$hooks_registered = true;
 
 		add_action( self::HOOK, [ $this, 'execute_job' ], 10, 3 );
+		add_action( self::SETTLE_HOOK, [ $this, 'settle_parent' ] );
 
 		add_action( 'action_scheduler_failed_execution', [ $this, 'on_action_failed' ], 10, 3 );
 		add_action( 'action_scheduler_failed_schedule_new_action', [ $this, 'on_schedule_failed' ], 10, 3 );
@@ -163,6 +184,24 @@ final class Job_Scheduler {
 		$this->repository->set_action( $job->get_id(), $action_id, $args );
 
 		return $action_id;
+	}
+
+	/**
+	 * Start Action Scheduler on queued jobs now, rather than on the next admin page load or cron run.
+	 *
+	 * AS's shutdown-based dispatch only fires in wp-admin, so jobs queued from a REST request must nudge the runner directly.
+	 */
+	public static function dispatch_queue(): void {
+		if (
+			class_exists( '\\ActionScheduler_AsyncRequest_QueueRunner' )
+			&& class_exists( '\\ActionScheduler_Store' )
+		) {
+			$runner = new \ActionScheduler_AsyncRequest_QueueRunner( \ActionScheduler_Store::instance() );
+			$runner->maybe_dispatch();
+			return;
+		}
+
+		spawn_cron();
 	}
 
 	/**
@@ -509,25 +548,13 @@ final class Job_Scheduler {
 	 *
 	 * Uses three atomic SQL counters (children_done, children_failed,
 	 * children_cancelled) to prevent race conditions when multiple children
-	 * complete simultaneously. A spinlock with retries guards the parent data
-	 * write to prevent concurrent overwrites while ensuring no notifications
-	 * are silently dropped.
-	 *
-	 * Remote site status checks are performed OUTSIDE the lock to prevent
-	 * blocking cancel() operations during slow API calls.
+	 * complete simultaneously, then settles the parent from those counters.
 	 *
 	 * @param \OneSearch\Modules\Jobs\Abstract_Job $job The child job that just completed or failed.
 	 */
 	private function notify_parent( Abstract_Job $job ): void {
-		global $wpdb;
-
 		$parent_id = $job->get_parent_id();
-		if ( ! $parent_id ) {
-			return;
-		}
-
-		$parent_data = $this->get_status( $parent_id );
-		if ( ! $parent_data ) {
+		if ( ! $parent_id || ! $this->get_status( $parent_id ) ) {
 			return;
 		}
 
@@ -546,33 +573,56 @@ final class Job_Scheduler {
 			$this->repository->increment_counter( $parent_id, 'children_failed' );
 		}
 
+		$this->settle_parent( $parent_id );
+	}
+
+	/**
+	 * Bring a parent job's progress and status in line with its children's counters.
+	 *
+	 * Safe to run more than once, since it reads the counters rather than adding to them. When another
+	 * process holds the parent's lock, it tries again later, so the parent isn't left running after its
+	 * last child has finished.
+	 *
+	 * Remote site status checks are performed OUTSIDE the lock to prevent
+	 * blocking cancel() operations during slow API calls.
+	 *
+	 * @internal Also the callback for SETTLE_HOOK.
+	 *
+	 * @param string $parent_id The parent job ID.
+	 */
+	public function settle_parent( string $parent_id ): void {
+		global $wpdb;
+
+		$parent_data = $this->get_status( $parent_id );
+		if ( ! $parent_data || in_array( $parent_data['status'] ?? '', self::TERMINAL_STATUSES, true ) ) {
+			return;
+		}
+
 		$counters        = $this->repository->get_counters( $parent_id );
 		$done            = $counters['done'];
-		$total_failed    = $counters['failed'];
-		$total_cancelled = $counters['cancelled'];
+		$local_failed    = $counters['failed'];
+		$local_cancelled = $counters['cancelled'];
 		$child_total     = count( $parent_data['child_ids'] ?? [] );
+		$remote_sites    = $this->get_remote_sites( $parent_data );
 
 		$parent_key = self::OPTION_PREFIX . $parent_id;
 		$lock_key   = $parent_key . '_lock';
 
-		// Check if all local children are done (fast check, no lock needed yet).
-		$all_local_done = $child_total > 0 && $done >= $child_total;
+		// Check if all local children are done (fast check, no lock needed yet). With nothing to index here, a governing parent still waits on its brand sites.
+		$all_local_done = $done >= $child_total && ( $child_total > 0 || ! empty( $remote_sites ) );
 
 		// Poll remote statuses before taking the lock so slow remote calls don't block cancel().
-		$remote_status = null;
-		if ( $all_local_done && Settings::is_governing_site() ) {
-			$remote_sites = $parent_data['data']['sites'] ?? [];
-			if ( is_array( $remote_sites ) && count( $remote_sites ) > 1 ) {
-				$remote_status = $this->check_remote_job_statuses( $remote_sites );
-			}
-		}
+		$remote = $all_local_done && ! empty( $remote_sites ) ? $this->check_remote_job_statuses( $remote_sites ) : null;
 
 		// Lock has an expiry so a crashed process cannot orphan it.
 		if ( ! $this->acquire_lock( $lock_key ) ) {
+			$this->schedule_settle( $parent_id, self::SETTLE_RETRY_DELAY );
+
 			error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 				sprintf(
-					'[OneSearch] notify_parent: Could not acquire lock for parent %s. Skipping notification.',
-					esc_html( $parent_id )
+					'[OneSearch] settle_parent: Could not acquire lock for parent %s. Retrying in %d seconds.',
+					esc_html( $parent_id ),
+					self::SETTLE_RETRY_DELAY
 				)
 			);
 			return;
@@ -589,37 +639,56 @@ final class Job_Scheduler {
 			}
 
 			$parent_data['children_completed'] = $done;
-			$parent_data['children_failed']    = $total_failed + $total_cancelled;
+			$parent_data['children_failed']    = $local_failed + $local_cancelled;
 			$parent_data['progress']           = min( $done, $parent_data['progress_total'] ?? $done );
 			$parent_data['updated_at']         = time();
 
 			if ( $all_local_done ) {
-				if ( null !== $remote_status ) {
-					$total_failed                  += $remote_status['failed'];
-					$total_cancelled               += $remote_status['cancelled'];
-					$parent_data['children_failed'] = $total_failed + $total_cancelled;
+				if ( null !== $remote && $this->is_waiting_on_remote( $remote, $parent_data ) ) {
+					$parent_data['data']['_needs_remote_finalize'] = true;
+					$parent_data['data']['_remote_waiting_since']  = $parent_data['data']['_remote_waiting_since'] ?? time();
+					$parent_data['status']                         = Abstract_Job::STATUS_RUNNING;
+					$this->repository->upsert( $parent_data );
+					set_transient( $parent_key, $parent_data, self::TRANSIENT_EXPIRATION );
 
-					if ( $remote_status['running'] > 0 ) {
-						$parent_data['data']['_needs_remote_finalize'] = true;
-						$parent_data['status']                         = Abstract_Job::STATUS_RUNNING;
-						$this->repository->upsert( $parent_data );
-						set_transient( $parent_key, $parent_data, self::TRANSIENT_EXPIRATION );
-						return;
-					}
+					// Checked again on a schedule, so the run finishes even when no one has the progress view open.
+					$this->schedule_settle( $parent_id, self::REMOTE_POLL_DELAY );
+					return;
 				}
+
+				$remote_failed    = null !== $remote ? $remote['failed'] + $remote['unreachable'] : 0;
+				$remote_cancelled = null !== $remote ? $remote['cancelled'] : 0;
 
 				// Cancelled beats failed beats completed.
-				if ( $total_cancelled > 0 ) {
+				if ( $local_cancelled + $remote_cancelled > 0 ) {
 					$parent_data['status'] = Abstract_Job::STATUS_CANCELLED;
-				} elseif ( $total_failed > 0 ) {
+				} elseif ( $local_failed > 0 ) {
 					$parent_data['status'] = Abstract_Job::STATUS_FAILED;
-					$parent_data['error']  = sprintf( '%d/%d child batches failed', $total_failed, $child_total );
+					$parent_data['error']  = sprintf( '%d/%d child batches failed', $local_failed, $child_total );
+				} elseif ( $remote_failed > 0 ) {
+					$parent_data['status'] = Abstract_Job::STATUS_FAILED;
+					$parent_data['error']  = sprintf(
+						/* translators: 1: failed remote sites */
+						__( '%1$d remote site(s) failed', 'onesearch' ),
+						$remote_failed
+					);
 				} else {
 					$parent_data['status'] = Abstract_Job::STATUS_COMPLETED;
+					$parent_data['error']  = null;
 				}
-				$parent_data['progress']    = $parent_data['progress_total'];
-				$parent_data['finished_at'] = time();
+
+				$parent_data['children_failed'] = $local_failed + $local_cancelled + $remote_failed + $remote_cancelled;
+				$parent_data['progress']        = $parent_data['progress_total'];
+				$parent_data['finished_at']     = time();
+				unset( $parent_data['data']['_needs_remote_finalize'], $parent_data['data']['_remote_waiting_since'] );
+
+				$this->store_batch_totals( $parent_data, min( $done, $child_total ) - $local_failed, $remote );
 				Search_Controller::clear_reindex_state();
+
+				// A check on the brand sites may still be queued, which has nothing left to do.
+				if ( function_exists( 'as_unschedule_all_actions' ) ) {
+					as_unschedule_all_actions( '', [], 'onesearch_settle_' . $parent_id );
+				}
 			}
 
 			$this->repository->upsert( $parent_data );
@@ -634,6 +703,137 @@ final class Job_Scheduler {
 			$wpdb->delete( $wpdb->options, [ 'option_name' => $lock_key ] );
 			wp_cache_delete( $lock_key, 'options' );
 		}
+	}
+
+	/**
+	 * Queue another attempt to settle a parent job.
+	 *
+	 * @internal Public so retries can hand a reopened parent back to the scheduler.
+	 *
+	 * @param string $parent_id The parent job ID.
+	 * @param int    $delay     Seconds to wait first.
+	 */
+	public function schedule_settle( string $parent_id, int $delay ): void {
+		if ( ! function_exists( 'as_schedule_single_action' ) || ! function_exists( 'as_get_scheduled_actions' ) ) {
+			return;
+		}
+
+		$group = 'onesearch_settle_' . $parent_id;
+
+		// One pending attempt is enough. Checked by status rather than with a unique action, since the attempt running now may be the one rescheduling.
+		$pending = as_get_scheduled_actions(
+			[
+				'hook'   => self::SETTLE_HOOK,
+				'group'  => $group,
+				'status' => 'pending',
+			],
+			'ids'
+		);
+		if ( ! empty( $pending ) ) {
+			return;
+		}
+
+		as_schedule_single_action( time() + $delay, self::SETTLE_HOOK, [ 'parent_id' => $parent_id ], $group );
+	}
+
+	/**
+	 * Reopen a finished governing parent so it settles once its brand sites have finished.
+	 *
+	 * Used when this site's own batches are done but a brand site's may not be, such as right after a brand's batches
+	 * were retried.
+	 *
+	 * @param array<string, mixed> $parent_data Stored parent job data.
+	 */
+	public function await_remote_sites( array $parent_data ): void {
+		$parent_id = (string) ( $parent_data['id'] ?? '' );
+		if ( '' === $parent_id ) {
+			return;
+		}
+
+		unset( $parent_data['data']['_remote_aggregated'], $parent_data['data']['_remote_waiting_since'] );
+		$parent_data['data']['_needs_remote_finalize'] = true;
+
+		$parent_data['status']      = Abstract_Job::STATUS_RUNNING;
+		$parent_data['error']       = null;
+		$parent_data['finished_at'] = null;
+		$parent_data['updated_at']  = time();
+
+		$this->repository->upsert( $parent_data );
+		set_transient( self::OPTION_PREFIX . $parent_id, $parent_data, self::TRANSIENT_EXPIRATION );
+
+		$this->schedule_settle( $parent_id, self::SETTLE_RETRY_DELAY );
+	}
+
+	/**
+	 * Get the brand site jobs a governing parent ran alongside its own.
+	 *
+	 * @param array<string, mixed> $parent_data Stored parent job data.
+	 * @return array<int, array{site_url?:string, job_id?:string, batch_count?:int}> Empty when the parent didn't run on any brand site.
+	 */
+	public function get_remote_sites( array $parent_data ): array {
+		$sites = $parent_data['data']['sites'] ?? [];
+
+		// The first entry is this site's own job, so a run that reached a brand site has more than one.
+		return Settings::is_governing_site() && is_array( $sites ) && count( $sites ) > 1 ? $sites : [];
+	}
+
+	/**
+	 * Whether a governing parent should keep waiting on its brand sites.
+	 *
+	 * A brand site that's briefly unreachable is waited out, but not forever.
+	 *
+	 * @param array{running:int, unreachable:int} $remote      The brand sites' statuses.
+	 * @param array<string, mixed>                $parent_data Stored parent job data.
+	 */
+	private function is_waiting_on_remote( array $remote, array $parent_data ): bool {
+		if ( $remote['running'] > 0 ) {
+			return true;
+		}
+
+		if ( 0 === $remote['unreachable'] ) {
+			return false;
+		}
+
+		$waiting_since = (int) ( $parent_data['data']['_remote_waiting_since'] ?? time() );
+
+		return time() - $waiting_since < self::REMOTE_UNREACHABLE_GRACE;
+	}
+
+	/**
+	 * Record a finished parent's batch totals across every site it ran on.
+	 *
+	 * The totals recorded when the run started go stale when batches are rebuilt or retried, and storing the final
+	 * ones means the history needn't ask the brand sites again.
+	 *
+	 * @param array<string, mixed>                                           $parent_data     Parent job data, updated in place.
+	 * @param int                                                            $local_completed Batches completed on this site.
+	 * @param array{completed:int, total:int, totals:array<string,int>}|null $remote The brand sites' progress, if any.
+	 */
+	private function store_batch_totals( array &$parent_data, int $local_completed, ?array $remote ): void {
+		$local_total = count( $parent_data['child_ids'] ?? [] );
+
+		if ( null === $remote ) {
+			if ( isset( $parent_data['data']['total_batches'] ) ) {
+				$parent_data['data']['total_batches'] = $local_total;
+			}
+			return;
+		}
+
+		$current_site = Utils::normalize_url( get_site_url() );
+		foreach ( $parent_data['data']['sites'] as $i => $site ) {
+			$site_url = Utils::normalize_url( $site['site_url'] ?? '' );
+
+			if ( $site_url === $current_site ) {
+				$parent_data['data']['sites'][ $i ]['batch_count'] = $local_total;
+			} elseif ( isset( $remote['totals'][ $site_url ] ) ) {
+				$parent_data['data']['sites'][ $i ]['batch_count'] = $remote['totals'][ $site_url ];
+			}
+		}
+
+		$parent_data['data']['total_batches']      = (int) array_sum( array_column( $parent_data['data']['sites'], 'batch_count' ) );
+		$parent_data['children_total']             = $parent_data['data']['total_batches'];
+		$parent_data['children_completed']         = max( 0, $local_completed ) + $remote['completed'];
+		$parent_data['data']['_remote_aggregated'] = true;
 	}
 
 	/**
@@ -700,16 +900,23 @@ final class Job_Scheduler {
 	/**
 	 * Check the status of remote child site jobs and count failures/cancellations.
 	 *
-	 * Called by notify_parent() when all local children complete to verify
+	 * Called by settle_parent() when all local children complete to verify
 	 * that child site jobs also succeeded before marking the parent complete.
 	 *
-	 * @param array<int,array{site_url:string,job_id:string}> $remote_sites Array of remote site jobs.
-	 * @return array{failed:int,cancelled:int,running:int}
+	 * @param array<int,array{site_url?:string,job_id?:string}> $remote_sites Array of remote site jobs.
+	 * @return array{failed:int,cancelled:int,running:int,unreachable:int,completed:int,total:int,totals:array<string,int>} Status counts per site,
+	 *                                                                                                                       and completed and total batches across them.
 	 */
 	public function check_remote_job_statuses( array $remote_sites ): array {
-		$failed       = 0;
-		$cancelled    = 0;
-		$running      = 0;
+		$result       = [
+			'failed'      => 0,
+			'cancelled'   => 0,
+			'running'     => 0,
+			'unreachable' => 0,
+			'completed'   => 0,
+			'total'       => 0,
+			'totals'      => [],
+		];
 		$current_site = Utils::normalize_url( get_site_url() );
 		$site_keys    = $this->get_shared_site_keys();
 
@@ -723,28 +930,31 @@ final class Job_Scheduler {
 
 			$job_data = $this->fetch_remote_job( $site_url, $job_id, $site_keys );
 
-			// An unreachable or unauthorized site can't be confirmed successful, so it counts as failed.
+			// Can't be confirmed either way yet, which the caller decides how long to tolerate.
 			if ( null === $job_data ) {
-				++$failed;
+				++$result['unreachable'];
 				continue;
 			}
 
 			$remote_status = $job_data['status'] ?? '';
 
 			if ( 'failed' === $remote_status ) {
-				++$failed;
+				++$result['failed'];
 			} elseif ( 'cancelled' === $remote_status ) {
-				++$cancelled;
+				++$result['cancelled'];
 			} elseif ( in_array( $remote_status, [ 'pending', 'running' ], true ) ) {
-				++$running;
+				++$result['running'];
 			}
+
+			// A brand's children_completed counts every finished batch, so its failures are taken back out.
+			$site_total = (int) ( $job_data['children_total'] ?? $job_data['progress_total'] ?? 0 );
+
+			$result['completed']          += max( 0, (int) ( $job_data['children_completed'] ?? 0 ) - (int) ( $job_data['children_failed'] ?? 0 ) );
+			$result['total']              += $site_total;
+			$result['totals'][ $site_url ] = $site_total;
 		}
 
-		return [
-			'failed'    => $failed,
-			'cancelled' => $cancelled,
-			'running'   => $running,
-		];
+		return $result;
 	}
 
 	/**

@@ -9,6 +9,7 @@ declare( strict_types = 1 );
 
 namespace OneSearch\Tests\Integration\Modules\Rest;
 
+use OneSearch\Modules\Jobs\Abstract_Job;
 use OneSearch\Modules\Jobs\Reindex_Job;
 use OneSearch\Modules\Rest\Abstract_REST_Controller;
 use OneSearch\Modules\Rest\Governing_Data_Handler;
@@ -159,6 +160,60 @@ class Search_Controller_ConsumerSiteTest extends TestCase {
 
 		$this->assertSame( 409, $response->get_status() );
 		$this->assertSame( 'onesearch_reindex_active', $data['code'] );
+
+		delete_transient( Search_Controller::REINDEX_STATE_TRANSIENT );
+	}
+
+	/**
+	 * A reindex the governing site starts here runs in the background, since the governing site is waiting on the
+	 * response and clearing the old records could outlast its request.
+	 */
+	public function test_reindex_from_governing_site_runs_in_the_background(): void {
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+		Settings::regenerate_api_key();
+
+		$method = new \ReflectionMethod( Governing_Data_Handler::class, 'set_brand_config_cache' );
+		$method->invoke(
+			null,
+			[
+				'algolia_credentials' => [
+					'app_id'    => 'test-app',
+					'write_key' => 'test-key',
+				],
+				'search_settings'     => [
+					'algolia_enabled'  => true,
+					'searchable_sites' => [],
+				],
+				'indexable_entities'  => [ 'post' ],
+				'available_sites'     => [],
+			]
+		);
+
+		self::factory()->post->create_many( 3, [ 'post_status' => 'publish' ] );
+
+		$paths = [];
+		$this->mock_algolia_http_client( $paths );
+
+		$request = new WP_REST_Request( 'POST', '/onesearch/v1/re-index' );
+		$request->set_header( 'X-OneSearch-Token', Settings::get_api_key() );
+		$request->set_header( 'Origin', 'https://governing.example.com' );
+		$data = $this->server->dispatch( $request )->get_data();
+
+		$this->assertTrue( $data['success'] );
+		$this->assertSame( 1, $data['batch_count'], 'The batch count is estimated up front.' );
+		$this->assertSame( [], $paths, 'Algolia is only called once the background run starts.' );
+
+		$this->assertSame( Abstract_Job::STATUS_PENDING, ( new Job_Scheduler() )->get_status( $data['job_id'] )['status'] );
+		$this->assertNotFalse(
+			as_next_scheduled_action(
+				Job_Scheduler::HOOK,
+				[
+					'job_class' => Reindex_Job::class,
+					'job_id'    => $data['job_id'],
+				],
+				'onesearch_reindex'
+			)
+		);
 
 		delete_transient( Search_Controller::REINDEX_STATE_TRANSIENT );
 	}

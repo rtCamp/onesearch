@@ -233,7 +233,11 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 			);
 		}
 
-		$status = $this->maybe_finalize_remote_job( $status, $scheduler );
+		// Settled here too, so an open progress view sees a run that was waiting on its brand sites finish promptly.
+		if ( Abstract_Job::STATUS_RUNNING === ( $status['status'] ?? '' ) && ! empty( $status['data']['_needs_remote_finalize'] ) ) {
+			$scheduler->settle_parent( (string) $job_id );
+			$status = $scheduler->get_status( (string) $job_id ) ?: $status;
+		}
 
 		return new WP_REST_Response(
 			[
@@ -241,71 +245,6 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 				'job'     => $status,
 			]
 		);
-	}
-
-	/**
-	 * Finalize a parent job that is waiting on remote site statuses.
-	 *
-	 * When a governing-site reindex has local children all done but remote
-	 * child sites still in flight, notify_parent() stores the parent as
-	 * RUNNING with _needs_remote_finalize. This method re-checks remote
-	 * statuses and transitions the parent to its true terminal state so
-	 * that the progress UI can dismiss.
-	 *
-	 * @param array<string, mixed>                       $job       Job status array.
-	 * @param \OneSearch\Modules\Scheduler\Job_Scheduler $scheduler Scheduler instance.
-	 * @return array<string, mixed> Possibly updated job status.
-	 */
-	private function maybe_finalize_remote_job( array $job, Job_Scheduler $scheduler ): array {
-		if ( Abstract_Job::STATUS_RUNNING !== ( $job['status'] ?? '' ) ) {
-			return $job;
-		}
-
-		$needs_finalize = $job['data']['_needs_remote_finalize'] ?? false;
-		if ( ! $needs_finalize || ! Settings::is_governing_site() ) {
-			return $job;
-		}
-
-		$remote_sites = $job['data']['sites'] ?? [];
-		if ( ! is_array( $remote_sites ) || count( $remote_sites ) <= 1 ) {
-			return $job;
-		}
-
-		$r = $scheduler->check_remote_job_statuses( $remote_sites );
-		if ( $r['running'] > 0 ) {
-			return $job;
-		}
-
-		if ( $r['cancelled'] > 0 ) {
-			$job['status'] = Abstract_Job::STATUS_CANCELLED;
-		} elseif ( $r['failed'] > 0 ) {
-			$job['status'] = Abstract_Job::STATUS_FAILED;
-			$job['error']  = sprintf(
-				/* translators: 1: failed remote sites */
-				__( '%1$d remote site(s) failed', 'onesearch' ),
-				$r['failed']
-			);
-		} else {
-			$job['status'] = Abstract_Job::STATUS_COMPLETED;
-		}
-
-		$job['children_failed'] = max(
-			(int) ( $job['children_failed'] ?? 0 ),
-			$r['failed'] + $r['cancelled']
-		);
-		$job['progress']        = $job['progress_total'] ?? 0;
-		$job['finished_at']     = time();
-		$job['updated_at']      = time();
-
-		$repository = new Job_Repository();
-		$repository->upsert( $job );
-
-		$parent_key = Job_Scheduler::OPTION_PREFIX . ( $job['id'] ?? '' );
-		delete_transient( $parent_key );
-
-		Search_Controller::clear_reindex_state();
-
-		return $job;
 	}
 
 	/**
@@ -504,6 +443,20 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 		if ( empty( $failed_children ) ) {
 			// A failed parent with all children complete is a notify_parent()/cancel() race; reconcile it to completed.
 			if ( $completed_children > 0 ) {
+				// A brand site may be retrying its own batches right now, so the run finishes once they're done.
+				if ( $scheduler->get_remote_sites( $parent_data ) ) {
+					$scheduler->await_remote_sites( $parent_data );
+
+					return new WP_REST_Response(
+						[
+							'success' => true,
+							'message' => __( 'All batches on this site already completed. Waiting for the brand sites.', 'onesearch' ),
+							'job_id'  => $parent_id,
+							'retried' => 0,
+						]
+					);
+				}
+
 				$repository                        = new Job_Repository();
 				$parent_data['status']             = Abstract_Job::STATUS_COMPLETED;
 				$parent_data['children_failed']    = 0;
@@ -588,6 +541,7 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 		$repository = new Job_Repository();
 		$repository->reset_counters( $parent_id, $completed_children, 0, 0 );
 
+		$parent_data                       = self::forget_finish( $parent_data );
 		$parent_data['status']             = Abstract_Job::STATUS_RUNNING;
 		$parent_data['children_completed'] = $completed_children;
 		$parent_data['children_failed']    = 0;
@@ -600,6 +554,22 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 		$repository->upsert( $parent_data );
 		$parent_key = Job_Scheduler::OPTION_PREFIX . $parent_id;
 		set_transient( $parent_key, $parent_data, Job_Scheduler::TRANSIENT_EXPIRATION );
+	}
+
+	/**
+	 * Drop what a finished run recorded about its brand sites, so it's recorded afresh when the retried run finishes.
+	 *
+	 * @param array<string, mixed> $parent_data Stored parent job data.
+	 * @return array<string, mixed>
+	 */
+	private static function forget_finish( array $parent_data ): array {
+		unset(
+			$parent_data['data']['_remote_aggregated'],
+			$parent_data['data']['_needs_remote_finalize'],
+			$parent_data['data']['_remote_waiting_since']
+		);
+
+		return $parent_data;
 	}
 
 	/**
@@ -624,6 +594,7 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 		$parent_data['children_failed']    = $new_failed;
 
 		if ( in_array( $parent_data['status'] ?? '', Job_Scheduler::TERMINAL_STATUSES, true ) ) {
+			$parent_data               = self::forget_finish( $parent_data );
 			$parent_data['status']     = Abstract_Job::STATUS_RUNNING;
 			$parent_data['updated_at'] = time();
 		}
@@ -717,6 +688,7 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 			}
 		}
 
+		$parent_data                       = self::forget_finish( $parent_data );
 		$parent_data['child_ids']          = [];
 		$parent_data['children_completed'] = 0;
 		$parent_data['children_failed']    = 0;
@@ -881,7 +853,8 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 			return '';
 		};
 
-		$derived_status = $determine_status_from_children();
+		// A run that failed on its own stays failed until it's retried, even though failing cancels the batches it had queued.
+		$derived_status = Abstract_Job::STATUS_FAILED === ( $job['status'] ?? '' ) ? '' : $determine_status_from_children();
 
 		if ( '' !== $derived_status && ( $job['status'] ?? '' ) !== $derived_status ) {
 			$job['status'] = $derived_status;
@@ -896,50 +869,14 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 			}
 		}
 
-		if ( $has_remote && empty( $job['data']['_remote_aggregated'] ) ) {
-			$resolved       = true;
-			$needs_finalize = ! empty( $job['data']['_needs_remote_finalize'] );
+		// Covers runs settle_parent() didn't finish, like cancelled ones, so later history loads needn't ask the brand sites again.
+		if ( $has_remote && empty( $job['data']['_remote_aggregated'] ) && in_array( $job['status'] ?? '', Job_Scheduler::TERMINAL_STATUSES, true ) ) {
+			unset( $job['data']['_needs_remote_finalize'], $job['data']['_remote_waiting_since'] );
+			$job['data']['_remote_aggregated'] = true;
+			$job['finished_at']                = $job['finished_at'] ?? time();
+			$job['updated_at']                 = time();
 
-			if ( $needs_finalize
-				&& Abstract_Job::STATUS_RUNNING === ( $job['status'] ?? '' )
-				&& 0 === $local_failed && 0 === $local_cancelled
-			) {
-				$r = $scheduler->check_remote_job_statuses( $remote_sites );
-
-				if ( $r['running'] > 0 ) {
-					// Leave uncached while remote sites are in flight so the next history load re-polls.
-					$resolved = false;
-				} else {
-					if ( $r['cancelled'] > 0 ) {
-						$job['status'] = Abstract_Job::STATUS_CANCELLED;
-					} elseif ( $r['failed'] > 0 ) {
-						$job['status'] = Abstract_Job::STATUS_FAILED;
-						$job['error']  = sprintf(
-							/* translators: 1: failed remote sites */
-							__( '%1$d remote site(s) failed', 'onesearch' ),
-							$r['failed']
-						);
-					} else {
-						$job['status'] = Abstract_Job::STATUS_COMPLETED;
-					}
-
-					$job['children_failed'] = max(
-						(int) ( $job['children_failed'] ?? 0 ),
-						$r['failed'] + $r['cancelled']
-					);
-				}
-			}
-
-			// Marking the row at terminal state lets future history loads skip remote polling.
-			if ( $resolved && in_array( $job['status'] ?? '', Job_Scheduler::TERMINAL_STATUSES, true ) ) {
-				unset( $job['data']['_needs_remote_finalize'] );
-				$job['data']['_remote_aggregated'] = true;
-				$job['finished_at']                = $job['finished_at'] ?? time();
-				$job['updated_at']                 = time();
-
-				$repository = new Job_Repository();
-				$repository->upsert( $job );
-			}
+			( new Job_Repository() )->upsert( $job );
 		}
 
 		return $job;

@@ -9,6 +9,7 @@ declare( strict_types = 1 );
 
 namespace OneSearch\Tests\Integration\Modules\Rest;
 
+use OneSearch\Modules\Jobs\Abstract_Job;
 use OneSearch\Modules\Jobs\Reindex_Job;
 use OneSearch\Modules\Rest\Abstract_REST_Controller;
 use OneSearch\Modules\Rest\Search_Controller;
@@ -433,6 +434,81 @@ class Search_Controller_GoverningSiteTest extends TestCase {
 
 		$this->assertTrue( $succeeded['success'] );
 		$this->assertFalse( $failed['success'] );
+	}
+
+	/**
+	 * A governing site with nothing of its own to index still waits for the brand sites it started.
+	 */
+	public function test_reindex_waits_for_brand_sites_when_nothing_is_indexed_here(): void {
+		update_option(
+			Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES,
+			[
+				'entities' => [
+					\OneSearch\Utils::normalize_url( get_site_url() ) => [],
+				],
+			]
+		);
+		Search_Settings::set_algolia_credentials(
+			[
+				'app_id'    => 'APP',
+				'write_key' => 'KEY',
+			]
+		);
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Site A',
+					'url'     => 'https://site-a.example.com/',
+					'api_key' => 'key-a',
+				],
+			]
+		);
+
+		$recorded_paths = [];
+		$this->mock_algolia_http_client( $recorded_paths );
+
+		$brand = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( ! str_contains( $url, 'site-a.example.com' ) ) {
+				return $preempt;
+			}
+
+			$body = str_contains( $url, '/re-index' )
+				? [
+					'success'     => true,
+					'job_id'      => 'brand-job',
+					'batch_count' => 2,
+				]
+				: [
+					'success' => true,
+					'job'     => [
+						'status'             => Abstract_Job::STATUS_RUNNING,
+						'children_total'     => 2,
+						'children_completed' => 0,
+					],
+				];
+
+			return [
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
+				],
+				'body'     => (string) wp_json_encode( $body ),
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $brand, 10, 3 );
+
+		$data = $this->server->dispatch( new WP_REST_Request( 'POST', '/onesearch/v1/re-index' ) )->get_data();
+
+		remove_filter( 'pre_http_request', $brand );
+		AlgoliaSDK::resetHttpClient();
+
+		$this->assertTrue( $data['success'] );
+
+		$job = ( new Job_Scheduler() )->get_status( $data['job_id'] );
+		$this->assertSame( Abstract_Job::STATUS_RUNNING, $job['status'], 'The brand site is still running.' );
+		$this->assertTrue( $job['data']['_needs_remote_finalize'] );
 	}
 
 	/**

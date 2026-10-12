@@ -33,6 +33,13 @@ use WP_REST_Request;
 #[CoversClass( Sync_Job::class )]
 class Job_REST_Controller_Test extends TestCase {
 	/**
+	 * The job the mocked brand site reports.
+	 *
+	 * @var array<string, mixed>
+	 */
+	private array $brand_job = [];
+
+	/**
 	 * REST server.
 	 */
 	private ?\WP_REST_Server $server;
@@ -303,6 +310,78 @@ class Job_REST_Controller_Test extends TestCase {
 	}
 
 	/**
+	 * Record a run as having also started on a brand site, whose job the mocked brand site reports.
+	 *
+	 * @param string $job_id        The governing site's job ID.
+	 * @param string $brand_status  The brand job's status.
+	 * @param int    $brand_batches The brand job's batch count.
+	 */
+	private function run_on_brand_site( string $job_id, string $brand_status, int $brand_batches ): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Brand',
+					'url'     => 'https://brand.example.com/',
+					'api_key' => 'brand-key',
+				],
+			]
+		);
+
+		$this->brand_job = [
+			'status'             => $brand_status,
+			'children_total'     => $brand_batches,
+			'children_completed' => Abstract_Job::STATUS_COMPLETED === $brand_status ? $brand_batches : 0,
+			'children_failed'    => 0,
+		];
+		add_filter( 'pre_http_request', [ $this, 'mock_brand_job' ], 10, 3 );
+
+		$data                  = $this->scheduler->get_status( $job_id );
+		$data['data']['sites'] = [
+			[
+				'site_url'    => get_site_url(),
+				'job_id'      => $job_id,
+				'batch_count' => count( $data['child_ids'] ),
+			],
+			[
+				'site_url'    => 'https://brand.example.com/',
+				'job_id'      => 'brand-job',
+				'batch_count' => $brand_batches,
+			],
+		];
+		( new Job_Repository() )->upsert( $data );
+	}
+
+	/**
+	 * Answers the brand site's job requests with $this->brand_job.
+	 *
+	 * @param false|array<string, mixed>|\WP_Error $preempt Whether to preempt the request.
+	 * @param array<string, mixed>                 $args    The request arguments.
+	 * @param string                               $url     The request URL.
+	 * @return false|array<string, mixed>|\WP_Error
+	 */
+	public function mock_brand_job( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+		if ( ! str_contains( $url, 'brand.example.com' ) ) {
+			return $preempt;
+		}
+
+		return [
+			'response' => [
+				'code'    => 200,
+				'message' => 'OK',
+			],
+			'body'     => (string) wp_json_encode(
+				[
+					'success' => true,
+					'job'     => $this->brand_job,
+				]
+			),
+			'headers'  => [],
+			'cookies'  => [],
+		];
+	}
+
+	/**
 	 * Persist a Reindex_Job that failed before it scheduled any batch.
 	 */
 	private function create_failed_reindex_job(): Reindex_Job {
@@ -465,6 +544,130 @@ class Job_REST_Controller_Test extends TestCase {
 		$this->assertArrayHasKey( $parent->get_id(), $jobs );
 		$this->assertSame( Abstract_Job::STATUS_FAILED, $jobs[ $parent->get_id() ]['status'] );
 		$this->assertSame( 1, $jobs[ $parent->get_id() ]['children_failed'] );
+	}
+
+	/**
+	 * Loading the history keeps a reindex that failed while scheduling its batches as failed.
+	 *
+	 * Failing cancels the batches it had queued. Reading those as a cancellation would store the run as
+	 * cancelled on a governing site, which can't be retried, so it could never be restarted.
+	 */
+	public function test_history_keeps_a_reindex_that_failed_while_scheduling_retryable(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Brand',
+					'url'     => 'https://brand.example.com/',
+					'api_key' => 'brand-key',
+				],
+			]
+		);
+
+		$job  = $this->create_failed_reindex_with_batches( [ Abstract_Job::STATUS_CANCELLED, Abstract_Job::STATUS_CANCELLED ] );
+		$data = $this->scheduler->get_status( $job->get_id() );
+
+		$data['data']['sites'] = [
+			[
+				'site_url'    => get_site_url(),
+				'job_id'      => $job->get_id(),
+				'batch_count' => 2,
+			],
+			[
+				'site_url'    => 'https://brand.example.com/',
+				'job_id'      => 'brand-job',
+				'batch_count' => 1,
+			],
+		];
+		( new Job_Repository() )->upsert( $data );
+
+		$brand_job = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( ! str_contains( $url, 'brand.example.com' ) ) {
+				return $preempt;
+			}
+
+			return [
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
+				],
+				'body'     => (string) wp_json_encode(
+					[
+						'success' => true,
+						'job'     => [
+							'status'             => Abstract_Job::STATUS_COMPLETED,
+							'children_completed' => 1,
+							'children_total'     => 1,
+						],
+					]
+				),
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $brand_job, 10, 3 );
+
+		$history = $this->server->dispatch( new WP_REST_Request( 'GET', '/onesearch/v1/jobs/history' ) )->get_data();
+		$jobs    = array_column( $history['jobs'], null, 'id' );
+
+		$this->assertSame( Abstract_Job::STATUS_FAILED, $jobs[ $job->get_id() ]['status'] );
+		$this->assertSame( Abstract_Job::STATUS_FAILED, $this->scheduler->get_status( $job->get_id() )['status'], 'The stored run must stay failed too.' );
+
+		$response = $this->server->dispatch( new WP_REST_Request( 'POST', '/onesearch/v1/jobs/' . $job->get_id() . '/retry' ) );
+
+		remove_filter( 'pre_http_request', $brand_job );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( Abstract_Job::STATUS_PENDING, $this->scheduler->get_status( $job->get_id() )['status'], 'The run has to restart from scratch.' );
+	}
+
+	/**
+	 * Correcting a governing run whose batches here all finished waits for its brand sites, which may be retrying their own.
+	 */
+	public function test_correcting_a_governing_run_waits_for_its_brand_sites(): void {
+		$job = $this->create_failed_reindex_with_batches( [ Abstract_Job::STATUS_COMPLETED, Abstract_Job::STATUS_COMPLETED ] );
+		( new Job_Repository() )->reset_counters( $job->get_id(), 2, 0, 0 );
+		$this->run_on_brand_site( $job->get_id(), Abstract_Job::STATUS_RUNNING, 1 );
+
+		$response = $this->server->dispatch( new WP_REST_Request( 'POST', '/onesearch/v1/jobs/' . $job->get_id() . '/retry' ) );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertStringContainsString( 'Waiting for the brand sites', $response->get_data()['message'] );
+		$this->assertSame( Abstract_Job::STATUS_RUNNING, $this->scheduler->get_status( $job->get_id() )['status'] );
+
+		$this->brand_job['status'] = Abstract_Job::STATUS_COMPLETED;
+
+		$data = $this->server->dispatch( new WP_REST_Request( 'GET', '/onesearch/v1/jobs/' . $job->get_id() ) )->get_data();
+
+		$this->assertSame( Abstract_Job::STATUS_COMPLETED, $data['job']['status'] );
+	}
+
+	/**
+	 * A retried governing run records its totals afresh when it finishes, rather than keeping the ones from before the retry.
+	 */
+	public function test_retried_governing_run_records_fresh_totals(): void {
+		$this->set_up_governing_site();
+		$paths = [];
+		$this->mock_algolia_http_client( $paths );
+
+		$job = $this->create_failed_reindex_with_batches( [ Abstract_Job::STATUS_COMPLETED, Abstract_Job::STATUS_FAILED ] );
+		( new Job_Repository() )->reset_counters( $job->get_id(), 2, 1, 0 );
+		$this->run_on_brand_site( $job->get_id(), Abstract_Job::STATUS_COMPLETED, 3 );
+
+		// Totals recorded when the run failed, before the retry.
+		$data                               = $this->scheduler->get_status( $job->get_id() );
+		$data['children_completed']         = 1;
+		$data['data']['_remote_aggregated'] = true;
+		( new Job_Repository() )->upsert( $data );
+
+		$failed_batch = $data['child_ids'][1];
+		$this->server->dispatch( new WP_REST_Request( 'POST', '/onesearch/v1/jobs/' . $job->get_id() . '/retry' ) );
+		$this->scheduler->execute_job( Sync_Job::class, $failed_batch );
+
+		$parent = $this->scheduler->get_status( $job->get_id() );
+		$this->assertSame( Abstract_Job::STATUS_COMPLETED, $parent['status'] );
+		$this->assertSame( 5, $parent['data']['total_batches'] );
+		$this->assertSame( 5, $parent['children_completed'], '2 batches here and 3 on the brand site.' );
 	}
 
 	/**
