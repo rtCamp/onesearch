@@ -11,9 +11,9 @@ namespace OneSearch\Modules\Rest;
 
 use OneSearch\Modules\Jobs\Reindex_Job;
 use OneSearch\Modules\Scheduler\Job_Scheduler;
+use OneSearch\Modules\Search\Indexer;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
-use OneSearch\Utils;
 use WP_REST_Response;
 use WP_REST_Server;
 
@@ -182,8 +182,7 @@ class Search_Controller extends Abstract_REST_Controller {
 			);
 		}
 
-		$is_valid = $this->validate_algolia_key( $app_id, $write_key );
-		if ( ! $is_valid ) {
+		if ( ! Indexer::validate_credentials( $app_id, $write_key ) ) {
 			return new \WP_Error(
 				'onesearch_algolia_credentials_invalid',
 				__( 'The provided Algolia credentials are invalid or lack necessary permissions.', 'onesearch' ),
@@ -325,11 +324,24 @@ class Search_Controller extends Abstract_REST_Controller {
 			}
 		}
 
-		$post_types = $this->get_post_types_to_index();
+		$post_types = Indexer::get_indexable_post_types();
 
+		// Reported like any other failure, so a governing site can relay the brand's own message.
 		if ( is_wp_error( $post_types ) ) {
 			$this->release_reindex_lock( $lock_key );
-			return $post_types;
+
+			$errors[] = [
+				'site_url' => get_site_url(),
+				'message'  => $post_types->get_error_message(),
+			];
+
+			return rest_ensure_response(
+				[
+					'success' => false,
+					'message' => implode( "\n", array_column( $errors, 'message' ) ),
+					'errors'  => $errors,
+				]
+			);
 		}
 
 		// The parent runs inline so the caller gets child job IDs back; only the child Sync_Jobs go async via AS.
@@ -417,6 +429,7 @@ class Search_Controller extends Abstract_REST_Controller {
 				'message'     => empty( $errors )
 					? __( 'Re-indexing scheduled successfully.', 'onesearch' )
 					: implode( "\n", array_column( $errors, 'message' ) ),
+				'errors'      => $errors,
 				'job_id'      => $job_id,
 				'batch_count' => count( $job->get_child_ids() ),
 				'jobs'        => $jobs,
@@ -514,65 +527,6 @@ class Search_Controller extends Abstract_REST_Controller {
 	}
 
 	/**
-	 * Validate the Algolia Key before saving.
-	 *
-	 * @param string $app_id    The Algolia Application ID.
-	 * @param string $write_key The Algolia Write Key.
-	 */
-	private function validate_algolia_key( string $app_id, string $write_key ): bool {
-		try {
-			$client = \OneSearch\Vendor\Algolia\AlgoliaSearch\SearchClient::create( $app_id, $write_key );
-			// Try to get API key information to check permissions (ACL).
-			$key_info = $client->getApiKey( $write_key );
-
-			// Check if key has required write permissions.
-			$acl = $key_info['acl'] ?? [];
-
-			// Required permissions for write operations.
-			$required_permissions = [ 'addObject', 'deleteObject' ];
-			foreach ( $required_permissions as $permission ) {
-				if ( ! in_array( $permission, $acl, true ) ) {
-					return false;
-				}
-			}
-
-			return true;
-		} catch ( \Throwable $e ) {
-			return false;
-		}
-	}
-
-	/**
-	 * Get the post types to index for the site.
-	 *
-	 * @return \WP_Error|string[]
-	 */
-	private function get_post_types_to_index(): array|\WP_Error {
-		// For governing sets, get it from the local options.
-		if ( Settings::is_governing_site() ) {
-			$opt        = Search_Settings::get_indexable_entities();
-			$site_url   = Utils::normalize_url( get_site_url() );
-			$post_types = $opt['entities'][ $site_url ] ?? null;
-
-			return is_array( $post_types ) ? array_values( array_unique( array_map( 'strval', $post_types ) ) ) : [];
-		}
-
-		// For consumer sites, fetch from parent.
-		$parent_url = Settings::get_parent_site_url();
-		if ( empty( $parent_url ) ) {
-			return new \WP_Error( 'no_parent_url', __( 'Parent site URL not configured.', 'onesearch' ), [ 'status' => 400 ] );
-		}
-
-		$brand_config = Governing_Data_Handler::get_brand_config();
-
-		if ( is_wp_error( $brand_config ) ) {
-			return $brand_config;
-		}
-
-		return $brand_config['indexable_entities'] ?? [];
-	}
-
-	/**
 	 * Trigger batch reindexing of all child sites (for governing sites).
 	 *
 	 * @return array{ jobs: array<int,array{site_name:string,site_url:string,job_id:string}>, errors: array<int,array{site_url:string,message:string}>, batch_counts: array<int,int> }
@@ -641,6 +595,15 @@ class Search_Controller extends Abstract_REST_Controller {
 					'message'  => __( 'The site returned an invalid response.', 'onesearch' ),
 				];
 				continue;
+			}
+
+			if ( empty( $response_data['success'] ) ) {
+				$site_messages = is_array( $response_data['errors'] ?? null ) ? array_filter( array_column( $response_data['errors'], 'message' ), 'is_string' ) : [];
+
+				$errors[] = [
+					'site_url' => $site_data['url'],
+					'message'  => $site_messages ? implode( ' ', $site_messages ) : __( 'The site failed to re-index.', 'onesearch' ),
+				];
 			}
 
 			if ( ! empty( $response_data['job_id'] ) ) {

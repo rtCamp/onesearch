@@ -10,8 +10,7 @@ declare( strict_types = 1 );
 namespace OneSearch\Modules\Jobs;
 
 use OneSearch\Modules\Scheduler\Job_Scheduler;
-use OneSearch\Modules\Search\Index;
-use OneSearch\Utils;
+use OneSearch\Modules\Search\Indexer;
 
 /**
  * Class - Reindex_Job
@@ -64,13 +63,13 @@ final class Reindex_Job extends Abstract_Job {
 	 * memory at O(batch_size) regardless of total post count. Each WP_Query
 	 * page becomes exactly one child job — no full ID list is accumulated.
 	 *
-	 * @throws \InvalidArgumentException If post_types is missing or empty.
-	 * @throws \RuntimeException         If scheduling a child fails.
+	 * @throws \InvalidArgumentException If post_types is missing.
+	 * @throws \RuntimeException         If clearing the site's records or scheduling a child fails.
 	 */
 	public function handle(): void {
-		$post_types = $this->data['post_types'] ?? [];
+		$post_types = $this->data['post_types'] ?? null;
 
-		if ( empty( $post_types ) ) {
+		if ( ! is_array( $post_types ) ) {
 			throw new \InvalidArgumentException( 'Reindex_Job requires post_types in data payload.' );
 		}
 
@@ -80,12 +79,18 @@ final class Reindex_Job extends Abstract_Job {
 		$allowed_statuses = \OneSearch\Modules\Search\Post_Record::get_allowed_statuses( $post_types );
 
 		// Clearing up front means a failed reindex leaves the site unsearchable until the next successful run.
-		$indexer = new Index();
-		$indexer->delete_by(
-			[
-				'filters' => sprintf( 'site_url:"%s"', Utils::normalize_url( get_site_url() ) ),
-			]
-		);
+		$is_cleared = ( new Indexer() )->clear_site_records();
+		if ( is_wp_error( $is_cleared ) ) {
+			throw new \RuntimeException(
+				sprintf( 'Failed to clear the site\'s Algolia records: %s', esc_html( self::describe_error( $is_cleared ) ) )
+			);
+		}
+
+		// A site with nothing to index is done once its old records are gone.
+		if ( empty( $post_types ) ) {
+			$this->mark_completed();
+			return;
+		}
 
 		$batch_size = $this->data['batch_size'] ?? 100;
 		$batch_size = max( 1, min( $batch_size, 500 ) );

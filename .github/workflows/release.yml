@@ -31,12 +31,13 @@ jobs:
     permissions:
       contents: read
     needs: release-please
-    if: ${{ needs.release-please.outputs.release_created }}
-    uses: ./.github/workflows/reusable-build.yml
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    uses: rtCamp/plugin-skeleton-d/.github/workflows/reusable-build-public.yml@72dd3643b710bd84eed7c6143312c9434a95d352 # v0.2.0
     with:
       php-version: '8.3'
+      plugin-slug: onesearch
       artifact-name: onesearch
-    secrets: inherit
+      ref: ${{ needs.release-please.outputs.tag_name }}
 
   upload:
     name: Upload release asset
@@ -56,4 +57,5 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-        run: gh release upload ${{ needs.release-please.outputs.tag_name }} onesearch.zip --clobber
+          TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
+        run: gh release upload "$TAG_NAME" onesearch.zip --clobber

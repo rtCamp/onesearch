@@ -17,6 +17,12 @@ use OneSearch\Utils;
 
 /**
  * Class - Settings
+ *
+ * `IndexableEntities` holds the post types each site indexes, keyed by normalized site URL.
+ *
+ * @phpstan-type IndexableEntities array{
+ *   entities?: array<string, string[]>,
+ * }
  */
 final class Settings implements Registrable {
 	/**
@@ -45,7 +51,7 @@ final class Settings implements Registrable {
 		add_action( 'rest_api_init', [ $this, 'register_settings' ] );
 
 		// Listen to updates.
-		add_action( 'update_option_' . Admin_Settings::OPTION_SITE_TYPE, [ $this, 'on_site_type_change' ], 10, 2 );
+		add_action( 'update_option', [ $this, 'on_site_type_change' ], 10, 3 );
 		add_action( 'update_option_' . Admin_Settings::OPTION_GOVERNING_SHARED_SITES, [ $this, 'on_shared_sites_change' ], 10, 2 );
 
 		// Purge algolia caches when search settings change.
@@ -89,17 +95,22 @@ final class Settings implements Registrable {
 				],
 			],
 			self::OPTION_GOVERNING_INDEXABLE_SITES     => [
-				// It's an object with a string key and string[] values.
 				'type'              => 'object',
 				'label'             => __( 'Indexable Entities', 'onesearch' ),
 				'description'       => __( 'List of content types that can be indexed by brand sites.', 'onesearch' ),
-				'sanitize_callback' => static function ( $value ) {
-					if ( ! is_array( $value ) ) {
-						return [];
+				'sanitize_callback' => static function ( $value ): array {
+					$entities = is_array( $value ) && is_array( $value['entities'] ?? null ) ? $value['entities'] : [];
+
+					$sanitized = [];
+					foreach ( $entities as $site_url => $post_types ) {
+						if ( ! is_array( $post_types ) ) {
+							continue;
+						}
+
+						$sanitized[ Utils::normalize_url( (string) $site_url ) ] = array_values( array_unique( array_map( 'sanitize_key', array_filter( $post_types, 'is_string' ) ) ) );
 					}
 
-					// @todo what is this array shape?
-					return $value;
+					return [ 'entities' => $sanitized ];
 				},
 				'show_in_rest'      => true,
 			],
@@ -164,20 +175,24 @@ final class Settings implements Registrable {
 	}
 
 	/**
-	 * Deletes Algolia index when site type is changed to consumer.
+	 * Deletes the Algolia index when a governing site is changed to a consumer.
 	 *
 	 * @internal Hook callback
 	 *
-	 * @param mixed $old_value The old value.
-	 * @param mixed $new_value The new value.
+	 * @param string $option    The option name.
+	 * @param mixed  $old_value The old value.
+	 * @param mixed  $new_value The new value.
 	 */
-	public function on_site_type_change( $old_value, $new_value ): void { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-		if ( Admin_Settings::SITE_TYPE_CONSUMER !== $new_value ) {
+	public function on_site_type_change( $option, $old_value, $new_value ): void {
+		if (
+			Admin_Settings::OPTION_SITE_TYPE !== $option ||
+			Admin_Settings::SITE_TYPE_GOVERNING !== $old_value ||
+			Admin_Settings::SITE_TYPE_CONSUMER !== $new_value
+		) {
 			return;
 		}
 
-		$indexer = new Index();
-		$indexer->delete_index();
+		( new Indexer() )->delete_index();
 	}
 
 	/**
@@ -210,20 +225,7 @@ final class Settings implements Registrable {
 			return;
 		}
 
-		$indexer = new Index();
-
-		$filters = implode(
-			' OR ',
-			array_map(
-				static function ( $site_url ) {
-					return sprintf( 'site_url:"%s"', $site_url );
-				},
-				$removed_sites
-			)
-		);
-		// Wrap the OR expression in quotes per Algolia requirements.
-		// @see: https://www.algolia.com/doc/rest-api/search/delete-by#body-filters .
-		$success = $indexer->delete_by( [ 'filters' => "\"$filters\"" ] );
+		$success = ( new Indexer() )->delete_site_records( array_values( $removed_sites ) );
 
 		if ( is_wp_error( $success ) ) {
 			return;
@@ -231,17 +233,8 @@ final class Settings implements Registrable {
 
 		// Then remove from indexable entities.
 		$indexable_entities = self::get_indexable_entities();
-		$entities_map       = isset( $indexable_entities['entities'] ) && is_array( $indexable_entities['entities'] ) ? $indexable_entities['entities'] : [];
-
-		$updated_map = [];
-		foreach ( $entities_map as $entity => $site_urls ) {
-			$updated_site_urls = array_diff( $site_urls, $removed_sites );
-			if ( empty( $updated_site_urls ) ) {
-				continue;
-			}
-
-			$updated_map[ $entity ] = array_values( $updated_site_urls );
-		}
+		$entities_map       = $indexable_entities['entities'] ?? [];
+		$updated_map        = array_diff_key( $entities_map, array_flip( $removed_sites ) );
 
 		if ( $updated_map === $entities_map ) {
 			return;
@@ -316,7 +309,7 @@ final class Settings implements Registrable {
 	/**
 	 * Get the indexable entities.
 	 *
-	 * @return array<string, mixed> The indexable entities.
+	 * @return IndexableEntities The indexable entities.
 	 */
 	public static function get_indexable_entities(): array {
 		$value = get_option( self::OPTION_GOVERNING_INDEXABLE_SITES, [] );

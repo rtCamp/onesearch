@@ -71,6 +71,8 @@ class Job_REST_Controller_Test extends TestCase {
 		global $wp_rest_server;
 		$wp_rest_server = null;
 
+		$this->tear_down_governing_site();
+
 		parent::tear_down();
 	}
 
@@ -159,6 +161,10 @@ class Job_REST_Controller_Test extends TestCase {
 	 * Running the re-queued action rebuilds the batches instead of failing.
 	 */
 	public function test_retried_reindex_job_schedules_batches_when_run(): void {
+		$this->set_up_governing_site();
+		$paths = [];
+		$this->mock_algolia_http_client( $paths );
+
 		self::factory()->post->create( [ 'post_status' => 'publish' ] );
 		$job = $this->create_failed_reindex_job();
 
@@ -198,6 +204,10 @@ class Job_REST_Controller_Test extends TestCase {
 	 * cancelled batches as done and mark the job completed.
 	 */
 	public function test_retry_reindex_that_failed_mid_scheduling_restarts_it(): void {
+		$this->set_up_governing_site();
+		$paths = [];
+		$this->mock_algolia_http_client( $paths );
+
 		self::factory()->post->create( [ 'post_status' => 'publish' ] );
 
 		$job = new Reindex_Job();

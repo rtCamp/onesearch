@@ -207,6 +207,44 @@ final class Sync_JobTest extends TestCase {
 	}
 
 	/**
+	 * Every indexable post in the batch is saved in a single write.
+	 */
+	public function test_saves_the_whole_batch_in_one_write(): void {
+		$this->set_up_governing_site();
+
+		$paths    = [];
+		$requests = [];
+		$this->mock_algolia_http_client( $paths, null, null, $requests );
+
+		$post_ids = self::factory()->post->create_many( 3, [ 'post_status' => 'publish' ] );
+
+		$this->run_sync_job( $post_ids );
+
+		$post_record = new Post_Record();
+
+		$this->assertCount( 1, array_filter( $paths, static fn ( string $path ): bool => str_ends_with( $path, '/batch' ) ) );
+		$this->assertEqualsCanonicalizing(
+			array_map( static fn ( int $post_id ): string => $post_record->get_site_post_id( $post_id ), $post_ids ),
+			$this->get_indexed_site_post_ids( $requests, 3 )
+		);
+	}
+
+	/**
+	 * A failed save fails the job with Algolia's own message, so the job's error explains it.
+	 */
+	public function test_failed_save_throws_with_algolia_message(): void {
+		$this->set_up_governing_site();
+
+		$paths = [];
+		$this->mock_algolia_http_client( $paths, null, '/batch' );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'forced test exception' );
+
+		$this->run_sync_job( [ self::factory()->post->create( [ 'post_status' => 'publish' ] ) ] );
+	}
+
+	/**
 	 * Runs a Sync_Job over a batch of posts, the way the scheduler would.
 	 *
 	 * @param int[] $post_ids The posts to sync.

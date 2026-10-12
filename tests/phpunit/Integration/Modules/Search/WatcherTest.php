@@ -119,6 +119,38 @@ final class WatcherTest extends TestCase {
 	}
 
 	/**
+	 * When the Sync_Job can't be queued, the post is synced during the request instead.
+	 */
+	public function test_syncs_inline_when_scheduling_fails(): void {
+		$this->set_up_governing_site();
+
+		$paths    = [];
+		$requests = [];
+		$this->mock_algolia_http_client( $paths, null, null, $requests );
+
+		$post = self::factory()->post->create_and_get( [ 'post_status' => 'publish' ] );
+
+		// Action Scheduler reports a failed enqueue as action ID 0.
+		add_filter( 'pre_as_enqueue_async_action', '__return_zero' );
+
+		( new Watcher() )->on_post_transition( 'publish', 'draft', $post );
+		$stored_id = $this->get_indexed_site_post_id( $requests );
+
+		$requests          = [];
+		$post->post_status = 'draft';
+
+		( new Watcher() )->on_post_transition( 'draft', 'publish', $post );
+
+		remove_filter( 'pre_as_enqueue_async_action', '__return_zero' );
+
+		$this->assertSame(
+			[ sprintf( 'site_post_id:"%s"', $stored_id ) ],
+			$this->get_delete_filters( $requests ),
+			'An unpublished post must have its records deleted inline.'
+		);
+	}
+
+	/**
 	 * Ensures a record is purged when wp_delete_post() is used to permanently delete the post directly.
 	 */
 	public function test_deletes_record_when_a_post_is_permanently_deleted(): void {

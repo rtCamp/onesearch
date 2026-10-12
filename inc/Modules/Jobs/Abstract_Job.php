@@ -512,6 +512,19 @@ abstract class Abstract_Job {
 	}
 
 	/**
+	 * Describe an error for a job's error message, including the underlying cause when there is one.
+	 *
+	 * The indexer keeps Algolia's own message in the error data, which is what explains a failure.
+	 *
+	 * @param \WP_Error $error The error.
+	 */
+	protected static function describe_error( \WP_Error $error ): string {
+		$data = $error->get_error_data();
+
+		return trim( sprintf( '%s %s', $error->get_error_message(), $data['message'] ?? '' ) );
+	}
+
+	/**
 	 * Mark the job as FAILED with an error message.
 	 *
 	 * @param string $error Description of what went wrong.

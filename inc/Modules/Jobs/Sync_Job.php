@@ -9,7 +9,7 @@ declare( strict_types = 1 );
 
 namespace OneSearch\Modules\Jobs;
 
-use OneSearch\Modules\Search\Index;
+use OneSearch\Modules\Search\Indexer;
 use OneSearch\Modules\Search\Post_Record;
 use function esc_html;
 use function get_post;
@@ -18,10 +18,9 @@ use function is_wp_error;
 /**
  * Class - Sync_Job
  *
- * Processes a batch of post IDs: transforms each post into Algolia
- * records via Post_Record::to_records() and saves them via Index::save_records().
- * For posts that are not indexable (e.g. trashed/draft), it deletes
- * the corresponding records from Algolia instead.
+ * Processes a batch of post IDs: saves the indexable posts' records via
+ * Indexer::save_posts(). For posts that are not indexable (e.g. trashed/draft),
+ * it deletes the corresponding records via Indexer::delete_posts() instead.
  */
 final class Sync_Job extends Abstract_Job {
 	/**
@@ -62,8 +61,8 @@ final class Sync_Job extends Abstract_Job {
 	/**
 	 * Execute the sync job.
 	 *
-	 * Iterates over post_ids from the data payload, transforms each
-	 * post into Algolia records, and saves or deletes them as appropriate.
+	 * Iterates over post_ids from the data payload, and saves or deletes
+	 * each post's records as appropriate, batching the saves and the deletes.
 	 *
 	 * @throws \InvalidArgumentException If post_ids is missing or empty.
 	 * @throws \RuntimeException         If any Algolia API operation fails.
@@ -78,11 +77,9 @@ final class Sync_Job extends Abstract_Job {
 		$this->progress_total = count( $post_ids );
 		$this->update_progress( 0 );
 
-		$index          = new Index();
-		$post_record    = new Post_Record();
-		$errors         = [];
-		$batch_records  = [];
-		$delete_filters = [];
+		$errors     = [];
+		$save_posts = [];
+		$delete_ids = [];
 
 		foreach ( $post_ids as $i => $post_id ) {
 			$post = get_post( $post_id );
@@ -96,42 +93,34 @@ final class Sync_Job extends Abstract_Job {
 			$should_index = in_array( $post->post_status, Post_Record::get_allowed_statuses( $post_types ), true );
 
 			if ( ! $should_index ) {
-				$delete_filters[] = sprintf( 'site_post_id:"%s"', $post_record->get_site_post_id( (int) $post_id ) );
+				$delete_ids[] = (int) $post_id;
 			} else {
-				$records = $post_record->to_records( $post );
-
-				if ( ! empty( $records ) ) {
-					foreach ( $records as $record ) {
-						$batch_records[] = $record;
-					}
-				}
+				$save_posts[] = $post;
 			}
 
 			$this->update_progress( $i + 1 );
 		}
 
-		if ( ! empty( $delete_filters ) ) {
-			$result = $index->delete_by(
-				[
-					'filters' => implode( ' OR ', $delete_filters ),
-				]
-			);
+		$indexer = new Indexer();
+
+		if ( ! empty( $delete_ids ) ) {
+			$result = $indexer->delete_posts( $delete_ids );
 			if ( is_wp_error( $result ) ) {
 				$errors[] = sprintf(
 					'Failed to delete %d posts from Algolia: %s',
-					count( $delete_filters ),
-					esc_html( $result->get_error_message() )
+					count( $delete_ids ),
+					esc_html( self::describe_error( $result ) )
 				);
 			}
 		}
 
-		if ( ! empty( $batch_records ) ) {
-			$result = $index->save_records( $batch_records );
+		if ( ! empty( $save_posts ) ) {
+			$result = $indexer->save_posts( $save_posts );
 			if ( is_wp_error( $result ) ) {
 				$errors[] = sprintf(
-					'Failed to save %d Algolia records for batch: %s',
-					count( $batch_records ),
-					esc_html( $result->get_error_message() )
+					'Failed to save %d posts to Algolia: %s',
+					count( $save_posts ),
+					esc_html( self::describe_error( $result ) )
 				);
 			}
 		}

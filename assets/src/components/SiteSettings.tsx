@@ -152,7 +152,15 @@ const SiteSettings = () => {
 			if ( ! response.ok ) {
 				throw new Error( 'Network response was not ok' );
 			}
+			const data = await response.json();
 			setGoverningSite( '' );
+
+			// Disconnected locally, but the governing site may still list this site.
+			if ( data?.governing_site_notified === false ) {
+				setNotice( { type: 'warning', message: data.message } );
+				return;
+			}
+
 			setNotice( {
 				type: 'success',
 				message: __(

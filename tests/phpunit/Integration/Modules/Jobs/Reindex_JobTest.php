@@ -11,7 +11,9 @@ namespace OneSearch\Tests\Integration\Modules\Jobs;
 
 use OneSearch\Modules\Jobs\Abstract_Job;
 use OneSearch\Modules\Jobs\Reindex_Job;
+use OneSearch\Modules\Scheduler\Job_Scheduler;
 use OneSearch\Tests\TestCase;
+use OneSearch\Utils;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
@@ -19,6 +21,17 @@ use PHPUnit\Framework\Attributes\CoversClass;
  */
 #[CoversClass( Reindex_Job::class )]
 class Reindex_JobTest extends TestCase {
+	/**
+	 * {@inheritDoc}
+	 */
+	protected function tearDown(): void {
+		as_unschedule_all_actions( Job_Scheduler::HOOK );
+
+		$this->tear_down_governing_site();
+
+		parent::tearDown();
+	}
+
 	/**
 	 * Verifies get_type() returns 'reindex'.
 	 */
@@ -92,6 +105,10 @@ class Reindex_JobTest extends TestCase {
 	 * when it failed and would otherwise keep the job from ever completing.
 	 */
 	public function test_handle_starts_with_a_fresh_batch_list(): void {
+		$this->set_up_governing_site();
+		$paths = [];
+		$this->mock_algolia_http_client( $paths );
+
 		self::factory()->post->create( [ 'post_status' => 'publish' ] );
 
 		$j = new Reindex_Job();
@@ -102,5 +119,51 @@ class Reindex_JobTest extends TestCase {
 
 		$this->assertNotContains( 'batch-from-an-earlier-attempt', $j->get_child_ids() );
 		$this->assertCount( 1, $j->get_child_ids() );
+	}
+
+	/**
+	 * The site's old records are cleared before any batch is queued, so posts that are gone don't linger.
+	 */
+	public function test_handle_clears_the_site_records(): void {
+		$this->set_up_governing_site();
+		$paths    = [];
+		$requests = [];
+		$this->mock_algolia_http_client( $paths, null, null, $requests );
+
+		self::factory()->post->create( [ 'post_status' => 'publish' ] );
+
+		$j = new Reindex_Job();
+		$j->set_data( [ 'post_types' => [ 'post' ] ] );
+		$j->handle();
+
+		$this->assertSame(
+			[ sprintf( 'site_url:"%s"', Utils::normalize_url( get_site_url() ) ) ],
+			$this->get_delete_filters( $requests )
+		);
+		$this->assertCount( 1, $j->get_child_ids() );
+	}
+
+	/**
+	 * A reindex that can't clear the site's records fails before queueing any batches.
+	 */
+	public function test_handle_throws_when_records_cannot_be_cleared(): void {
+		$this->set_up_governing_site();
+		$paths = [];
+		$this->mock_algolia_http_client( $paths, null, '/deleteByQuery' );
+
+		self::factory()->post->create( [ 'post_status' => 'publish' ] );
+
+		$j = new Reindex_Job();
+		$j->set_data( [ 'post_types' => [ 'post' ] ] );
+
+		try {
+			$j->handle();
+			$this->fail( 'Expected the reindex to fail.' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'Failed to clear the site\'s Algolia records', $e->getMessage() );
+			$this->assertStringContainsString( 'forced test exception', $e->getMessage(), 'Algolia\'s own message explains the failure.' );
+		}
+
+		$this->assertSame( [], $j->get_child_ids() );
 	}
 }

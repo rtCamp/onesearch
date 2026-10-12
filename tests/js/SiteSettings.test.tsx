@@ -16,6 +16,7 @@ const siteSettingsFetch = ( handlers: {
 	governingSiteUrl?: string;
 	regeneratedKey?: string;
 	deleteOk?: boolean;
+	disconnectResponse?: Record< string, unknown >;
 	failSecretKey?: boolean;
 	failGoverningSite?: boolean;
 	failRegenerate?: boolean;
@@ -58,7 +59,12 @@ const siteSettingsFetch = ( handlers: {
 
 			return {
 				ok: handlers.deleteOk ?? true,
-				json: jest.fn().mockResolvedValue( {} ),
+				json: jest.fn().mockResolvedValue(
+					handlers.disconnectResponse ?? {
+						success: true,
+						governing_site_notified: true,
+					}
+				),
 			} as unknown as Response;
 		}
 
@@ -172,6 +178,39 @@ describe( 'SiteSettings', () => {
 				}
 			)
 		).toBeInTheDocument();
+		expect( screen.getByDisplayValue( '' ) ).toBeInTheDocument();
+	} );
+
+	it( 'warns when the governing site could not be notified of the disconnection', async () => {
+		global.fetch = siteSettingsFetch( {
+			secretKey: 'brand-secret',
+			governingSiteUrl: 'https://governing.example.com/',
+			disconnectResponse: {
+				success: true,
+				governing_site_notified: false,
+				message: 'The governing site could not be notified.',
+			},
+		} );
+
+		render( <SiteSettings /> );
+
+		await screen.findByDisplayValue( 'https://governing.example.com/' );
+		fireEvent.click(
+			screen.getByRole( 'button', { name: 'Disconnect Governing Site' } )
+		);
+		fireEvent.click( screen.getByRole( 'button', { name: 'Disconnect' } ) );
+
+		expect(
+			await screen.findByText(
+				'The governing site could not be notified.',
+				{
+					selector: '.components-notice__content',
+				}
+			)
+		).toBeInTheDocument();
+		expect(
+			screen.queryByText( 'Governing site disconnected successfully.' )
+		).not.toBeInTheDocument();
 		expect( screen.getByDisplayValue( '' ) ).toBeInTheDocument();
 	} );
 
