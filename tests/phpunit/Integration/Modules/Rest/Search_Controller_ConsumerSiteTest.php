@@ -9,9 +9,12 @@ declare( strict_types = 1 );
 
 namespace OneSearch\Tests\Integration\Modules\Rest;
 
+use OneSearch\Modules\Jobs\Abstract_Job;
+use OneSearch\Modules\Jobs\Reindex_Job;
 use OneSearch\Modules\Rest\Abstract_REST_Controller;
 use OneSearch\Modules\Rest\Governing_Data_Handler;
 use OneSearch\Modules\Rest\Search_Controller;
+use OneSearch\Modules\Scheduler\Job_Scheduler;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -119,52 +122,56 @@ class Search_Controller_ConsumerSiteTest extends TestCase {
 	}
 
 	/**
-	 * Consumer reindex reaches the indexing step when the parent returns a valid
-	 * brand-config payload; without Algolia credentials, indexing reports failure
-	 * but the brand-config fetch path is fully traversed.
+	 * A reindex the governing site starts here runs in the background, since the governing site is waiting on the
+	 * response and clearing the old records could outlast its request.
 	 */
-	public function test_reindex_proceeds_when_parent_returns_valid_brand_config(): void {
+	public function test_reindex_from_governing_site_runs_in_the_background(): void {
 		Settings::set_parent_site_url( 'https://governing.example.com' );
-		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
 		Settings::regenerate_api_key();
 
-		$payload = [
-			'algolia_credentials' => [
-				'app_id'    => '',
-				'write_key' => '',
-			],
-			'search_settings'     => [
-				'algolia_enabled'  => false,
-				'searchable_sites' => [],
-			],
-			'indexable_entities'  => [ 'post' ],
-			'available_sites'     => [],
-		];
-
-		$filter = static function ( $preempt, $args, $url ) use ( $payload ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-			if ( false === strpos( $url, '/brand-config' ) ) {
-				return $preempt;
-			}
-			return [
-				'response' => [
-					'code'    => 200,
-					'message' => 'OK',
+		$method = new \ReflectionMethod( Governing_Data_Handler::class, 'set_brand_config_cache' );
+		$method->invoke(
+			null,
+			[
+				'algolia_credentials' => [
+					'app_id'    => 'test-app',
+					'write_key' => 'test-key',
 				],
-				'body'     => wp_json_encode( $payload ),
-				'headers'  => [],
-				'cookies'  => [],
-			];
-		};
-		add_filter( 'pre_http_request', $filter, 10, 3 );
+				'search_settings'     => [
+					'algolia_enabled'  => true,
+					'searchable_sites' => [],
+				],
+				'indexable_entities'  => [ 'post' ],
+				'available_sites'     => [],
+			]
+		);
 
-		$request  = new WP_REST_Request( 'POST', '/onesearch/v1/re-index' );
-		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
+		self::factory()->post->create_many( 3, [ 'post_status' => 'publish' ] );
 
-		remove_filter( 'pre_http_request', $filter );
+		$paths = [];
+		$this->mock_algolia_http_client( $paths );
 
-		$this->assertSame( 200, $response->get_status() );
-		$this->assertArrayHasKey( 'success', $data );
-		$this->assertArrayHasKey( 'message', $data );
+		$request = new WP_REST_Request( 'POST', '/onesearch/v1/re-index' );
+		$request->set_header( 'X-OneSearch-Token', Settings::get_api_key() );
+		$request->set_header( 'Origin', 'https://governing.example.com' );
+		$data = $this->server->dispatch( $request )->get_data();
+
+		$this->assertTrue( $data['success'] );
+		$this->assertSame( 1, $data['batch_count'], 'The batch count is estimated up front.' );
+		$this->assertSame( [], $paths, 'Algolia is only called once the background run starts.' );
+
+		$this->assertSame( Abstract_Job::STATUS_PENDING, ( new Job_Scheduler() )->get_status( $data['job_id'] )['status'] );
+		$this->assertNotFalse(
+			as_next_scheduled_action(
+				Job_Scheduler::HOOK,
+				[
+					'job_class' => Reindex_Job::class,
+					'job_id'    => $data['job_id'],
+				],
+				'onesearch_reindex'
+			)
+		);
+
+		delete_transient( Search_Controller::REINDEX_STATE_TRANSIENT );
 	}
 }

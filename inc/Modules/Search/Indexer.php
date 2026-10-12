@@ -35,11 +35,6 @@ final class Indexer {
 	private const REQUIRED_ACL = [ 'search', 'addObject', 'deleteIndex', 'settings', 'editSettings' ];
 
 	/**
-	 * The default batch size for indexing.
-	 */
-	private const DEFAULT_BATCH_SIZE = 100;
-
-	/**
 	 * The number of posts whose records are fetched per request, so they fit in a single page of results.
 	 */
 	private const POST_RECORDS_BATCH_SIZE = 20;
@@ -164,48 +159,18 @@ final class Indexer {
 	}
 
 	/**
-	 * Replaces this site's records with its current indexable posts.
-	 *
-	 * Batches that fail to save are skipped, and reported in the returned error.
+	 * Deletes this site's records, so a re-index can rebuild them from scratch.
 	 *
 	 * @return true|\WP_Error
 	 */
-	public function reindex(): bool|\WP_Error {
-		$post_types = self::get_indexable_post_types();
-		if ( is_wp_error( $post_types ) ) {
-			return $post_types;
-		}
-
+	public function clear_site_records(): bool|\WP_Error {
 		// Set up the index first, since it may not exist yet.
 		$index = $this->get_initialized_index();
 		if ( is_wp_error( $index ) ) {
 			return $index;
 		}
 
-		$is_deleted = $this->delete_site_records( [ get_site_url() ] );
-		if ( is_wp_error( $is_deleted ) ) {
-			return $is_deleted;
-		}
-
-		if ( empty( $post_types ) ) {
-			return true;
-		}
-
-		$errors = new \WP_Error();
-
-		foreach ( $this->generate_post_batches( $post_types, self::DEFAULT_BATCH_SIZE ) as $records ) {
-			$is_saved = $this->save_records( $records );
-
-			if ( is_wp_error( $is_saved ) ) {
-				$data = $is_saved->get_error_data();
-
-				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- @todo Surface this better with a Logger class.
-				error_log( sprintf( 'Algolia indexing error: %s %s', $is_saved->get_error_message(), $data['message'] ?? '' ) );
-				$errors->merge_from( $is_saved );
-			}
-		}
-
-		return $errors->has_errors() ? $errors : true;
+		return $this->delete_site_records( [ get_site_url() ] );
 	}
 
 	/**
@@ -216,29 +181,39 @@ final class Indexer {
 	 * @return true|\WP_Error
 	 */
 	public function save_post( \WP_Post $post ): bool|\WP_Error {
+		return $this->save_posts( [ $post ] );
+	}
+
+	/**
+	 * Adds or updates the records of several posts, in a single write.
+	 *
+	 * @param \WP_Post[] $posts The posts.
+	 *
+	 * @return true|\WP_Error
+	 */
+	public function save_posts( array $posts ): bool|\WP_Error {
+		if ( empty( $posts ) ) {
+			return true;
+		}
+
 		$post_record  = new Post_Record();
-		$site_post_id = $post_record->get_site_post_id( $post->ID );
-		$records      = $post_record->to_records( $post );
+		$records      = [];
+		$chunk_counts = [];
+
+		foreach ( $posts as $post ) {
+			$post_records = $post_record->to_records( $post );
+
+			$chunk_counts[ $post_record->get_site_post_id( $post->ID ) ] = count( $post_records );
+
+			$records = array_merge( $records, $post_records );
+		}
 
 		$is_saved = $this->save_records( $records );
 		if ( is_wp_error( $is_saved ) ) {
 			return $is_saved;
 		}
 
-		// Chunks from when the post was longer would still match searches, so delete them. Checked first, since deleting is slow.
-		$saved_records = $this->get_post_records( [ $site_post_id ] );
-		$has_stale     = is_wp_error( $saved_records ) || [] !== array_filter(
-			$saved_records[ $site_post_id ] ?? [],
-			static fn ( array $record ): bool => (int) ( $record['chunk_index'] ?? 0 ) >= count( $records )
-		);
-
-		if ( ! $has_stale ) {
-			return true;
-		}
-
-		return $this->delete_by_filter(
-			sprintf( '%s AND chunk_index >= %d', self::filter_any_of( 'site_post_id', [ $site_post_id ] ), count( $records ) )
-		);
+		return $this->delete_stale_chunks( $chunk_counts );
 	}
 
 	/**
@@ -249,8 +224,28 @@ final class Indexer {
 	 * @return true|\WP_Error
 	 */
 	public function delete_post( int $post_id ): bool|\WP_Error {
+		return $this->delete_posts( [ $post_id ] );
+	}
+
+	/**
+	 * Deletes the records of several posts, in a single request.
+	 *
+	 * @param int[] $post_ids The post IDs.
+	 *
+	 * @return true|\WP_Error
+	 */
+	public function delete_posts( array $post_ids ): bool|\WP_Error {
+		if ( empty( $post_ids ) ) {
+			return true;
+		}
+
+		$post_record = new Post_Record();
+
 		return $this->delete_by_filter(
-			self::filter_any_of( 'site_post_id', [ ( new Post_Record() )->get_site_post_id( $post_id ) ] )
+			self::filter_any_of(
+				'site_post_id',
+				array_map( static fn ( int $post_id ): string => $post_record->get_site_post_id( $post_id ), $post_ids )
+			)
 		);
 	}
 
@@ -305,6 +300,46 @@ final class Indexer {
 		}
 
 		return $index->save_records( $records );
+	}
+
+	/**
+	 * Deletes chunks left over from when posts were longer, since they'd still match searches.
+	 *
+	 * The saved records are checked first, since deleting is slow.
+	 *
+	 * @param array<string, int> $chunk_counts The number of chunks each post has now, keyed by `site_post_id`.
+	 *
+	 * @return true|\WP_Error
+	 */
+	private function delete_stale_chunks( array $chunk_counts ): bool|\WP_Error {
+		$saved_records = $this->get_post_records( array_keys( $chunk_counts ) );
+
+		// A filter can't OR together clauses that each contain an AND, so posts are grouped by their chunk count instead.
+		$stale = [];
+		foreach ( $chunk_counts as $site_post_id => $count ) {
+			$has_stale = is_wp_error( $saved_records ) || [] !== array_filter(
+				$saved_records[ $site_post_id ] ?? [],
+				static fn ( array $record ): bool => (int) ( $record['chunk_index'] ?? 0 ) >= $count
+			);
+
+			if ( $has_stale ) {
+				$stale[ $count ][] = (string) $site_post_id;
+			}
+		}
+
+		foreach ( $stale as $count => $site_post_ids ) {
+			$filter = self::filter_any_of( 'site_post_id', $site_post_ids );
+			if ( count( $site_post_ids ) > 1 ) {
+				$filter = '(' . $filter . ')';
+			}
+
+			$is_deleted = $this->delete_by_filter( sprintf( '%s AND chunk_index >= %d', $filter, $count ) );
+			if ( is_wp_error( $is_deleted ) ) {
+				return $is_deleted;
+			}
+		}
+
+		return true;
 	}
 
 	/**
@@ -427,35 +462,5 @@ final class Indexer {
 			'app_id'    => $config['algolia_credentials']['app_id'] ?? null,
 			'write_key' => $config['algolia_credentials']['write_key'] ?? null,
 		];
-	}
-
-	/**
-	 * Generator that yields batches of Algolia records for indexing.
-	 *
-	 * We `yield` to avoid loading all posts into memory at once.
-	 *
-	 * @param string[] $post_types The post types to index.
-	 * @param int      $batch_size The number of posts to process per batch.
-	 *
-	 * @return \Generator<list<PostRecord>>
-	 */
-	private function generate_post_batches( array $post_types, int $batch_size ): \Generator {
-		$page = 1;
-
-		while ( true ) {
-			$posts = Post_Record::get_indexable_posts( $post_types, $page, $batch_size );
-
-			if ( empty( $posts ) ) {
-				break;
-			}
-
-			$records = [];
-			foreach ( $posts as $post ) {
-				$records = array_merge( $records, ( new Post_Record() )->to_records( $post ) );
-			}
-			yield $records;
-
-			++$page;
-		}
 	}
 }

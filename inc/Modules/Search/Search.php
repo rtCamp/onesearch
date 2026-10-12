@@ -147,7 +147,7 @@ final class Search implements Registrable {
 			return $permalink;
 		}
 
-		$remote_post = $this->resolve_remote_post_for_permalink( $post );
+		$remote_post = $this->resolve_remote_post( $post );
 
 		if ( $remote_post instanceof \WP_Post && ! empty( $remote_post->guid ) ) {
 			return $remote_post->guid;
@@ -298,7 +298,8 @@ final class Search implements Registrable {
 			return $terms;
 		}
 
-		$post = get_post( $post_id );
+		// get_post() rejects the negative IDs remote posts carry, so it can never return one.
+		$post = $this->resolve_remote_post( (int) $post_id );
 
 		if ( ! $post || ! isset( $post->onesearch_remote_taxonomies ) ) {
 			return $terms;
@@ -536,18 +537,18 @@ final class Search implements Registrable {
 	}
 
 	/**
-	 * Locate the remote post a permalink request belongs to.
+	 * Locate the remote post a filter call belongs to.
 	 *
-	 * Some link filters pass the WP_Post object, others only an ID. Attachment
+	 * Some filters pass the WP_Post object, others only an ID. Attachment
 	 * results share a single proxy ID, so an ID alone can't identify them — for
 	 * those we rely on the in-loop global post. Regular remote posts have unique
 	 * negative IDs and can be matched by scanning the result set.
 	 *
-	 * @param int|\WP_Post $post Post object or ID from the link filter.
+	 * @param int|\WP_Post $post Post object or ID from the filter.
 	 *
 	 * @return \WP_Post|null The matching remote post, or null when not ours.
 	 */
-	private function resolve_remote_post_for_permalink( $post ): ?\WP_Post {
+	private function resolve_remote_post( $post ): ?\WP_Post {
 		global $wp_query;
 
 		if ( $post instanceof \WP_Post ) {

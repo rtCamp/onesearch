@@ -12,7 +12,6 @@ namespace OneSearch\Tests\Integration\Modules\Search;
 use OneSearch\Modules\Rest\Governing_Data_Handler;
 use OneSearch\Modules\Search\Indexer;
 use OneSearch\Modules\Search\Post_Record;
-use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use OneSearch\Utils;
@@ -234,7 +233,7 @@ final class IndexerTest extends TestCase {
 		);
 
 		$this->assertTrue( ( new Indexer() )->save_post( $post ) );
-		$this->assertSame( [ sprintf( 'site_post_id:"%s" AND chunk_index >= 1', $site_post_id ) ], $this->get_delete_filters() );
+		$this->assertSame( [ sprintf( 'site_post_id:"%s" AND chunk_index >= 1', $site_post_id ) ], $this->get_delete_filters( $this->requests ) );
 	}
 
 	/**
@@ -245,7 +244,93 @@ final class IndexerTest extends TestCase {
 		$this->mock_algolia_http_client( $this->paths, null, null, $this->requests );
 
 		$this->assertTrue( ( new Indexer() )->save_post( self::factory()->post->create_and_get() ) );
-		$this->assertSame( [], $this->get_delete_filters() );
+		$this->assertSame( [], $this->get_delete_filters( $this->requests ) );
+	}
+
+	/**
+	 * Stale chunks are deleted with one filter per chunk count, since a filter can't pair each post with its own count.
+	 */
+	public function test_save_posts_deletes_stale_chunks_grouped_by_chunk_count(): void {
+		$this->set_up_governing_site();
+
+		$posts = [
+			self::factory()->post->create_and_get( [ 'post_content' => 'Short.' ] ),
+			self::factory()->post->create_and_get( [ 'post_content' => 'Short.' ] ),
+			self::factory()->post->create_and_get( [ 'post_content' => str_repeat( 'Long content for Algolia records. ', 1000 ) ] ),
+			self::factory()->post->create_and_get( [ 'post_content' => 'Short.' ] ),
+		];
+
+		$post_record   = new Post_Record();
+		$site_post_ids = array_map( static fn ( \WP_Post $post ): string => $post_record->get_site_post_id( $post->ID ), $posts );
+		$long_chunks   = count( $post_record->to_records( $posts[2] ) );
+
+		$this->assertGreaterThan( 1, $long_chunks );
+
+		// Every post but the last was longer before.
+		$hits = [
+			[
+				'site_post_id' => $site_post_ids[0],
+				'chunk_index'  => 1,
+			],
+			[
+				'site_post_id' => $site_post_ids[1],
+				'chunk_index'  => 2,
+			],
+			[
+				'site_post_id' => $site_post_ids[2],
+				'chunk_index'  => $long_chunks,
+			],
+			[
+				'site_post_id' => $site_post_ids[3],
+				'chunk_index'  => 0,
+			],
+		];
+
+		$this->mock_algolia_http_client(
+			$this->paths,
+			static fn ( string $path ): string => str_ends_with( $path, '/query' )
+				? (string) wp_json_encode( [ 'hits' => $hits ] )
+				: '{"taskID":1,"status":"published"}',
+			null,
+			$this->requests
+		);
+
+		$this->assertTrue( ( new Indexer() )->save_posts( $posts ) );
+		$this->assertSame(
+			[
+				sprintf( '(site_post_id:"%s" OR site_post_id:"%s") AND chunk_index >= 1', $site_post_ids[0], $site_post_ids[1] ),
+				sprintf( 'site_post_id:"%s" AND chunk_index >= %d', $site_post_ids[2], $long_chunks ),
+			],
+			$this->get_delete_filters( $this->requests )
+		);
+	}
+
+	/**
+	 * A failed write is returned without checking for stale chunks.
+	 */
+	public function test_save_posts_returns_error_when_write_fails(): void {
+		$this->set_up_governing_site();
+		$this->mock_algolia_http_client( $this->paths, null, '/batch' );
+
+		$result = ( new Indexer() )->save_posts( [ self::factory()->post->create_and_get() ] );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'onesearch_algolia_save_records_failed', $result->get_error_code() );
+		$this->assertSame( [], array_filter( $this->paths, static fn ( string $path ): bool => str_ends_with( $path, '/query' ) ) );
+	}
+
+	/**
+	 * Saving or deleting no posts doesn't call Algolia.
+	 */
+	public function test_save_and_delete_posts_without_posts(): void {
+		$this->set_up_governing_site();
+		$this->mock_algolia_http_client( $this->paths );
+
+		$indexer = new Indexer();
+
+		$this->assertTrue( $indexer->save_posts( [] ) );
+		$this->assertTrue( $indexer->delete_posts( [] ) );
+		$this->assertSame( [], $this->paths );
 	}
 
 	/**
@@ -286,7 +371,23 @@ final class IndexerTest extends TestCase {
 		$this->assertTrue( ( new Indexer() )->delete_post( 42 ) );
 		$this->assertSame(
 			[ sprintf( 'site_post_id:"%s"', ( new Post_Record() )->get_site_post_id( 42 ) ) ],
-			$this->get_delete_filters()
+			$this->get_delete_filters( $this->requests )
+		);
+	}
+
+	/**
+	 * Several posts' records are deleted with a single filter.
+	 */
+	public function test_delete_posts(): void {
+		$this->set_up_governing_site();
+		$this->mock_algolia_http_client( $this->paths, null, null, $this->requests );
+
+		$post_record = new Post_Record();
+
+		$this->assertTrue( ( new Indexer() )->delete_posts( [ 42, 43 ] ) );
+		$this->assertSame(
+			[ sprintf( 'site_post_id:"%s" OR site_post_id:"%s"', $post_record->get_site_post_id( 42 ), $post_record->get_site_post_id( 43 ) ) ],
+			$this->get_delete_filters( $this->requests )
 		);
 	}
 
@@ -300,7 +401,7 @@ final class IndexerTest extends TestCase {
 		$this->assertTrue( ( new Indexer() )->delete_site_records( [ 'https://a.example.com', 'https://b.example.com/' ] ) );
 		$this->assertSame(
 			[ 'site_url:"https://a.example.com/" OR site_url:"https://b.example.com/"' ],
-			$this->get_delete_filters()
+			$this->get_delete_filters( $this->requests )
 		);
 	}
 
@@ -397,37 +498,29 @@ final class IndexerTest extends TestCase {
 	}
 
 	/**
-	 * Reindexing replaces the site's records with its indexable posts.
+	 * Clearing the site's records sets up the index first, since it may not exist yet.
 	 */
-	public function test_reindex(): void {
-		$this->set_up_governing_site( [ 'page' ] );
-		$page_id = self::factory()->post->create( [ 'post_type' => 'page' ] );
-		self::factory()->post->create( [ 'post_type' => 'post' ] );
-
+	public function test_clear_site_records(): void {
+		$this->set_up_governing_site();
 		$this->mock_algolia_http_client( $this->paths, null, null, $this->requests );
 
-		$this->assertTrue( ( new Indexer() )->reindex() );
+		$this->assertTrue( ( new Indexer() )->clear_site_records() );
 		$this->assertSame( self::INDEX_PATH . '/settings', $this->paths[0], 'The index should be set up before anything else.' );
 		$this->assertSame(
 			[ sprintf( 'site_url:"%s"', Utils::normalize_url( get_site_url() ) ) ],
-			$this->get_delete_filters()
+			$this->get_delete_filters( $this->requests )
 		);
-		$this->assertSame( [ ( new Post_Record() )->get_site_post_id( $page_id ) ], $this->get_saved_site_post_ids() );
 	}
 
 	/**
-	 * Reindexing reports batches that failed to save.
+	 * Nothing is deleted when the index can't be set up.
 	 */
-	public function test_reindex_returns_error_when_a_batch_fails(): void {
+	public function test_clear_site_records_returns_error_when_setup_fails(): void {
 		$this->set_up_governing_site();
-		self::factory()->post->create();
+		$this->mock_algolia_http_client( $this->paths, null, '/settings', $this->requests );
 
-		$this->mock_algolia_http_client( $this->paths, null, '/batch' );
-
-		$result = ( new Indexer() )->reindex();
-
-		$this->assertWPError( $result );
-		$this->assertSame( 'onesearch_algolia_save_records_failed', $result->get_error_code() );
+		$this->assertWPError( ( new Indexer() )->clear_site_records() );
+		$this->assertSame( [], $this->get_delete_filters( $this->requests ) );
 	}
 
 	/**
@@ -443,66 +536,14 @@ final class IndexerTest extends TestCase {
 	}
 
 	/**
-	 * Collects the `filters` of every deleteByQuery request.
+	 * {@inheritDoc}
 	 *
-	 * @return string[]
+	 * Names the index after a known host, since the test site's URL depends on the environment.
 	 */
-	private function get_delete_filters(): array {
-		$filters = [];
-
-		foreach ( $this->requests as $request ) {
-			if ( str_contains( $request['path'], '/deleteByQuery' ) ) {
-				$filters[] = (string) json_decode( $request['body'], true )['filters'];
-			}
-		}
-
-		return $filters;
-	}
-
-	/**
-	 * Collects the unique `site_post_id` of every saved record.
-	 *
-	 * @return string[]
-	 */
-	private function get_saved_site_post_ids(): array {
-		$ids = [];
-
-		foreach ( $this->requests as $request ) {
-			if ( ! str_contains( $request['path'], '/batch' ) ) {
-				continue;
-			}
-
-			foreach ( json_decode( $request['body'], true )['requests'] as $operation ) {
-				$ids[] = (string) $operation['body']['site_post_id'];
-			}
-		}
-
-		return array_values( array_unique( $ids ) );
-	}
-
-	/**
-	 * Configures the current site as a governing site with credentials and indexable entities.
-	 *
-	 * @param string[] $entities The indexable post types.
-	 */
-	private function set_up_governing_site( array $entities = [ 'post' ] ): void {
-		// Name the index after a known host, since the test site's URL depends on the environment.
+	protected function set_up_governing_site( array $entities = [ 'post' ] ): void {
 		add_filter( 'option_siteurl', static fn (): string => 'https://governing.example.org', 11 );
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-		Search_Settings::set_algolia_credentials(
-			[
-				'app_id'    => 'test-app',
-				'write_key' => 'test-key',
-			]
-		);
-		update_option(
-			Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES,
-			[
-				'entities' => [
-					Utils::normalize_url( get_site_url() ) => $entities,
-				],
-			]
-		);
+
+		parent::set_up_governing_site( $entities );
 	}
 
 	/**

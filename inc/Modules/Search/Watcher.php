@@ -10,6 +10,8 @@ declare(strict_types = 1);
 namespace OneSearch\Modules\Search;
 
 use OneSearch\Contracts\Interfaces\Registrable;
+use OneSearch\Modules\Jobs\Sync_Job;
+use OneSearch\Modules\Scheduler\Job_Scheduler;
 
 /**
  * Class - Watcher
@@ -31,26 +33,54 @@ final class Watcher implements Registrable {
 	/**
 	 * Triggered when a post's status changes (e.g., publish, update, trash, etc.)
 	 *
+	 * Schedules an async Sync_Job to update the post in Algolia instead of
+	 * performing the sync inline, keeping the request fast.
+	 *
 	 * @internal Hook callback
 	 *
 	 * @param string   $new_status The new post status.
 	 * @param string   $old_status The previous post status.
 	 * @param \WP_Post $post       The post object.
 	 */
-	public function on_post_transition( $new_status, $old_status, $post ): void {
+	public function on_post_transition( $new_status, $old_status, $post ): void { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
 		if ( ! $post instanceof \WP_Post || ! $this->is_post_type_indexable( (string) $post->post_type ) ) {
 			return;
 		}
 
-		$allowed_statuses = Post_Record::get_allowed_statuses( [ $post->post_type ] );
+		$job = new Sync_Job();
+		$job->set_data(
+			[
+				'post_ids' => [ (int) $post->ID ],
+			]
+		);
+		$job->set_group( 'watcher' );
+		$job->set_max_retries( 2 );
+		$job->set_retry_delay_seconds( 30 );
 
-		// Check if the new status is allowed before reindexing.
-		if ( ! in_array( $new_status, $allowed_statuses, true ) ) {
-			// Only clean up if the post was indexed under its previous status.
-			if ( in_array( $old_status, $allowed_statuses, true ) ) {
-				$this->log_error( (int) $post->ID, $this->get_indexer()->delete_post( (int) $post->ID ) );
-			}
+		$scheduler = new Job_Scheduler();
 
+		try {
+			$scheduler->schedule( $job );
+
+			// AS never starts its runner after a REST request, such as a block editor save; once per request is enough.
+			add_action( 'shutdown', [ Job_Scheduler::class, 'dispatch_queue' ] );
+		} catch ( \Throwable $e ) {
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			error_log( sprintf( '[OneSearch] Failed to schedule Sync_Job: %s', $e->getMessage() ) );
+
+			// The edit still has to reach the index, so it's synced in this request instead.
+			$this->sync_post_inline( $post );
+		}
+	}
+
+	/**
+	 * Synchronously sync a post to Algolia (fallback when async scheduling fails).
+	 *
+	 * @param \WP_Post $post The post to sync.
+	 */
+	private function sync_post_inline( \WP_Post $post ): void {
+		if ( ! in_array( $post->post_status, Post_Record::get_allowed_statuses( [ $post->post_type ] ), true ) ) {
+			$this->log_error( (int) $post->ID, $this->get_indexer()->delete_post( (int) $post->ID ) );
 			return;
 		}
 

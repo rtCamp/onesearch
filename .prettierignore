@@ -5,3 +5,6 @@ vendor
 vendor-prefixed
 package-lock.json
 composer.lock
+# Stylelint formats styles; its WordPress rules contradict Prettier's (blank lines, wrapped values).
+*.css
+*.scss

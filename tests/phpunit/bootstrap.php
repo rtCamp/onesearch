@@ -44,3 +44,9 @@ tests_add_filter(
 
 // Start up the WP testing environment.
 require $_test_root . '/includes/bootstrap.php';
+
+/*
+ * Main skips loading under the test install's plain permalinks, so the jobs table is created here instead.
+ * Left to the first test that needs it, dbDelta's ALTER TABLE would commit that test's transaction, leaking its options into later tests.
+ */
+\OneSearch\Modules\Schema\Job_Schema::maybe_upgrade();

@@ -24,7 +24,19 @@ final class SettingsTest extends TestCase {
 	/**
 	 * {@inheritDoc}
 	 */
+	protected function setUp(): void {
+		parent::setUp();
+
+		// A site-type option left by an earlier test class would make is_governing_site() true here.
+		delete_option( Settings::OPTION_SITE_TYPE );
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
 	protected function tearDown(): void {
+		delete_option( Settings::OPTION_SITE_TYPE );
+
 		AlgoliaSDK::resetHttpClient();
 
 		parent::tearDown();

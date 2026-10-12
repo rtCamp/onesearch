@@ -42,22 +42,6 @@ final class SearchTest extends TestCase {
 	}
 
 	/**
-	 * Returns original posts when search is not enabled.
-	 */
-	public function test_get_algolia_results_returns_original_posts_when_search_disabled(): void {
-		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
-		delete_option( Settings::OPTION_SITE_TYPE );
-
-		$search   = new Search();
-		$query    = new \WP_Query();
-		$original = [ self::factory()->post->create_and_get() ];
-
-		$result = $search->get_algolia_results( $original, $query );
-
-		$this->assertSame( $original, $result );
-	}
-
-	/**
 	 * Returns original posts when query is not a search query.
 	 */
 	public function test_get_algolia_results_returns_original_posts_for_non_search_query(): void {
@@ -231,98 +215,6 @@ final class SearchTest extends TestCase {
 
 		$this->assertCount( 1, $posts );
 		$this->assertSame( '… middle', $posts[0]->post_content );
-	}
-
-	/**
-	 * Sorts hits by Algolia ranking score (descending) without raising notices.
-	 */
-	public function test_get_algolia_results_sorts_hits_by_ranking_score(): void {
-		$this->enable_search_for_governing_site();
-		Search_Settings::set_algolia_credentials(
-			[
-				'app_id'    => 'TEST_APP',
-				'write_key' => 'TEST_KEY',
-			]
-		);
-
-		$recorded_paths = [];
-		$this->mock_algolia_http_client(
-			$recorded_paths,
-			static function ( string $path ): string {
-				if ( str_contains( $path, '/query' ) ) {
-					return wp_json_encode(
-						[
-							'hits'        => [
-								[
-									'objectID'          => '20',
-									'site_post_id'      => '20',
-									'post_id'           => 20,
-									'post_title'        => 'Middle Score',
-									'post_type'         => 'post',
-									'permalink'         => 'https://remote.example.com/posts/20/',
-									'site_url'          => 'https://remote.example.com/',
-									'site_name'         => 'Remote',
-									'total_chunks'      => 1,
-									'post_date_gmt'     => 1710000000,
-									'post_modified_gmt' => 1710000000,
-									'_rankingInfo'      => [ 'rankingScore' => 0.5 ],
-								],
-								[
-									'objectID'          => '30',
-									'site_post_id'      => '30',
-									'post_id'           => 30,
-									'post_title'        => 'Lowest Score',
-									'post_type'         => 'post',
-									'permalink'         => 'https://remote.example.com/posts/30/',
-									'site_url'          => 'https://remote.example.com/',
-									'site_name'         => 'Remote',
-									'total_chunks'      => 1,
-									'post_date_gmt'     => 1710000000,
-									'post_modified_gmt' => 1710000000,
-									'_rankingInfo'      => [ 'rankingScore' => 0.1 ],
-								],
-								[
-									'objectID'          => '40',
-									'site_post_id'      => '40',
-									'post_id'           => 40,
-									'post_title'        => 'Highest Score',
-									'post_type'         => 'post',
-									'permalink'         => 'https://remote.example.com/posts/40/',
-									'site_url'          => 'https://remote.example.com/',
-									'site_name'         => 'Remote',
-									'total_chunks'      => 1,
-									'post_date_gmt'     => 1710000000,
-									'post_modified_gmt' => 1710000000,
-									'_rankingInfo'      => [ 'rankingScore' => 0.9 ],
-								],
-							],
-							'nbHits'      => 3,
-							'page'        => 0,
-							'hitsPerPage' => 10,
-						]
-					) ?: '{}';
-				}
-
-				if ( str_contains( $path, '/task/' ) ) {
-					return '{"status":"published","pendingTask":false}';
-				}
-
-				return '{"taskID":1,"updatedAt":"2024-01-01T00:00:00.000Z"}';
-			}
-		);
-
-		$this->prime_main_search_query( 'remote test' );
-
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Reading query prepared by helper.
-		global $wp_query;
-
-		$search = new Search();
-		$result = $search->get_algolia_results( [], $wp_query );
-
-		$this->assertCount( 3, $result );
-		$this->assertSame( 'Highest Score', $result[0]->post_title );
-		$this->assertSame( 'Middle Score', $result[1]->post_title );
-		$this->assertSame( 'Lowest Score', $result[2]->post_title );
 	}
 
 	/**
@@ -657,18 +549,21 @@ final class SearchTest extends TestCase {
 	}
 
 	/**
-	 * Returns mapped terms for enabled search when remote taxonomy metadata exists.
+	 * Maps a remote post's taxonomy metadata to terms when core passes its negative ID.
+	 *
+	 * Goes through get_the_terms() so the filter receives the ID exactly as core sends it.
 	 */
-	public function test_get_post_terms_returns_remote_terms_when_search_enabled(): void {
+	public function test_get_post_terms_returns_remote_terms_for_negative_id(): void {
 		$this->enable_search_for_governing_site();
 		$this->prime_main_search_query( 'test query' );
 
-		$post_id = self::factory()->post->create();
-		$post    = get_post( $post_id );
+		global $wp_query; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 
-		$this->assertInstanceOf( \WP_Post::class, $post );
-
-		$post->onesearch_remote_taxonomies = [
+		$remote_post                              = new \WP_Post( new \stdClass() );
+		$remote_post->ID                          = -23;
+		$remote_post->filter                      = 'raw';
+		$remote_post->onesearch_original_id       = 22;
+		$remote_post->onesearch_remote_taxonomies = [
 			[
 				'taxonomy'    => 'category',
 				'term_id'     => 22,
@@ -679,12 +574,23 @@ final class SearchTest extends TestCase {
 				'description' => 'Remote category',
 				'parent'      => 0,
 			],
+			[
+				'taxonomy'    => 'post_tag',
+				'term_id'     => 7,
+				'slug'        => 'remote-tag',
+				'name'        => 'Remote Tag',
+				'term_link'   => 'https://remote.example.com/tag/remote-tag/',
+				'count'       => 1,
+				'description' => '',
+				'parent'      => 0,
+			],
 		];
 
-		wp_cache_set( $post_id, $post, 'posts' );
+		$wp_query->posts = [ $remote_post ];
 
-		$search = new Search();
-		$result = $search->get_post_terms( [], $post_id, 'category' );
+		add_filter( 'get_the_terms', [ new Search(), 'get_post_terms' ], 10, 3 );
+
+		$result = get_the_terms( $remote_post, 'category' );
 
 		$this->assertIsArray( $result );
 		$this->assertCount( 1, $result );

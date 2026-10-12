@@ -60,6 +60,9 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 
 		AlgoliaSDK::resetHttpClient();
 
+		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
+		delete_option( Settings::OPTION_GOVERNING_SHARED_SITES );
+
 		parent::tear_down();
 	}
 

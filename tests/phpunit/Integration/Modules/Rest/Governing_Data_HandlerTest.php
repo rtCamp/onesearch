@@ -20,6 +20,17 @@ use PHPUnit\Framework\Attributes\CoversClass;
 #[CoversClass( Governing_Data_Handler::class )]
 class Governing_Data_HandlerTest extends TestCase {
 	/**
+	 * {@inheritDoc}
+	 */
+	protected function tearDown(): void {
+		delete_option( Settings::OPTION_SITE_TYPE );
+		delete_option( Settings::OPTION_GOVERNING_SHARED_SITES );
+		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
+
+		parent::tearDown();
+	}
+
+	/**
 	 * Returns error when site is not a consumer site.
 	 */
 	public function test_get_brand_config_returns_error_when_not_consumer_site(): void {

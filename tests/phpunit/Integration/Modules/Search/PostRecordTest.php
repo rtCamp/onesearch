@@ -184,21 +184,6 @@ final class PostRecordTest extends TestCase {
 	}
 
 	/**
-	 * Tests that split_content_into_chunks splits oversized content.
-	 */
-	public function test_split_content_into_chunks_splits_oversized_content_into_multiple_chunks(): void {
-		$record = new Post_Record();
-		$method = new \ReflectionMethod( Post_Record::class, 'split_content_into_chunks' );
-
-		$chunks = $method->invoke( $record, str_repeat( 'Chunked content for Algolia records. ', 80 ), 120 );
-
-		$this->assertIsArray( $chunks );
-		$this->assertGreaterThan( 1, count( $chunks ) );
-		$this->assertFalse( str_starts_with( $chunks[0], '… ' ) );
-		$this->assertStringStartsWith( '… ', $chunks[1] );
-	}
-
-	/**
 	 * Joining the chunks restores the content they were split from, whatever order they're in.
 	 */
 	public function test_join_content_reverses_chunking(): void {

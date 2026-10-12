@@ -9,8 +9,11 @@ declare( strict_types = 1 );
 
 namespace OneSearch\Tests\Integration\Modules\Rest;
 
+use OneSearch\Modules\Jobs\Abstract_Job;
+use OneSearch\Modules\Jobs\Reindex_Job;
 use OneSearch\Modules\Rest\Abstract_REST_Controller;
 use OneSearch\Modules\Rest\Search_Controller;
+use OneSearch\Modules\Scheduler\Job_Scheduler;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
@@ -38,6 +41,8 @@ class Search_Controller_GoverningSiteTest extends TestCase {
 	public function set_up(): void {
 		parent::set_up();
 
+		Search_Controller::clear_reindex_state();
+
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
 
 		global $wp_rest_server;
@@ -57,6 +62,11 @@ class Search_Controller_GoverningSiteTest extends TestCase {
 	public function tear_down(): void {
 		global $wp_rest_server;
 		$wp_rest_server = null;
+
+		AlgoliaSDK::resetHttpClient();
+
+		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
+		delete_option( Settings::OPTION_GOVERNING_SHARED_SITES );
 
 		parent::tear_down();
 	}
@@ -323,56 +333,179 @@ class Search_Controller_GoverningSiteTest extends TestCase {
 	}
 
 	/**
-	 * Non-200 from a child site flips `success` to false on the governing response.
+	 * GET /re-index/status hands the UI a live run to restore after a page refresh, and forgets it once it finishes,
+	 * so a finished run is neither restored nor left blocking the next re-index.
 	 */
-	public function test_reindex_records_child_non_200_as_failure(): void {
+	public function test_reindex_status_restores_a_live_run_and_forgets_a_finished_one(): void {
+		$scheduler = new Job_Scheduler();
+		$job       = new Reindex_Job();
+		$job->mark_running();
+		$scheduler->persist_job( $job );
+
+		$jobs = [
+			[
+				'site_name'   => 'Test Site',
+				'site_url'    => 'https://example.com',
+				'job_id'      => $job->get_id(),
+				'batch_count' => 5,
+			],
+		];
+		set_transient( Search_Controller::REINDEX_STATE_TRANSIENT, $jobs, 3600 );
+
+		$data = $this->server->dispatch( new WP_REST_Request( 'GET', '/onesearch/v1/re-index/status' ) )->get_data();
+
+		$this->assertTrue( $data['active'] );
+		$this->assertEquals( $jobs, $data['jobs'] );
+
+		$job->mark_completed();
+		$scheduler->persist_job( $job );
+
+		$data = $this->server->dispatch( new WP_REST_Request( 'GET', '/onesearch/v1/re-index/status' ) )->get_data();
+
+		$this->assertFalse( $data['active'] );
+		$this->assertNull( $data['jobs'] );
+	}
+
+	/**
+	 * POST /re-index returns 409 when a reindex is already active.
+	 */
+	public function test_reindex_returns_409_when_active_reindex_exists(): void {
+		$scheduler = new Job_Scheduler();
+		$job       = new Reindex_Job();
+		$job->mark_running();
+		$scheduler->persist_job( $job );
+
+		$jobs = [
+			[
+				'site_name'   => 'Test Site',
+				'site_url'    => get_site_url(),
+				'job_id'      => $job->get_id(),
+				'batch_count' => 3,
+			],
+		];
+		set_transient( Search_Controller::REINDEX_STATE_TRANSIENT, $jobs, 3600 );
+
+		$request  = new WP_REST_Request( 'POST', '/onesearch/v1/re-index' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 409, $response->get_status() );
+		$this->assertSame( 'onesearch_reindex_active', $data['code'] );
+	}
+
+	/**
+	 * The lock keeps a second re-index request out while it's held, and one left behind by a request that died is
+	 * taken over once it lapses, instead of blocking every re-index after it.
+	 */
+	public function test_reindex_lock_blocks_while_held_and_is_taken_over_once_lapsed(): void {
+		$lock_key = Search_Controller::REINDEX_STATE_TRANSIENT . '_lock';
+
+		update_option( $lock_key, time() + MINUTE_IN_SECONDS, false );
+
+		$this->assertSame( 409, $this->server->dispatch( new WP_REST_Request( 'POST', '/onesearch/v1/re-index' ) )->get_status() );
+
 		delete_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );
-		Search_Settings::set_algolia_credentials(
-			[
-				'app_id'    => 'APP',
-				'write_key' => 'KEY',
-			]
-		);
+		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
+		update_option( $lock_key, time() - 1, false );
+
+		$response = $this->server->dispatch( new WP_REST_Request( 'POST', '/onesearch/v1/re-index' ) );
+
+		$this->assertNotSame( 409, $response->get_status() );
+		$this->assertFalse( get_option( $lock_key ), 'The request releases the lock it took over.' );
+	}
+
+	/**
+	 * When some brand sites fail to start, the response reports each failure but still lists the runs that did start,
+	 * and keeps them as the live re-index, so the admin can follow and cancel them instead of starting over.
+	 */
+	public function test_partial_reindex_reports_failures_and_keeps_the_runs_that_started(): void {
+		$this->set_up_governing_site();
 		Settings::set_shared_sites(
-			[
-				[
-					'name'    => 'Site A',
-					'url'     => 'https://site-a.example.com/',
-					'api_key' => 'key-a',
+			array_map(
+				static fn ( string $site ): array => [
+					'name'    => 'Site ' . strtoupper( $site ),
+					'url'     => sprintf( 'https://site-%s.example.com/', $site ),
+					'api_key' => 'key-' . $site,
 				],
-			]
+				[ 'a', 'b', 'c', 'd' ]
+			)
 		);
 
-		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-			if ( false === strpos( $url, '/re-index' ) ) {
+		$recorded_paths = [];
+		$this->mock_algolia_http_client( $recorded_paths );
+		self::factory()->post->create( [ 'post_status' => 'publish' ] );
+
+		$brands = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$host = (string) wp_parse_url( $url, PHP_URL_HOST );
+
+			if ( 'site-a.example.com' === $host ) {
+				return new \WP_Error( 'http_request_failed', 'cURL error 28: Operation timed out' );
+			}
+
+			$responses = [
+				'site-b.example.com' => [ 500, [] ],
+				'site-c.example.com' => [
+					200,
+					[
+						'success' => false,
+						'errors'  => [ [ 'message' => 'Site C has no indexable entities.' ] ],
+					],
+				],
+				'site-d.example.com' => [
+					200,
+					[
+						'success'     => true,
+						'job_id'      => 'brand-d-job',
+						'batch_count' => 2,
+					],
+				],
+			];
+
+			if ( ! isset( $responses[ $host ] ) ) {
 				return $preempt;
 			}
+
 			return [
 				'response' => [
-					'code'    => 500,
-					'message' => 'Internal Server Error',
+					'code'    => $responses[ $host ][0],
+					'message' => '',
 				],
-				'body'     => '',
+				'body'     => (string) wp_json_encode( $responses[ $host ][1] ),
 				'headers'  => [],
 				'cookies'  => [],
 			];
 		};
-		add_filter( 'pre_http_request', $filter, 10, 3 );
+		add_filter( 'pre_http_request', $brands, 10, 3 );
 
-		$request  = new WP_REST_Request( 'POST', '/onesearch/v1/re-index' );
-		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
-
-		remove_filter( 'pre_http_request', $filter );
+		$data = $this->server->dispatch( new WP_REST_Request( 'POST', '/onesearch/v1/re-index' ) )->get_data();
 
 		$this->assertFalse( $data['success'] );
+		$this->assertSame(
+			[ 'https://site-a.example.com/', 'https://site-b.example.com/', 'https://site-c.example.com/' ],
+			array_column( $data['errors'], 'site_url' )
+		);
+		$this->assertStringContainsString( 'Site C has no indexable entities.', $data['message'], 'The brand site\'s own reason is passed on.' );
+		$this->assertSame( [ $data['job_id'], 'brand-d-job' ], array_column( $data['jobs'], 'job_id' ) );
+
+		$status = $this->server->dispatch( new WP_REST_Request( 'GET', '/onesearch/v1/re-index/status' ) )->get_data();
+
+		$this->assertTrue( $status['active'], 'A page refresh has to bring back the runs that started.' );
+		$this->assertEquals( $data['jobs'], $status['jobs'] );
+		$this->assertSame( 409, $this->server->dispatch( new WP_REST_Request( 'POST', '/onesearch/v1/re-index' ) )->get_status() );
 	}
 
 	/**
-	 * A WP_Error from a child site flips `success` to false on the governing response.
+	 * A governing site with nothing of its own to index still waits for the brand sites it started.
 	 */
-	public function test_reindex_records_child_wp_error_as_failure(): void {
-		delete_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );
+	public function test_reindex_waits_for_brand_sites_when_nothing_is_indexed_here(): void {
+		update_option(
+			Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES,
+			[
+				'entities' => [
+					\OneSearch\Utils::normalize_url( get_site_url() ) => [],
+				],
+			]
+		);
 		Search_Settings::set_algolia_credentials(
 			[
 				'app_id'    => 'APP',
@@ -389,85 +522,50 @@ class Search_Controller_GoverningSiteTest extends TestCase {
 			]
 		);
 
-		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-			if ( false === strpos( $url, '/re-index' ) ) {
-				return $preempt;
-			}
-			return new \WP_Error( 'http_request_failed', 'cURL timeout' );
-		};
-		add_filter( 'pre_http_request', $filter, 10, 3 );
-
-		$request  = new WP_REST_Request( 'POST', '/onesearch/v1/re-index' );
-		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
-
-		remove_filter( 'pre_http_request', $filter );
-
-		$this->assertFalse( $data['success'] );
-	}
-
-	/**
-	 * A child site that responds but reports `success: false` flips `success` to false on the governing response.
-	 */
-	public function test_reindex_records_child_unsuccessful_response_as_failure(): void {
-		delete_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );
-		Search_Settings::set_algolia_credentials(
-			[
-				'app_id'    => 'APP',
-				'write_key' => 'KEY',
-			]
-		);
-		Settings::set_shared_sites(
-			[
-				[
-					'name'    => 'Site A',
-					'url'     => 'https://site-a.example.com/',
-					'api_key' => 'key-a',
-				],
-			]
-		);
-
-		// The governing site's own reindex succeeds.
 		$recorded_paths = [];
 		$this->mock_algolia_http_client( $recorded_paths );
 
-		$succeeded = $this->reindex_with_child_response( [ 'success' => true ] );
-		$failed    = $this->reindex_with_child_response( [ 'success' => false ] );
-
-		AlgoliaSDK::resetHttpClient();
-
-		$this->assertTrue( $succeeded['success'] );
-		$this->assertFalse( $failed['success'] );
-	}
-
-	/**
-	 * Reindexes with every child site responding with the given body.
-	 *
-	 * @param array<string, mixed> $child_body The child response body.
-	 *
-	 * @return array<string, mixed> The governing site's response data.
-	 */
-	private function reindex_with_child_response( array $child_body ): array {
-		$filter = static function ( $preempt, $args, $url ) use ( $child_body ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-			if ( false === strpos( $url, '/re-index' ) ) {
+		$brand = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( ! str_contains( $url, 'site-a.example.com' ) ) {
 				return $preempt;
 			}
+
+			$body = str_contains( $url, '/re-index' )
+				? [
+					'success'     => true,
+					'job_id'      => 'brand-job',
+					'batch_count' => 2,
+				]
+				: [
+					'success' => true,
+					'job'     => [
+						'status'             => Abstract_Job::STATUS_RUNNING,
+						'children_total'     => 2,
+						'children_completed' => 0,
+					],
+				];
+
 			return [
 				'response' => [
 					'code'    => 200,
 					'message' => 'OK',
 				],
-				'body'     => wp_json_encode( $child_body ),
+				'body'     => (string) wp_json_encode( $body ),
 				'headers'  => [],
 				'cookies'  => [],
 			];
 		};
-		add_filter( 'pre_http_request', $filter, 10, 3 );
+		add_filter( 'pre_http_request', $brand, 10, 3 );
 
 		$data = $this->server->dispatch( new WP_REST_Request( 'POST', '/onesearch/v1/re-index' ) )->get_data();
 
-		remove_filter( 'pre_http_request', $filter );
+		remove_filter( 'pre_http_request', $brand );
+		AlgoliaSDK::resetHttpClient();
 
-		return $data;
+		$this->assertTrue( $data['success'] );
+
+		$job = ( new Job_Scheduler() )->get_status( $data['job_id'] );
+		$this->assertSame( Abstract_Job::STATUS_RUNNING, $job['status'], 'The brand site is still running.' );
+		$this->assertTrue( $job['data']['_needs_remote_finalize'] );
 	}
 }
