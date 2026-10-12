@@ -432,7 +432,15 @@ export const useReindexJob = ( {
 			} );
 
 			const data: ReIndexResponse = await response.json();
-			if ( data.success && data.jobs && data.jobs.length > 0 ) {
+			// A site that failed to start doesn't stop the others, so the runs that did start are still followed.
+			if ( data.jobs && data.jobs.length > 0 ) {
+				if ( ! data.success ) {
+					setNotice( {
+						message:
+							data.message || __( 'Unknown error.', 'onesearch' ),
+						type: 'error',
+					} );
+				}
 				const initial: SiteJobState[] = data.jobs.map( ( site ) => ( {
 					site,
 					reindexJob: null,

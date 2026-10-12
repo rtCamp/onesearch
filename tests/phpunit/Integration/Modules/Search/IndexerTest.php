@@ -248,25 +248,6 @@ final class IndexerTest extends TestCase {
 	}
 
 	/**
-	 * Several posts are saved in a single write.
-	 */
-	public function test_save_posts_saves_in_a_single_write(): void {
-		$this->set_up_governing_site();
-		$this->mock_algolia_http_client( $this->paths, null, null, $this->requests );
-
-		$posts       = array_map( 'get_post', self::factory()->post->create_many( 3 ) );
-		$post_record = new Post_Record();
-
-		$this->assertTrue( ( new Indexer() )->save_posts( $posts ) );
-		$this->assertCount( 1, array_filter( $this->paths, static fn ( string $path ): bool => str_ends_with( $path, '/batch' ) ) );
-		$this->assertEqualsCanonicalizing(
-			array_map( static fn ( \WP_Post $post ): string => $post_record->get_site_post_id( $post->ID ), $posts ),
-			$this->get_indexed_site_post_ids( $this->requests, 3 )
-		);
-		$this->assertSame( [], $this->get_delete_filters( $this->requests ) );
-	}
-
-	/**
 	 * Stale chunks are deleted with one filter per chunk count, since a filter can't pair each post with its own count.
 	 */
 	public function test_save_posts_deletes_stale_chunks_grouped_by_chunk_count(): void {

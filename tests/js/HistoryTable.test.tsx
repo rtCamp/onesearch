@@ -16,55 +16,50 @@ const baseJob: JobStatus = {
 	finished_at: 1760000039,
 };
 
-/**
- * Renders a single history row and returns the text of its Batches cell.
- *
- * @param {JobStatus} job The job to render.
- * @return {string} The Batches cell text.
- */
-const renderBatches = ( job: JobStatus ): string => {
-	render(
-		<HistoryTable
-			history={ [ job ] }
-			retryingJobId={ null }
-			onRetry={ jest.fn() }
-		/>
-	);
-
-	const [ , row ] = screen.getAllByRole( 'row' );
-	const cells = within( row as HTMLElement ).getAllByRole( 'cell' );
-
-	return cells[ 5 ]?.textContent ?? '';
-};
-
 describe( 'HistoryTable', () => {
-	it( 'counts a completed watcher sync job as its one finished batch', () => {
-		expect(
-			renderBatches( {
-				...baseJob,
-				type: 'sync',
-				group: 'watcher',
-				progress: 1,
-				progress_total: 1,
-				children_completed: 0,
-				children_total: 0,
-			} )
-		).toBe( '1/1' );
-	} );
+	it( 'shows finished batches out of the total for each kind of job', () => {
+		const watcherSync: JobStatus = {
+			...baseJob,
+			type: 'sync',
+			group: 'watcher',
+			progress: 1,
+			progress_total: 1,
+			children_completed: 0,
+			children_total: 0,
+		};
 
-	it( 'counts a failed watcher sync job as its one unfinished batch', () => {
+		render(
+			<HistoryTable
+				history={ [
+					{ ...watcherSync, id: 'watcher-completed' },
+					{ ...watcherSync, id: 'watcher-failed', status: 'failed' },
+					{
+						...baseJob,
+						id: 'reindex',
+						type: 'reindex',
+						status: 'failed',
+						progress: 3,
+						progress_total: 3,
+						child_ids: [ 'a', 'b', 'c' ],
+						children_completed: 2,
+						children_total: 3,
+					},
+				] }
+				retryingJobId={ null }
+				onRetry={ jest.fn() }
+			/>
+		);
+
+		const [ , ...rows ] = screen.getAllByRole( 'row' );
+
+		// A watcher sync is its own single batch, finished only if it completed.
 		expect(
-			renderBatches( {
-				...baseJob,
-				type: 'sync',
-				group: 'watcher',
-				status: 'failed',
-				progress: 1,
-				progress_total: 1,
-				children_completed: 0,
-				children_total: 0,
-			} )
-		).toBe( '0/1' );
+			rows.map(
+				( row ) =>
+					within( row as HTMLElement ).getAllByRole( 'cell' )[ 5 ]
+						?.textContent
+			)
+		).toEqual( [ '1/1', '0/1', '2/3' ] );
 	} );
 
 	it( 'offers a retry for a failed run but not for a cancelled one', () => {
@@ -104,20 +99,5 @@ describe( 'HistoryTable', () => {
 				name: 'Retry',
 			} )
 		).not.toBeInTheDocument();
-	} );
-
-	it( 'shows finished child batches out of the total for a reindex', () => {
-		expect(
-			renderBatches( {
-				...baseJob,
-				type: 'reindex',
-				status: 'failed',
-				progress: 3,
-				progress_total: 3,
-				child_ids: [ 'a', 'b', 'c' ],
-				children_completed: 2,
-				children_total: 3,
-			} )
-		).toBe( '2/3' );
 	} );
 } );

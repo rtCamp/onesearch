@@ -294,41 +294,11 @@ describe( 'SiteIndexableEntities', () => {
 			} );
 		} );
 
-		global.fetch = jest
-			.fn()
-			.mockResolvedValueOnce(
-				okJson( {
-					jobs: [],
-					total: 0,
-					page: 1,
-					per_page: 5,
-					total_pages: 0,
-				} )
-			)
-			.mockResolvedValueOnce(
-				okJson( {
-					jobs: [],
-					total: 0,
-					page: 1,
-					per_page: 5,
-					total_pages: 0,
-				} )
-			)
-			.mockResolvedValueOnce(
-				okJson( {
-					jobs: [],
-					total: 0,
-					page: 1,
-					per_page: 5,
-					total_pages: 0,
-				} )
-			)
-			.mockResolvedValueOnce(
-				okJson( {
-					success: false,
-					message: 'failed',
-				} )
-			) as typeof fetch;
+		global.fetch = jest.fn( async ( input: RequestInfo | URL ) =>
+			String( input ).endsWith( '/re-index' )
+				? okJson( { success: false, message: 'failed' } )
+				: okJson( { jobs: [], page: 1, total_pages: 0 } )
+		) as typeof fetch;
 
 		fireEvent.click( screen.getByRole( 'button', { name: 'Re-index' } ) );
 
