@@ -22,8 +22,7 @@ use WP_REST_Server;
 /**
  * Class - Job_REST_Controller
  *
- * Provides REST endpoints for creating, monitoring, and cancelling
- * async batch sync jobs via Action Scheduler.
+ * REST endpoints for monitoring, retrying and cancelling jobs, including proxies to the same endpoints on brand sites.
  */
 class Job_REST_Controller extends Abstract_REST_Controller {
 	/**
@@ -573,7 +572,7 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 	}
 
 	/**
-	 * Decrement the parent's children_done counter and set back to RUNNING if terminal.
+	 * Take a retried batch out of its parent's finished and failed counts, reopening the parent if it had finished.
 	 *
 	 * @param \OneSearch\Modules\Scheduler\Job_Scheduler $scheduler The job scheduler instance.
 	 * @param string                                     $parent_id The parent job ID.
@@ -780,12 +779,10 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 
 			$status = $child['status'] ?? '';
 
-			// Count only successfully completed children for progress display.
 			if ( Abstract_Job::STATUS_COMPLETED === $status ) {
 				++$children_completed;
 			}
 
-			// Count all terminal children for status determination.
 			if ( in_array( $status, Job_Scheduler::TERMINAL_STATUSES, true ) ) {
 				++$children_terminal;
 			}
@@ -824,7 +821,6 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 			}
 
 			if ( ! empty( $job['data']['_remote_aggregated'] ) ) {
-				// $job's child counts were just overwritten with local-only values, so read the stored aggregate instead.
 				$children_completed        = $stored_children_completed ?: $children_completed;
 				$children_total            = $stored_children_total ?: $children_total + $remote_total;
 				$job['children_completed'] = $children_completed;
@@ -1039,12 +1035,9 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 	/**
 	 * Send a cancel request to a job on a remote child site.
 	 *
-	 * Used internally to propagate reindex cancellations from the governing
-	 * site down to child sites, as well as by the cancel_remote_job endpoint.
-	 *
 	 * @param string $site_url The child site URL.
 	 * @param string $job_id   The job ID to cancel on the child site.
-	 * @return bool True if the cancel was accepted by the child site.
+	 * @return bool True if the child site responded.
 	 */
 	private function send_remote_cancel( string $site_url, string $job_id ): bool {
 		$context = $this->get_remote_job_request_context( $site_url );
@@ -1072,7 +1065,6 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 			]
 		);
 
-		// If the remote site is unreachable the child's jobs will time out.
 		return ! is_wp_error( $response );
 	}
 

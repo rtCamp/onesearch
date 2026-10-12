@@ -24,14 +24,14 @@ use function is_wp_error;
  */
 final class Sync_Job extends Abstract_Job {
 	/**
-	 * The default group for watcher-spawned sync jobs.
+	 * The default Action Scheduler group; the Watcher and Reindex_Job each set their own.
 	 *
 	 * @var string
 	 */
 	protected string $group = 'sync';
 
 	/**
-	 * The default batch size (used as progress_total for single-post syncs).
+	 * Placeholder until handle() counts the batch's posts.
 	 *
 	 * @var int
 	 */
@@ -61,8 +61,8 @@ final class Sync_Job extends Abstract_Job {
 	/**
 	 * Execute the sync job.
 	 *
-	 * Iterates over post_ids from the data payload, and saves or deletes
-	 * each post's records as appropriate, batching the saves and the deletes.
+	 * Indexable posts are saved in one write and the others' records deleted in one request; posts that no longer
+	 * exist are skipped.
 	 *
 	 * @throws \InvalidArgumentException If post_ids is missing or empty.
 	 * @throws \RuntimeException         If any Algolia API operation fails.

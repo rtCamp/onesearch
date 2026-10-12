@@ -62,10 +62,10 @@ final class Watcher implements Registrable {
 		try {
 			$scheduler->schedule( $job );
 		} catch ( \Throwable $e ) {
-			// Fallback to synchronous indexing if scheduling fails.
 			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 			error_log( sprintf( '[OneSearch] Failed to schedule Sync_Job: %s', $e->getMessage() ) );
 
+			// The edit still has to reach the index, so it's synced in this request instead.
 			$this->sync_post_inline( $post );
 		}
 	}

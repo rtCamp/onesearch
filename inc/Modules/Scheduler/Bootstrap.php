@@ -15,10 +15,8 @@ use OneSearch\Modules\Jobs\Registry;
 /**
  * Class - Bootstrap
  *
- * Initializes the Action Scheduler-based job system:
- * 1. Conditionally loads Action Scheduler if not already available.
- * 2. Registers built-in job types (sync, reindex).
- * 3. Fires the onesearch_register_jobs action for extensibility.
+ * Registers the built-in job types once Action Scheduler is available, then fires onesearch_register_jobs so other
+ * code can add its own.
  */
 final class Bootstrap implements Registrable {
 	/**
@@ -31,8 +29,7 @@ final class Bootstrap implements Registrable {
 	/**
 	 * Initialize the scheduler module.
 	 *
-	 * Registers built-in job types and fires an action for extensibility.
-	 * Action Scheduler is loaded in onesearch.php before any hooks fire.
+	 * Action Scheduler is loaded in onesearch.php before any hooks fire, so it's only missing if that failed.
 	 */
 	public function init(): void {
 		if ( ! function_exists( 'as_enqueue_async_action' ) ) {

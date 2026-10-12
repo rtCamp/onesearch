@@ -15,10 +15,8 @@ use OneSearch\Modules\Search\Indexer;
 /**
  * Class - Reindex_Job
  *
- * Resolves all post IDs for the given post types, clears existing
- * Algolia records for the site, chunks the IDs into batches, and
- * schedules a Sync_Job for each batch. Progress is tracked as
- * children complete via Job_Scheduler::notify_parent().
+ * Clears the site's Algolia records, then pages through its posts and queues a Sync_Job per batch. It finishes once
+ * every batch has reported back through Job_Scheduler::notify_parent().
  */
 final class Reindex_Job extends Abstract_Job {
 	/**
@@ -39,7 +37,7 @@ final class Reindex_Job extends Abstract_Job {
 	protected string $group = 'reindex';
 
 	/**
-	 * The default batch size.
+	 * Placeholder until handle() knows how many batches there are.
 	 *
 	 * @var int
 	 */
@@ -156,7 +154,7 @@ final class Reindex_Job extends Abstract_Job {
 		$this->set_progress_total( $scheduled );
 		$this->update_progress( 0 );
 
-		// Persist the parent job with child IDs so we can track completion.
+		// settle_parent() counts the batches from the stored child_ids.
 		$scheduler->persist_job( $this );
 
 		Job_Scheduler::dispatch_queue();

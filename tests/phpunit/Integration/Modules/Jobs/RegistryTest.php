@@ -53,7 +53,6 @@ class RegistryTest extends TestCase {
 	 */
 	private function set_registry_instance( ?Registry $instance ): void {
 		$ref_instance = new \ReflectionProperty( Registry::class, 'instance' );
-		$ref_instance->setAccessible( true );
 		$ref_instance->setValue( null, $instance );
 	}
 
@@ -103,7 +102,6 @@ class RegistryTest extends TestCase {
 		$registry = Registry::instance();
 		$registry->register( 'job', TestConcreteJob::class );
 
-		// Create another concrete class for overwriting.
 		$registry->register( 'job', AnotherTestConcreteJob::class );
 
 		$resolved = $registry->resolve( 'job' );

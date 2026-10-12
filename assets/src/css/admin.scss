@@ -6,6 +6,7 @@
 }
 
 .toplevel_page_onesearch {
+
 	.onesearch-site-checkbox {
 		pointer-events: none;
 	}
@@ -15,6 +16,7 @@
 	}
 
 	&:has(.onesearch-add-plugin-screen) {
+
 		.onesearch-heading {
 			display: inline-block;
 		}
@@ -28,6 +30,7 @@
 
 #onesearch-search-settings,
 #onesearch-settings-page {
+
 	.components-snackbar {
 		position: fixed;
 		bottom: 20px;
@@ -51,11 +54,13 @@
 }
 
 body {
+
 	.wp-first-item:has(.onesearch-plugin-manager-page) {
 		display: none;
 	}
 
 	&.onesearch-governing-site-site {
+
 		.wp-first-item:has(.onesearch-plugin-manager-page) {
 			display: inline-block;
 		}
@@ -63,6 +68,7 @@ body {
 }
 
 [id="toplevel_page_onesearch"] {
+
 	.dashicons-admin-generic::before {
 		content: url(../images/logo.svg) !important;
 	}
@@ -346,6 +352,7 @@ body {
 }
 
 @keyframes onesearch-spin {
+
 	to {
 		transform: rotate(360deg);
 	}
@@ -375,7 +382,12 @@ body {
 	margin: 0 0 2px 0;
 	font-size: 13px;
 	color: #666;
-	font-family: "SF Mono", Consolas, "Liberation Mono", Menlo, Courier,
+	font-family:
+		"SF Mono",
+		Consolas,
+		"Liberation Mono",
+		Menlo,
+		Courier,
 		monospace;
 }
 
@@ -499,8 +511,7 @@ body:has(.onesearch-setup-overlay) .onesearch-search-content {
 	margin-top: 24px;
 }
 
-// Keeps the notice and its action button on one row, so the text wraps
-// instead of pushing the button onto a line of its own.
+// The text wraps beside the action button instead of pushing it below.
 .onesearch-reindex-intro {
 	display: flex;
 	align-items: center;
@@ -545,10 +556,7 @@ body:has(.onesearch-setup-overlay) .onesearch-search-content {
 	width: 36px;
 	height: 36px;
 	border: 3px solid #e0e0e0;
-	border-top-color: var(
-		--wp-components-color-accent,
-		var(--wp-admin-theme-color, #3858e9)
-	);
+	border-top-color: var(--wp-components-color-accent, var(--wp-admin-theme-color, #3858e9));
 	border-radius: 50%;
 	animation: onesearch-spin 0.7s linear infinite;
 }
@@ -722,10 +730,7 @@ body:has(.onesearch-setup-overlay) .onesearch-search-content {
 	}
 
 	& &-current.components-button {
-		background: var(
-			--wp-components-color-accent,
-			var(--wp-admin-theme-color, #3858e9)
-		);
+		background: var(--wp-components-color-accent, var(--wp-admin-theme-color, #3858e9));
 		color: #fff;
 		pointer-events: none;
 	}

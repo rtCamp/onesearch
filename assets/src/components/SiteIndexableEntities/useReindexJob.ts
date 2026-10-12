@@ -165,7 +165,7 @@ export const useReindexJob = ( {
 			setHistoryPage( data.page || 1 );
 			setHistoryTotalPages( data.total_pages || 0 );
 		} catch {
-			// Silently fail for history.
+			// History is secondary to the progress view, so a failed load keeps the table as it was.
 		}
 	}, [] );
 
@@ -360,8 +360,7 @@ export const useReindexJob = ( {
 
 		setRetryingJobId( job.id );
 
-		// The list row only carries the top-level job, so resolve the per-site
-		// jobs here to find which ones actually have failures to retry.
+		// History rows carry only the top-level job, so the per-site jobs are fetched to find which have failures.
 		const siteDetails = await fetchHistoryDetailsForJob( job );
 		const jobsToRetry = siteDetails.filter(
 			( state ) =>

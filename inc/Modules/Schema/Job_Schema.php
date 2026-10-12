@@ -13,8 +13,7 @@ namespace OneSearch\Modules\Schema;
  * Class - Job_Schema
  *
  * Creates and upgrades the wp_onesearch_index_jobs table via dbDelta.
- * Called on plugin activation and on each request when the schema version
- * option doesn't match the current version constant.
+ * Checked on every request, but only runs dbDelta when the stored schema version is behind.
  */
 class Job_Schema {
 	public const TABLE_NAME     = 'onesearch_index_jobs';

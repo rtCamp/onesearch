@@ -27,8 +27,7 @@ final class SettingsTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 
-		// Ensure no stale site-type option from a previous test class causes
-		// is_governing_site() to return true during purge-cache assertions.
+		// A site-type option left by an earlier test class would make is_governing_site() true here.
 		delete_option( Settings::OPTION_SITE_TYPE );
 	}
 

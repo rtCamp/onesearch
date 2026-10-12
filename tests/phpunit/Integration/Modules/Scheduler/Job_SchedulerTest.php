@@ -76,8 +76,7 @@ class Job_SchedulerTest extends TestCase {
 	}
 
 	/**
-	 * Verifies a completed job is stored in the custom table (not wp_options) and
-	 * that its transient is removed.
+	 * Verifies a completed job is kept only in the custom table, with its transient removed.
 	 */
 	public function test_persist_terminal_job_uses_table(): void {
 		$j = $this->make_job();

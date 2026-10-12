@@ -13,9 +13,6 @@ namespace OneSearch\Modules\Schema;
  * Class - Job_Repository
  *
  * All reads and writes to the custom jobs table go through here.
- * Every job is inserted into the table on creation so active jobs
- * can be enumerated via a status query; transients remain the fast-read
- * path for active job state.
  */
 class Job_Repository {
 	/** @var string Fully-qualified table name including WP prefix. */

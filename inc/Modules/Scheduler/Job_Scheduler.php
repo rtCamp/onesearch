@@ -19,27 +19,11 @@ use OneSearch\Utils;
 /**
  * Class - Job_Scheduler
  *
- * Bridges the domain model (Abstract_Job subclasses) with Action Scheduler's
- * async execution engine and WordPress's dual storage layer
- * (transients + wp_onesearch_index_jobs custom table).
+ * Runs Abstract_Job subclasses on Action Scheduler and stores their state.
  *
- * Storage strategy:
- *   - Active jobs (pending/running): stored in WordPress transients with a TTL.
- *     Each persist_job() call resets the expiration.
- *   - Terminal jobs (completed/failed/cancelled): transient is deleted; the
- *     custom table row (wp_onesearch_index_jobs) becomes the source of truth.
- *   - All jobs are written to wp_onesearch_index_jobs on every persist_job()
- *     call. Active jobs are queryable via status; terminal rows are permanent.
- *   - Action ID, action args, and child counters are stored as dedicated
- *     columns in the custom table.
- *
- * Execution flow:
- *   1. schedule($job) → persist (transient + table) + enqueue async action
- *   2. AS worker fires 'onesearch_execute_job' → execute_job() called
- *   3. execute_job() loads job, marks RUNNING (transient + table), calls handle()
- *   4. On success: mark_completed/keep RUNNING + notify_parent
- *   5. On terminal: delete transient, table row is now source of truth
- *   6. On failure: retry if allowed, otherwise fail permanently + notify_parent
+ * Every job has a row in wp_onesearch_index_jobs, so active ones can be listed. Active jobs also get a transient for
+ * fast reads; once a job finishes the transient is dropped and the row is the only copy. A parent's child counters
+ * are columns incremented in SQL, since its batches finish concurrently.
  */
 final class Job_Scheduler {
 	/**
@@ -48,7 +32,7 @@ final class Job_Scheduler {
 	public const HOOK = 'onesearch_execute_job';
 
 	/**
-	 * The Action Scheduler hook that settles a parent job when the child that finished last couldn't.
+	 * The Action Scheduler hook that settles a parent later, when its lock was busy or while it waits on brand sites.
 	 */
 	public const SETTLE_HOOK = 'onesearch_settle_parent';
 
@@ -68,32 +52,21 @@ final class Job_Scheduler {
 	private const REMOTE_UNREACHABLE_GRACE = 600;
 
 	/**
-	 * Prefix for transient keys storing active job state.
+	 * Prefix for the transient holding an active job's state: "onesearch_job_status_{jobId}".
 	 *
-	 * Main transient key: "onesearch_job_status_{jobId}" — holds the full
-	 * job payload for pending/running jobs. Deleted when the job reaches a
-	 * terminal state (the custom table row is then the source of truth).
-	 * Also used as a base for the spinlock key: "onesearch_job_status_{jobId}_lock".
-	 *
-	 * Note: action_id, action_args, and child counters are stored as dedicated
-	 * columns in wp_onesearch_index_jobs, not as separate wp_options/transient keys.
+	 * The job's lock option appends "_lock".
 	 */
 	public const OPTION_PREFIX = 'onesearch_job_status_';
 
 	/**
-	 * Expiration time in seconds for transient job state.
+	 * Seconds an active job's transient lives.
 	 *
-	 * Active (pending/running) jobs are stored as transients with this TTL.
-	 * Each persist_job() call resets the expiration, so only truly abandoned
-	 * jobs expire. 12 hours = 43200 seconds.
+	 * Every persist_job() renews it, so only an abandoned job's transient expires.
 	 */
 	public const TRANSIENT_EXPIRATION = 43200;
 
 	/**
 	 * Job statuses that represent terminal (finished) states.
-	 *
-	 * When a job transitions to any of these, its transient is deleted and
-	 * the custom table row (wp_onesearch_index_jobs) becomes the source of truth.
 	 */
 	public const TERMINAL_STATUSES = [
 		Abstract_Job::STATUS_COMPLETED,
@@ -102,7 +75,9 @@ final class Job_Scheduler {
 	];
 
 	/**
-	 * Guard to prevent registering WordPress hooks more than once.
+	 * Whether the hooks are registered.
+	 *
+	 * The scheduler is created wherever a job is touched, and registering per instance would run each job repeatedly.
 	 *
 	 * @var bool
 	 */
@@ -117,9 +92,6 @@ final class Job_Scheduler {
 
 	/**
 	 * Create the scheduler.
-	 *
-	 * Registers WordPress action hooks on first instantiation. The static
-	 * $hooks_registered guard ensures hooks are only added once.
 	 */
 	public function __construct() {
 		// Fallback for contexts where Main::load() hasn't run (e.g. CLI, tests); no-ops otherwise.
@@ -130,8 +102,6 @@ final class Job_Scheduler {
 
 	/**
 	 * Register WordPress action hooks for job execution and AS lifecycle events.
-	 *
-	 * Protected by static $hooks_registered to prevent double-registration.
 	 */
 	private function register_hooks(): void {
 		if ( self::$hooks_registered ) {
@@ -302,11 +272,8 @@ final class Job_Scheduler {
 	/**
 	 * Cancel all pending/running child jobs of a parent in bulk.
 	 *
-	 * Reindex_Job children all share a single Action Scheduler group
-	 * ("onesearch_reindex_{parent_id}"), so one as_unschedule_all_actions()
-	 * call replaces N individual as_unschedule_action() calls. The DB update
-	 * is also batched into a single UPDATE … WHERE id IN (…) statement.
-	 * Completed or already-cancelled children are left untouched.
+	 * Children share one Action Scheduler group, so a single call unschedules them all. Finished children keep their
+	 * status.
 	 *
 	 * @param string   $parent_id Job ID of the parent (used to derive the AS group).
 	 * @param string[] $child_ids Job IDs of all children registered on the parent.
@@ -524,10 +491,6 @@ final class Job_Scheduler {
 	/**
 	 * Persist the full job state.
 	 *
-	 * Every call writes to the custom table (so active jobs are enumerable).
-	 * Active jobs additionally get a transient for fast reads; terminal jobs
-	 * have their transient deleted since the table row is now the source of truth.
-	 *
 	 * @param \OneSearch\Modules\Jobs\Abstract_Job $job The job whose state to persist.
 	 */
 	public function persist_job( Abstract_Job $job ): void {
@@ -583,9 +546,6 @@ final class Job_Scheduler {
 	 * process holds the parent's lock, it tries again later, so the parent isn't left running after its
 	 * last child has finished.
 	 *
-	 * Remote site status checks are performed OUTSIDE the lock to prevent
-	 * blocking cancel() operations during slow API calls.
-	 *
 	 * @internal Also the callback for SETTLE_HOOK.
 	 *
 	 * @param string $parent_id The parent job ID.
@@ -608,13 +568,12 @@ final class Job_Scheduler {
 		$parent_key = self::OPTION_PREFIX . $parent_id;
 		$lock_key   = $parent_key . '_lock';
 
-		// Check if all local children are done (fast check, no lock needed yet). With nothing to index here, a governing parent still waits on its brand sites.
+		// A governing parent with nothing to index here is done locally, but still waits on its brand sites.
 		$all_local_done = $done >= $child_total && ( $child_total > 0 || ! empty( $remote_sites ) );
 
 		// Poll remote statuses before taking the lock so slow remote calls don't block cancel().
 		$remote = $all_local_done && ! empty( $remote_sites ) ? $this->check_remote_job_statuses( $remote_sites ) : null;
 
-		// Lock has an expiry so a crashed process cannot orphan it.
 		if ( ! $this->acquire_lock( $lock_key ) ) {
 			$this->schedule_settle( $parent_id, self::SETTLE_RETRY_DELAY );
 
@@ -720,7 +679,7 @@ final class Job_Scheduler {
 
 		$group = 'onesearch_settle_' . $parent_id;
 
-		// One pending attempt is enough. Checked by status rather than with a unique action, since the attempt running now may be the one rescheduling.
+		// Not a unique action: AS counts this running attempt as a duplicate, so it couldn't reschedule itself.
 		$pending = as_get_scheduled_actions(
 			[
 				'hook'   => self::SETTLE_HOOK,
@@ -1056,7 +1015,7 @@ final class Job_Scheduler {
 				return true;
 			}
 
-			usleep( 100000 + $attempt * 50000 ); // 100ms base, +50ms per attempt.
+			usleep( 100000 + $attempt * 50000 );
 		}
 
 		return false;

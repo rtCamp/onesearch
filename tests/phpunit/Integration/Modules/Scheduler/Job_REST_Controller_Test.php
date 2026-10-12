@@ -457,7 +457,6 @@ class Job_REST_Controller_Test extends TestCase {
 		$this->assertSame( 200, $response->get_status() );
 		$this->assertTrue( $data['success'] );
 
-		// Verify the job is now cancelled.
 		$status = $this->scheduler->get_status( $job->get_id() );
 		$this->assertSame( Abstract_Job::STATUS_CANCELLED, $status['status'] );
 	}
@@ -501,7 +500,6 @@ class Job_REST_Controller_Test extends TestCase {
 	 * The /jobs history endpoint respects per_page parameter.
 	 */
 	public function test_history_respects_per_page(): void {
-		// Create a few jobs to populate history.
 		for ( $i = 0; $i < 3; $i++ ) {
 			$job = $this->create_scheduled_job();
 			// Mark them as completed so they appear in history.

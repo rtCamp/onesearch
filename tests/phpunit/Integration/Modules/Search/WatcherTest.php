@@ -61,7 +61,7 @@ final class WatcherTest extends TestCase {
 
 	/**
 	 * Indexable post schedules an async Sync_Job for a governing site.
-	 * Algolia is no longer called synchronously — the job runs in an AS worker.
+	 * Algolia isn't called during the request; the job runs in an AS worker.
 	 */
 	public function test_on_post_transition_triggers_algolia_reindex(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
@@ -84,10 +84,8 @@ final class WatcherTest extends TestCase {
 		$post    = self::factory()->post->create_and_get( [ 'post_status' => 'publish' ] );
 		$watcher = new Watcher();
 
-		// Transition from 'draft' to 'publish' (should schedule async Sync_Job).
 		$watcher->on_post_transition( 'publish', 'draft', $post );
 
-		// Assert that an async action was enqueued for the job executor hook.
 		$this->assertNotFalse(
 			as_next_scheduled_action( Job_Scheduler::HOOK ),
 			'Happy path should schedule an async Sync_Job via Action Scheduler.'
@@ -97,7 +95,7 @@ final class WatcherTest extends TestCase {
 	/**
 	 * Indexable post on a consumer site schedules an async Sync_Job.
 	 * Credentials and indexable entities are resolved from the brand config cache,
-	 * but Algolia is no longer called synchronously — the job runs in an AS worker.
+	 * but Algolia isn't called during the request; the job runs in an AS worker.
 	 */
 	public function test_on_post_transition_triggers_algolia_reindex_consumer_site(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
@@ -108,10 +106,8 @@ final class WatcherTest extends TestCase {
 		$post    = self::factory()->post->create_and_get( [ 'post_status' => 'publish' ] );
 		$watcher = new Watcher();
 
-		// Transition from 'draft' to 'publish' (should schedule async Sync_Job).
 		$watcher->on_post_transition( 'publish', 'draft', $post );
 
-		// Assert that an async action was enqueued for the job executor hook.
 		$this->assertNotFalse(
 			as_next_scheduled_action( Job_Scheduler::HOOK ),
 			'Consumer site happy path should schedule an async Sync_Job via Action Scheduler.'

@@ -39,7 +39,7 @@ class Search_Controller extends Abstract_REST_Controller {
 	/**
 	 * Seconds of inactivity after which a non-terminal job is considered abandoned.
 	 */
-	private const STALE_JOB_THRESHOLD = 900; // 15 minutes
+	private const STALE_JOB_THRESHOLD = 900;
 
 	/**
 	 * {@inheritDoc}
@@ -349,7 +349,6 @@ class Search_Controller extends Abstract_REST_Controller {
 			);
 		}
 
-		// The parent runs inline so the caller gets child job IDs back; only the child Sync_Jobs go async via AS.
 		$job = new Reindex_Job();
 		$job->set_data(
 			[
@@ -473,11 +472,9 @@ class Search_Controller extends Abstract_REST_Controller {
 	}
 
 	/**
-	 * Helper to get the active reindex state, or null if none/broken.
+	 * Get the reindex state while any of its jobs is still live, clearing it once none is.
 	 *
-	 * Validates that the stored job IDs still exist in storage
-	 * and haven't reached terminal status. If they're terminal,
-	 * the state is auto-cleaned up.
+	 * A job stops counting once it's gone, finished, or idle past STALE_JOB_THRESHOLD.
 	 *
 	 * @return array<int, array{site_name:string, site_url:string, job_id:string}>|null
 	 */
@@ -501,12 +498,11 @@ class Search_Controller extends Abstract_REST_Controller {
 				continue;
 			}
 
-			// Terminal status = not blocking.
 			if ( in_array( $job_status['status'] ?? '', Job_Scheduler::TERMINAL_STATUSES, true ) ) {
 				continue;
 			}
 
-			// notify_parent() bumps updated_at, so 15 min of staleness means the job is wedged or its process died.
+			// Settling a parent bumps updated_at, so 15 idle minutes means the job is wedged or its process died.
 			$updated_at = (int) ( $job_status['updated_at'] ?? 0 );
 			if ( $updated_at > 0 && ( $now - $updated_at ) > self::STALE_JOB_THRESHOLD ) {
 				continue;

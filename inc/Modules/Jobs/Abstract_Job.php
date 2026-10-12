@@ -18,13 +18,6 @@ namespace OneSearch\Modules\Jobs;
  *
  * Lifecycle states: PENDING → RUNNING → COMPLETED | FAILED | CANCELLED
  *
- * Storage strategy (managed by Job_Scheduler):
- *   - Active jobs (PENDING/RUNNING) are stored in WordPress transients,
- *     auto-expiring after 12 hours.
- *   - Terminal jobs (COMPLETED/FAILED/CANCELLED) have their transient deleted;
- *     the custom table row (wp_onesearch_index_jobs) becomes the source of truth.
- *   - get_status() checks transient first, then falls back to the custom table.
- *
  * @see \OneSearch\Modules\Scheduler\Job_Scheduler::execute_job()  Where jobs are executed by Action Scheduler
  * @see \OneSearch\Modules\Scheduler\Job_Scheduler::schedule()     Where jobs are enqueued
  * @see \OneSearch\Modules\Jobs\Sync_Job                           Concrete leaf job — syncs posts to Algolia
@@ -104,7 +97,7 @@ abstract class Abstract_Job {
 	protected ?string $error = null;
 
 	/**
-	 * Arbitrary data payload for the job (e.g. post_ids, credentials).
+	 * Arbitrary data payload for the job (e.g. post_ids, post_types).
 	 *
 	 * @var array<string, mixed>
 	 */
@@ -166,7 +159,7 @@ abstract class Abstract_Job {
 
 	/**
 	 * Number of child jobs that have failed.
-	 * When all children complete, if this is > 0 the parent is marked FAILED.
+	 * Once all children finish, any failure fails the parent unless one was cancelled.
 	 *
 	 * @var int
 	 */
@@ -174,7 +167,7 @@ abstract class Abstract_Job {
 
 	/**
 	 * Number of child jobs that were cancelled.
-	 * When all children finish, if this is > 0 the parent is marked CANCELLED.
+	 * Once all children finish, any cancellation cancels the parent.
 	 *
 	 * @var int
 	 */
@@ -365,11 +358,8 @@ abstract class Abstract_Job {
 	/**
 	 * Set the lifecycle status and touch the updated_at timestamp.
 	 *
-	 * Called by Job_Scheduler during scheduling (→ pending) and retry
-	 * setup (→ pending). For the running state, Job_Scheduler calls
-	 * mark_running() instead. For completed/failed states, use
-	 * mark_completed()/fail() instead. Cancellation operates directly
-	 * on the stored array rather than calling this method.
+	 * Reopening a finished job clears its finished_at. Use mark_completed() and fail() to finish one, since they
+	 * also record the progress, error and finish time.
 	 *
 	 * @param string $status One of the STATUS_* constants.
 	 */
@@ -590,7 +580,7 @@ abstract class Abstract_Job {
 	}
 
 	/**
-	 * Serialize the job to an associative array for wp_options storage.
+	 * Serialize the job for storage.
 	 *
 	 * @return array<string, mixed> Complete job state with snake_case keys.
 	 */
