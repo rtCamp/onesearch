@@ -10,7 +10,6 @@ declare( strict_types = 1 );
 namespace OneSearch\Modules\Scheduler;
 
 use OneSearch\Modules\Jobs\Abstract_Job;
-use OneSearch\Modules\Jobs\Reindex_Job;
 use OneSearch\Modules\Jobs\Sync_Job;
 use OneSearch\Modules\Rest\Abstract_REST_Controller;
 use OneSearch\Modules\Rest\Search_Controller;
@@ -31,18 +30,6 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 	 * {@inheritDoc}
 	 */
 	public function register_routes(): void {
-		register_rest_route(
-			self::NAMESPACE,
-			'/jobs',
-			[
-				[
-					'methods'             => WP_REST_Server::READABLE,
-					'callback'            => [ $this, 'get_jobs' ],
-					'permission_callback' => [ $this, 'check_job_read_permissions' ],
-				],
-			]
-		);
-
 		register_rest_route(
 			self::NAMESPACE,
 			'/jobs/history',
@@ -152,34 +139,6 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 
 		register_rest_route(
 			self::NAMESPACE,
-			'/jobs/reindex',
-			[
-				[
-					'methods'             => WP_REST_Server::CREATABLE,
-					'callback'            => [ $this, 'create_reindex' ],
-					'permission_callback' => [ $this, 'check_api_permissions' ],
-					'args'                => [
-						'post_types' => [
-							'required'          => false,
-							'type'              => 'array',
-							'default'           => [],
-							'sanitize_callback' => static function ( $value ) {
-								return is_array( $value ) ? array_map( 'sanitize_text_field', $value ) : [];
-							},
-						],
-						'batch_size' => [
-							'required'          => false,
-							'type'              => 'integer',
-							'default'           => 100,
-							'sanitize_callback' => 'absint',
-						],
-					],
-				],
-			]
-		);
-
-		register_rest_route(
-			self::NAMESPACE,
 			'/jobs/(?P<id>[-a-zA-Z0-9_.]+)/children',
 			[
 				[
@@ -251,43 +210,6 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 						],
 					],
 				],
-			]
-		);
-	}
-
-	/**
-	 * Get all active/recent jobs.
-	 *
-	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
-	 */
-	public function get_jobs( $request ): WP_REST_Response {
-		$scheduler = new Job_Scheduler();
-		$group     = $request->get_param( 'group' );
-
-		if ( $group ) {
-			$jobs = $scheduler->get_jobs_by_group( sanitize_text_field( $group ) );
-		} else {
-			$repository = new Job_Repository();
-			$active_ids = $scheduler->get_active_job_ids();
-			$terminal   = $repository->get_terminal_jobs( 1, 50, false );
-			$jobs       = [];
-
-			foreach ( $active_ids as $job_id ) {
-				$status = $scheduler->get_status( $job_id );
-				if ( $status ) {
-					$jobs[] = $this->maybe_finalize_remote_job( $status, $scheduler );
-				}
-			}
-
-			foreach ( $terminal as $row ) {
-				$jobs[] = $row;
-			}
-		}
-
-		return new WP_REST_Response(
-			[
-				'success' => true,
-				'jobs'    => $jobs,
 			]
 		);
 	}
@@ -387,60 +309,6 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 	}
 
 	/**
-	 * Create and schedule a Reindex_Job.
-	 *
-	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
-	 * @return \WP_REST_Response|\WP_Error
-	 */
-	public function create_reindex( $request ) {
-		$post_types = $request->get_param( 'post_types' ) ?: [];
-		// Falls back to the route's registered default when absint() yields 0.
-		$batch_size = $request->get_param( 'batch_size' ) ?: 100;
-
-		if ( empty( $post_types ) ) {
-			$post_types = $this->get_post_types_to_index();
-
-			if ( empty( $post_types ) ) {
-				return new \WP_Error(
-					'onesearch_no_post_types',
-					__( 'No post types configured for indexing.', 'onesearch' ),
-					[ 'status' => 400 ]
-				);
-			}
-		}
-
-		$job = new Reindex_Job();
-		$job->set_data(
-			[
-				'post_types' => $post_types,
-				'batch_size' => $batch_size,
-			]
-		);
-		$job->set_max_retries( 2 );
-		$job->set_retry_delay_seconds( 60 );
-
-		$scheduler = new Job_Scheduler();
-
-		try {
-			$scheduler->schedule( $job );
-		} catch ( \Throwable $e ) {
-			return new \WP_Error(
-				'onesearch_schedule_failed',
-				$e->getMessage(),
-				[ 'status' => 500 ]
-			);
-		}
-
-		return new WP_REST_Response(
-			[
-				'success' => true,
-				'message' => __( 'Re-indexing scheduled successfully.', 'onesearch' ),
-				'job_id'  => $job->get_id(),
-			]
-		);
-	}
-
-	/**
 	 * Cancel a job and its children.
 	 *
 	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
@@ -527,8 +395,6 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 	 * @return \WP_REST_Response|\WP_Error
 	 */
 	public function retry_job( $request ) {
-		global $wpdb;
-
 		$job_id    = $request->get_param( 'id' );
 		$scheduler = new Job_Scheduler();
 		$status    = $scheduler->get_status( $job_id );
@@ -577,7 +443,7 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 
 		$parent_id = $status['parent_id'] ?? '';
 		if ( $parent_id ) {
-			$this->reset_parent_for_retry( $scheduler, $wpdb, $parent_id );
+			$this->reset_parent_for_retry( $scheduler, $parent_id );
 		}
 
 		return new WP_REST_Response(
@@ -662,7 +528,7 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 			);
 		}
 
-		$this->prepare_parent_for_child_retries( $scheduler, $parent_data, $completed_children );
+		$this->prepare_parent_for_child_retries( $parent_data, $completed_children );
 
 		$retried    = 0;
 		$repository = new Job_Repository();
@@ -709,11 +575,10 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 	/**
 	 * Reset parent counters before retrying failed child jobs.
 	 *
-	 * @param \OneSearch\Modules\Scheduler\Job_Scheduler $scheduler          The job scheduler instance.
-	 * @param array<string, mixed>                       $parent_data        Stored parent job data.
-	 * @param int                                        $completed_children Completed child count to preserve.
+	 * @param array<string, mixed> $parent_data        Stored parent job data.
+	 * @param int                  $completed_children Completed child count to preserve.
 	 */
-	private function prepare_parent_for_child_retries( Job_Scheduler $scheduler, array $parent_data, int $completed_children ): void { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+	private function prepare_parent_for_child_retries( array $parent_data, int $completed_children ): void {
 		$parent_id = (string) ( $parent_data['id'] ?? '' );
 		if ( '' === $parent_id ) {
 			return;
@@ -740,10 +605,9 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 	 * Decrement the parent's children_done counter and set back to RUNNING if terminal.
 	 *
 	 * @param \OneSearch\Modules\Scheduler\Job_Scheduler $scheduler The job scheduler instance.
-	 * @param \wpdb                                      $wpdb      WordPress database abstraction.
 	 * @param string                                     $parent_id The parent job ID.
 	 */
-	private function reset_parent_for_retry( Job_Scheduler $scheduler, $wpdb, string $parent_id ): void { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+	private function reset_parent_for_retry( Job_Scheduler $scheduler, string $parent_id ): void {
 		$parent_key  = Job_Scheduler::OPTION_PREFIX . $parent_id;
 		$parent_data = $scheduler->get_status( $parent_id );
 		if ( ! $parent_data ) {
@@ -976,33 +840,6 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 		}
 
 		return $job;
-	}
-
-	/**
-	 * Get the post types to index for the current site.
-	 *
-	 * @return string[]
-	 */
-	private function get_post_types_to_index(): array {
-		if ( \OneSearch\Modules\Settings\Settings::is_governing_site() ) {
-			$opt        = \OneSearch\Modules\Search\Settings::get_indexable_entities();
-			$site_url   = \OneSearch\Utils::normalize_url( get_site_url() );
-			$post_types = $opt['entities'][ $site_url ] ?? null;
-
-			return is_array( $post_types ) ? array_values( array_unique( array_map( 'strval', $post_types ) ) ) : [];
-		}
-
-		$parent_url = \OneSearch\Modules\Settings\Settings::get_parent_site_url();
-		if ( empty( $parent_url ) ) {
-			return [];
-		}
-
-		$brand_config = \OneSearch\Modules\Rest\Governing_Data_Handler::get_brand_config();
-		if ( is_wp_error( $brand_config ) ) {
-			return [];
-		}
-
-		return $brand_config['indexable_entities'] ?? [];
 	}
 
 	/**

@@ -31,8 +31,6 @@ export interface OneSearchOnboarding {
 	setup_url: string;
 }
 
-export type StatusUIType = 'badge' | 'text' | 'icon';
-
 declare global {
 	interface Window {
 		OneSearchSettings: OneSearchSettings;

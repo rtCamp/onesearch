@@ -20,7 +20,6 @@ export interface SiteJob {
 	site_name: string;
 	site_url: string;
 	job_id: string;
-	batch_count?: number;
 }
 
 export interface ReIndexResponse {

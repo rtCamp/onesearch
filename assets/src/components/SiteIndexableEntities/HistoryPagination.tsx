@@ -37,9 +37,7 @@ const HistoryPagination = ( {
 	if ( rangeEnd < last - 1 ) {
 		pages.push( '…' );
 	}
-	if ( last > 1 ) {
-		pages.push( last );
-	}
+	pages.push( last );
 
 	const handlePageClick = ( page: number ) => {
 		if ( page === historyPage || page < 1 || page > last ) {

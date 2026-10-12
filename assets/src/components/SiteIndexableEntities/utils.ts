@@ -80,11 +80,6 @@ export const getHistorySites = (
 			site_name: __( 'Governing Site', 'onesearch' ),
 			site_url: currentSiteUrl,
 			job_id: job.id,
-			batch_count:
-				job.children_total ||
-				job.data?.total_batches ||
-				job.progress_total ||
-				0,
 		},
 	];
 };

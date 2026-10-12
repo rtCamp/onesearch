@@ -79,33 +79,6 @@ class Job_REST_Controller_Test extends TestCase {
 	}
 
 	/**
-	 * The /jobs endpoint returns an array of active jobs.
-	 */
-	public function test_list_jobs_returns_array(): void {
-		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/jobs' );
-		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
-
-		$this->assertSame( 200, $response->get_status() );
-		$this->assertTrue( $data['success'] );
-		$this->assertIsArray( $data['jobs'] );
-	}
-
-	/**
-	 * The /jobs endpoint includes a job after scheduling.
-	 */
-	public function test_list_jobs_includes_scheduled_job(): void {
-		$job = $this->create_scheduled_job();
-
-		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/jobs' );
-		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
-
-		$ids = array_column( $data['jobs'], 'id' );
-		$this->assertContains( $job->get_id(), $ids );
-	}
-
-	/**
 	 * GET /jobs/{id} returns the job state.
 	 */
 	public function test_get_job_returns_status(): void {
@@ -319,7 +292,7 @@ class Job_REST_Controller_Test extends TestCase {
 		$subscriber_id = self::factory()->user->create( [ 'role' => 'subscriber' ] );
 		wp_set_current_user( $subscriber_id );
 
-		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/jobs' );
+		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/jobs/history' );
 		$response = $this->server->dispatch( $request );
 
 		$this->assertSame( 403, $response->get_status() );
@@ -338,33 +311,6 @@ class Job_REST_Controller_Test extends TestCase {
 		$this->assertSame( 200, $response->get_status() );
 		$this->assertTrue( $data['success'] );
 		$this->assertIsArray( $data['children'] );
-	}
-
-	/**
-	 * POST /jobs/reindex creates and schedules a Reindex_Job.
-	 */
-	public function test_create_reindex_schedules_a_job(): void {
-		$request = new WP_REST_Request( 'POST', '/onesearch/v1/jobs/reindex' );
-		$request->set_param( 'post_types', [ 'post' ] );
-		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
-
-		$this->assertSame( 200, $response->get_status() );
-		$this->assertTrue( $data['success'] );
-		$this->assertArrayHasKey( 'job_id', $data );
-		$this->assertNotEmpty( $data['job_id'] );
-	}
-
-	/**
-	 * POST /jobs/reindex returns 400 when no post types are configured.
-	 */
-	public function test_create_reindex_fails_when_no_post_types_configured(): void {
-		$request  = new WP_REST_Request( 'POST', '/onesearch/v1/jobs/reindex' );
-		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
-
-		$this->assertSame( 400, $response->get_status() );
-		$this->assertSame( 'onesearch_no_post_types', $data['code'] );
 	}
 
 	/**

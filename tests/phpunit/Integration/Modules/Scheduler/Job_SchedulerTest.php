@@ -95,29 +95,6 @@ class Job_SchedulerTest extends TestCase {
 	}
 
 	/**
-	 * Verifies active jobs appear in get_active_job_ids() after persist.
-	 */
-	public function test_active_job_appears_in_active_ids(): void {
-		$j = $this->make_job();
-		$j->mark_running();
-		$this->scheduler->persist_job( $j );
-		$this->assertContains( $j->get_id(), $this->scheduler->get_active_job_ids() );
-	}
-
-	/**
-	 * Verifies a terminal job is removed from get_active_job_ids() after persist.
-	 */
-	public function test_terminal_persist_removes_from_active(): void {
-		$j = $this->make_job();
-		$j->mark_running();
-		$this->scheduler->persist_job( $j );
-		$this->assertContains( $j->get_id(), $this->scheduler->get_active_job_ids() );
-		$j->mark_completed();
-		$this->scheduler->persist_job( $j );
-		$this->assertNotContains( $j->get_id(), $this->scheduler->get_active_job_ids() );
-	}
-
-	/**
 	 * Verifies completed jobs appear in the repository's terminal list.
 	 */
 	public function test_terminal_jobs_include_completed(): void {
@@ -157,17 +134,6 @@ class Job_SchedulerTest extends TestCase {
 	}
 
 	/**
-	 * Verifies schedule() stores the Action Scheduler action ID in the custom table.
-	 */
-	public function test_schedule_stores_action_id_in_table(): void {
-		$j = $this->make_job();
-		$this->scheduler->schedule( $j );
-		$action = $this->repository->get_action( $j->get_id() );
-		$this->assertNotNull( $action );
-		$this->assertGreaterThan( 0, $action['action_id'] );
-	}
-
-	/**
 	 * Verifies cancel() sets the job status to 'cancelled'.
 	 */
 	public function test_cancel_marks_cancelled(): void {
@@ -178,52 +144,15 @@ class Job_SchedulerTest extends TestCase {
 	}
 
 	/**
-	 * Verifies cancel() removes the job from the active list.
+	 * Verifies persist_job() writes an active job to the table, not just the transient.
 	 */
-	public function test_cancel_removes_from_active(): void {
-		$j = $this->make_job();
-		$this->scheduler->schedule( $j );
-		$this->scheduler->cancel( $j->get_id() );
-		$this->assertNotContains( $j->get_id(), $this->scheduler->get_active_job_ids() );
-	}
-
-	/**
-	 * Verifies get_jobs_by_group() returns jobs in the requested group.
-	 */
-	public function test_get_jobs_by_group_returns_jobs(): void {
-		$j = $this->make_job();
-		$j->set_group( 'grp_test' );
-		$this->scheduler->schedule( $j );
-		$jobs = $this->scheduler->get_jobs_by_group( 'grp_test' );
-		$this->assertNotEmpty( $jobs );
-		$this->assertContains( $j->get_id(), array_column( $jobs, 'id' ) );
-	}
-
-	/**
-	 * Verifies get_jobs_by_group() returns an empty array for unknown groups.
-	 */
-	public function test_get_jobs_by_group_unknown_empty(): void {
-		$this->assertSame( [], $this->scheduler->get_jobs_by_group( 'nonexistent_grp' ) );
-	}
-
-	/**
-	 * Verifies persist_job() with skip_active_index still writes to the table.
-	 */
-	public function test_skip_active_index_still_persists_to_table(): void {
+	public function test_persist_writes_active_job_to_table(): void {
 		$j = $this->make_job();
 		$j->mark_running();
-		$this->scheduler->persist_job( $j, true );
+		$this->scheduler->persist_job( $j );
 		$row = $this->repository->get_by_id( $j->get_id() );
 		$this->assertNotNull( $row );
 		$this->assertSame( Abstract_Job::STATUS_RUNNING, $row['status'] );
-	}
-
-	/**
-	 * Verifies set_progress_callback() returns the scheduler for chaining.
-	 */
-	public function test_progress_callback_is_chainable(): void {
-		$result = $this->scheduler->set_progress_callback( static function (): void {} );
-		$this->assertSame( $this->scheduler, $result );
 	}
 
 	/**

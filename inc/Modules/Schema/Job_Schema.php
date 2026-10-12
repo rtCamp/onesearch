@@ -73,14 +73,4 @@ class Job_Schema {
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		dbDelta( $sql );
 	}
-
-	/**
-	 * Drop the table entirely. Called from uninstall.php.
-	 */
-	public static function drop_table(): void {
-		global $wpdb;
-		$table = $wpdb->prefix . self::TABLE_NAME;
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-		$wpdb->query( "DROP TABLE IF EXISTS {$table}" );
-	}
 }

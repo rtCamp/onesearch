@@ -267,8 +267,8 @@ class Search_Controller_GoverningSiteTest extends TestCase {
 	/**
 	 * POST /re-index on a governing site with no Algolia credentials returns a
 	 * failure response: get_post_types_to_index() yields [] (no WP_Error), then
-	 * index_all_posts() collects an error from the missing-credentials delete_by()
-	 * call and reports success: false.
+	 * Reindex_Job::handle() throws for the empty post_types and the endpoint
+	 * reports success: false.
 	 */
 	public function test_reindex_returns_failure_without_algolia(): void {
 		delete_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );

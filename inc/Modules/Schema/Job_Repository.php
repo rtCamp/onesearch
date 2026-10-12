@@ -132,48 +132,6 @@ class Job_Repository {
 	}
 
 	/**
-	 * Fetch multiple job rows by IDs.
-	 *
-	 * @param string[] $ids List of job IDs.
-	 * @return array<string, array<string, mixed>> Keyed by job ID.
-	 */
-	public function get_by_ids( array $ids ): array {
-		if ( empty( $ids ) ) {
-			return [];
-		}
-
-		global $wpdb;
-
-		$placeholders = implode( ', ', array_fill( 0, count( $ids ), '%s' ) );
-
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
-		$rows = $wpdb->get_results(
-			$wpdb->prepare( "SELECT * FROM {$this->table} WHERE id IN ({$placeholders})", ...$ids ),
-			ARRAY_A
-		);
-		// phpcs:enable
-
-		$result = [];
-		foreach ( ( $rows ?: [] ) as $row ) {
-			$hydrated                  = $this->hydrate_row( $row );
-			$result[ $hydrated['id'] ] = $hydrated;
-		}
-
-		return $result;
-	}
-
-	/**
-	 * Delete a job row by ID.
-	 *
-	 * @param string $id Job ID.
-	 */
-	public function delete_by_id( string $id ): bool {
-		global $wpdb;
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-		return false !== $wpdb->delete( $this->table, [ 'id' => $id ] );
-	}
-
-	/**
 	 * Store the Action Scheduler action ID and args for a job.
 	 *
 	 * @param string  $id        Job ID.
@@ -366,23 +324,6 @@ class Job_Repository {
 			'failed'    => (int) $row['children_failed'],
 			'cancelled' => (int) $row['children_cancelled'],
 		];
-	}
-
-	/**
-	 * Return job IDs for all active (pending or running) jobs.
-	 *
-	 * @return string[]
-	 */
-	public function get_active_job_ids(): array {
-		global $wpdb;
-
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-		$rows = $wpdb->get_col(
-			"SELECT id FROM {$this->table} WHERE status IN ('pending', 'running') ORDER BY created_at ASC"
-		);
-		// phpcs:enable WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-
-		return $rows ?: [];
 	}
 
 	/**

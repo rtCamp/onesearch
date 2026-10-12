@@ -75,10 +75,7 @@ const HistoryTable = ( {
 					const retrying = retryingJobId === job.id;
 
 					return (
-						<tr
-							key={ job.id }
-							className="onesearch-history-table-row"
-						>
+						<tr key={ job.id }>
 							<td>
 								<code title={ job.id }>
 									{ job.id.substring( 0, 16 ) }…

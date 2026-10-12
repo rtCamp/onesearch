@@ -89,15 +89,6 @@ final class Job_Scheduler {
 	private static bool $hooks_registered = false;
 
 	/**
-	 * Optional progress callback for real-time job monitoring.
-	 *
-	 * Signature: function(string $jobId, int $progress, string $status): void
-	 *
-	 * @var callable|null
-	 */
-	private $progress_callback = null;
-
-	/**
 	 * Data access layer for the custom jobs table.
 	 *
 	 * @var \OneSearch\Modules\Schema\Job_Repository
@@ -118,17 +109,6 @@ final class Job_Scheduler {
 	}
 
 	/**
-	 * Set a callback to be invoked on every job status/progress change.
-	 *
-	 * @param callable $callback Signature: function(string $jobId, int $progress, string $status): void
-	 * @return $this
-	 */
-	public function set_progress_callback( callable $callback ): self {
-		$this->progress_callback = $callback;
-		return $this;
-	}
-
-	/**
 	 * Register WordPress action hooks for job execution and AS lifecycle events.
 	 *
 	 * Protected by static $hooks_registered to prevent double-registration.
@@ -143,8 +123,6 @@ final class Job_Scheduler {
 
 		add_action( 'action_scheduler_failed_execution', [ $this, 'on_action_failed' ], 10, 3 );
 		add_action( 'action_scheduler_failed_schedule_new_action', [ $this, 'on_schedule_failed' ], 10, 3 );
-		add_action( 'action_scheduler_begin_execute', [ $this, 'on_action_begin' ], 10, 1 );
-		add_action( 'action_scheduler_after_execute', [ $this, 'on_action_after' ], 10, 2 );
 	}
 
 	/**
@@ -179,49 +157,6 @@ final class Job_Scheduler {
 			$this->persist_job( $job );
 			throw new \RuntimeException(
 				sprintf( 'Failed to schedule job %s: Action Scheduler returned invalid action ID.', esc_html( $job->get_id() ) )
-			);
-		}
-
-		$this->repository->set_action( $job->get_id(), $action_id, $args );
-
-		return $action_id;
-	}
-
-	/**
-	 * Schedule a recurring job that re-enqueues at a fixed interval.
-	 *
-	 * @param \OneSearch\Modules\Jobs\Abstract_Job $job              The job to schedule repeatedly.
-	 * @param int                                  $interval_seconds Seconds between each execution.
-	 * @return int The Action Scheduler action ID.
-	 *
-	 * @throws \RuntimeException If Action Scheduler rejects the recurring action.
-	 */
-	public function schedule_recurring( Abstract_Job $job, int $interval_seconds ): int {
-		if ( ! function_exists( 'as_schedule_recurring_action' ) ) {
-			throw new \RuntimeException( 'Action Scheduler dependency missing.' );
-		}
-
-		$job->set_status( Abstract_Job::STATUS_PENDING );
-		$this->persist_job( $job );
-
-		$args = [
-			'job_class' => get_class( $job ),
-			'job_id'    => $job->get_id(),
-		];
-
-		$action_id = as_schedule_recurring_action(
-			time() + $interval_seconds,
-			$interval_seconds,
-			self::HOOK,
-			$args,
-			'onesearch_' . $job->get_group()
-		);
-
-		if ( ! $action_id ) {
-			$job->fail( 'Failed to schedule recurring action' );
-			$this->persist_job( $job );
-			throw new \RuntimeException(
-				sprintf( 'Failed to schedule recurring job %s.', esc_html( $job->get_id() ) )
 			);
 		}
 
@@ -376,35 +311,6 @@ final class Job_Scheduler {
 	}
 
 	/**
-	 * Get all jobs in a given Action Scheduler group.
-	 *
-	 * @param string $group The group name (without "onesearch_" prefix).
-	 * @return array<int, array<string, mixed>> Array of job state arrays.
-	 */
-	public function get_jobs_by_group( string $group ): array {
-		$actions = as_get_scheduled_actions(
-			[
-				'group'    => 'onesearch_' . $group,
-				'status'   => [ \ActionScheduler_Store::STATUS_PENDING, \ActionScheduler_Store::STATUS_RUNNING ],
-				'per_page' => -1,
-			]
-		);
-
-		$jobs = [];
-		foreach ( $actions as $action ) {
-			$args = $action->get_args();
-			if ( isset( $args['job_id'] ) ) {
-				$job_status = $this->get_status( $args['job_id'] );
-				if ( $job_status ) {
-					$jobs[] = $job_status;
-				}
-			}
-		}
-
-		return $jobs;
-	}
-
-	/**
 	 * Schedule a retry for a failed job with exponential backoff.
 	 *
 	 * @param \OneSearch\Modules\Jobs\Abstract_Job $job The failed job to retry.
@@ -488,7 +394,6 @@ final class Job_Scheduler {
 
 		$job->mark_running();
 		$this->persist_job( $job );
-		$this->notify_progress( $job );
 
 		try {
 			$job->handle();
@@ -507,7 +412,6 @@ final class Job_Scheduler {
 				$job->mark_completed();
 			}
 			$this->persist_job( $job );
-			$this->notify_progress( $job );
 			$this->notify_parent( $job );
 		} catch ( \Throwable $e ) {
 			$job->set_retry_count( $retry + 1 );
@@ -529,7 +433,6 @@ final class Job_Scheduler {
 
 			$job->fail( $e->getMessage() . ' (retries exhausted: ' . $job->get_retry_count() . '/' . $job->get_max_retries() . ')' );
 			$this->persist_job( $job );
-			$this->notify_progress( $job );
 			$this->notify_parent( $job );
 
 			error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
@@ -576,25 +479,6 @@ final class Job_Scheduler {
 				$exception->getMessage()
 			)
 		);
-	}
-
-	/**
-	 * Called just before Action Scheduler begins processing an action.
-	 *
-	 * @param int $action_id The AS action ID about to execute.
-	 */
-	public function on_action_begin( int $action_id ): void { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-		// No-op. Available for future logging/monitoring hooks.
-	}
-
-	/**
-	 * Called after Action Scheduler finishes executing an action.
-	 *
-	 * @param int                     $action_id The AS action ID that just executed.
-	 * @param \ActionScheduler_Action $action    The action that was executed.
-	 */
-	public function on_action_after( int $action_id, $action ): void { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-		// No-op. Available for future logging/monitoring hooks.
 	}
 
 	/**
@@ -965,25 +849,5 @@ final class Job_Scheduler {
 		}
 
 		return false;
-	}
-
-	/**
-	 * Fire the registered progress callback, if any.
-	 *
-	 * @param \OneSearch\Modules\Jobs\Abstract_Job $job The job whose progress changed.
-	 */
-	private function notify_progress( Abstract_Job $job ): void {
-		if ( $this->progress_callback ) {
-			call_user_func( $this->progress_callback, $job->get_id(), $job->get_progress(), $job->get_status() );
-		}
-	}
-
-	/**
-	 * Get all active job IDs (pending or running) from the custom table.
-	 *
-	 * @return string[] Array of job IDs currently in pending or running state.
-	 */
-	public function get_active_job_ids(): array {
-		return $this->repository->get_active_job_ids();
 	}
 }

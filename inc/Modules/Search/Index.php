@@ -19,11 +19,6 @@ use OneSearch\Utils;
  */
 final class Index {
 	/**
-	 * The default batch size for indexing.
-	 */
-	private const DEFAULT_BATCH_SIZE = 100;
-
-	/**
 	 * Flag to check whether settings were already set on this instance.
 	 *
 	 * Uses a static variable so that settings are only pushed to Algolia
@@ -192,56 +187,6 @@ final class Index {
 	}
 
 	/**
-	 * Index the post types objects into Algolia.
-	 *
-	 * @deprecated Use Reindex_Job for async batch processing instead.
-	 *
-	 * @param string[] $post_types The post types to index.
-	 *
-	 * @return true|\WP_Error
-	 */
-	public function index_all_posts( array $post_types ) {
-		// Clear existing records for this site.
-		$site_url   = Utils::normalize_url( get_site_url() );
-		$is_deleted = $this->delete_by(
-			[
-				'filters' => sprintf( 'site_url:"%s"', $site_url ),
-			]
-		);
-
-		if ( is_wp_error( $is_deleted ) ) {
-			return $is_deleted;
-		}
-
-		// Bail if there's no post types to index.
-		if ( empty( $post_types ) ) {
-			return true;
-		}
-
-		// @todo make this filterable.
-		$batch_size = self::DEFAULT_BATCH_SIZE;
-
-		foreach ( $this->generate_post_batches( $post_types, $batch_size ) as $records ) {
-			// If there's no records in this batch, we're done.
-			if ( empty( $records ) ) {
-				break;
-			}
-
-			$is_saved = $this->save_records( $records );
-			if ( is_wp_error( $is_saved ) ) {
-				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- @todo Surface this better with a Logger class.
-				error_log( 'Algolia indexing error: ' . $is_saved->get_error_message() );
-				continue;
-			}
-
-			// Free memory after processing batch.
-			unset( $records );
-		}
-
-		return true;
-	}
-
-	/**
 	 * Ensure Algolia Index settings have been updated to reflect the latest.
 	 *
 	 * @return true|\WP_Error
@@ -275,37 +220,6 @@ final class Index {
 				__( 'Failed to set Algolia index settings.', 'onesearch' ),
 				[ 'message' => $e->getMessage() ]
 			);
-		}
-	}
-
-	/**
-	 * Generator that yields batches of Algolia records for indexing.
-	 *
-	 * We `yield` to avoid loading all posts into memory at once.
-	 *
-	 * @param string[] $post_types      The post types to index.
-	 * @param int      $batch_size      The number of posts to process per batch.
-	 *
-	 * @return \Generator<list<PostRecord>>
-	 */
-	private function generate_post_batches( array $post_types, int $batch_size ): \Generator {
-		$page = 1;
-
-		while ( true ) {
-			$posts = Post_Record::get_indexable_posts( $post_types, $page, $batch_size );
-
-			if ( empty( $posts ) ) {
-				break;
-			}
-
-			$records = [];
-			foreach ( $posts as $post ) {
-				$post_records = ( new Post_Record() )->to_records( $post );
-				$records      = array_merge( $records, $post_records );
-			}
-			yield $records;
-
-			++$page;
 		}
 	}
 }

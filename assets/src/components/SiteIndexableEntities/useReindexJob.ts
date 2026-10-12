@@ -26,7 +26,7 @@ interface UseReindexJobParams {
 	setNotice: ( notice: NoticeType | null ) => void;
 }
 
-export interface UseReindexJobReturn {
+interface UseReindexJobReturn {
 	reindexing: boolean;
 	showReindexingModal: boolean;
 	setShowReindexingModal: React.Dispatch< React.SetStateAction< boolean > >;
@@ -40,7 +40,7 @@ export interface UseReindexJobReturn {
 	handleCancelJob: () => Promise< void >;
 	handleModalClose: () => void;
 	handleRetryHistoryJob: ( job: JobStatus ) => Promise< void >;
-	fetchHistory: ( page?: number ) => Promise< void >;
+	fetchHistory: ( page: number ) => Promise< void >;
 }
 
 export const useReindexJob = ( {
@@ -149,7 +149,7 @@ export const useReindexJob = ( {
 		[]
 	);
 
-	const fetchHistory = useCallback( async ( page: number = 1 ) => {
+	const fetchHistory = useCallback( async ( page: number ) => {
 		try {
 			const url = new URL(
 				`${ API_NAMESPACE }/jobs/history`,
@@ -272,7 +272,7 @@ export const useReindexJob = ( {
 		restoreReindexState();
 	}, [] ); // eslint-disable-line react-hooks/exhaustive-deps
 
-	const retryJob = async ( jobId: string, siteUrl = currentSiteUrl ) => {
+	const retryJob = async ( jobId: string, siteUrl: string ) => {
 		try {
 			const isLocalRetry = isCurrentSite( siteUrl );
 			const res = isLocalRetry

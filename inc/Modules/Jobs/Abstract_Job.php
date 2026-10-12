@@ -354,77 +354,12 @@ abstract class Abstract_Job {
 	}
 
 	/**
-	 * Get the number of child jobs that have finished (completed or failed).
-	 *
-	 * @return int Number of finished children.
-	 */
-	public function get_children_completed(): int {
-		return $this->children_completed;
-	}
-
-	/**
-	 * Get the number of child jobs that have failed.
-	 *
-	 * @return int Number of failed children.
-	 */
-	public function get_children_failed(): int {
-		return $this->children_failed;
-	}
-
-	/**
-	 * Get the number of child jobs that were cancelled.
-	 *
-	 * @return int Number of cancelled children.
-	 */
-	public function get_children_cancelled(): int {
-		return $this->children_cancelled;
-	}
-
-	/**
-	 * Get the Unix timestamp when the job was created.
-	 *
-	 * @return int Unix timestamp.
-	 */
-	public function get_created_at(): int {
-		return $this->created_at;
-	}
-
-	/**
-	 * Get the Unix timestamp when the job was last updated.
-	 *
-	 * @return int Unix timestamp.
-	 */
-	public function get_updated_at(): int {
-		return $this->updated_at;
-	}
-
-	/**
-	 * Get the Unix timestamp when the job reached a terminal state.
-	 *
-	 * @return int|null Unix timestamp, or null if the job is still active.
-	 */
-	public function get_finished_at(): ?int {
-		return $this->finished_at;
-	}
-
-	/**
 	 * Get the job's data payload.
 	 *
 	 * @return array<string, mixed> The data payload.
 	 */
 	public function get_data(): array {
 		return $this->data;
-	}
-
-	/**
-	 * Set the job ID. Used when reconstructing a job from storage.
-	 *
-	 * @param string $id The job identifier.
-	 * @return $this
-	 */
-	public function set_id( string $id ): self {
-		$this->id = $id;
-		return $this;
 	}
 
 	/**
@@ -565,28 +500,6 @@ abstract class Abstract_Job {
 	}
 
 	/**
-	 * Increment the count of completed child jobs.
-	 *
-	 * @return $this
-	 */
-	public function increment_children_completed(): self {
-		++$this->children_completed;
-		$this->updated_at = time();
-		return $this;
-	}
-
-	/**
-	 * Increment the count of failed child jobs.
-	 *
-	 * @return $this
-	 */
-	public function increment_children_failed(): self {
-		++$this->children_failed;
-		$this->updated_at = time();
-		return $this;
-	}
-
-	/**
 	 * Update progress to a specific value, clamped to [0, progress_total].
 	 *
 	 * @param int $progress Number of completed work units.
@@ -634,16 +547,6 @@ abstract class Abstract_Job {
 		$this->progress    = $this->progress_total;
 		$this->finished_at = time();
 		$this->updated_at  = time();
-	}
-
-	/**
-	 * Mark the job as CANCELLED.
-	 */
-	public function mark_cancelled(): void {
-		$this->status       = self::STATUS_CANCELLED;
-		$this->cancelled_at = time();
-		$this->finished_at  = time();
-		$this->updated_at   = time();
 	}
 
 	/**

@@ -6,7 +6,6 @@
 }
 
 .toplevel_page_onesearch {
-
 	.onesearch-site-checkbox {
 		pointer-events: none;
 	}
@@ -16,7 +15,6 @@
 	}
 
 	&:has(.onesearch-add-plugin-screen) {
-
 		.onesearch-heading {
 			display: inline-block;
 		}
@@ -30,7 +28,6 @@
 
 #onesearch-search-settings,
 #onesearch-settings-page {
-
 	.components-snackbar {
 		position: fixed;
 		bottom: 20px;
@@ -54,13 +51,11 @@
 }
 
 body {
-
 	.wp-first-item:has(.onesearch-plugin-manager-page) {
 		display: none;
 	}
 
 	&.onesearch-governing-site-site {
-
 		.wp-first-item:has(.onesearch-plugin-manager-page) {
 			display: inline-block;
 		}
@@ -68,7 +63,6 @@ body {
 }
 
 [id="toplevel_page_onesearch"] {
-
 	.dashicons-admin-generic::before {
 		content: url(../images/logo.svg) !important;
 	}
@@ -352,7 +346,6 @@ body {
 }
 
 @keyframes onesearch-spin {
-
 	to {
 		transform: rotate(360deg);
 	}
@@ -382,12 +375,7 @@ body {
 	margin: 0 0 2px 0;
 	font-size: 13px;
 	color: #666;
-	font-family:
-		"SF Mono",
- Consolas,
- "Liberation Mono",
- Menlo,
- Courier,
+	font-family: "SF Mono", Consolas, "Liberation Mono", Menlo, Courier,
 		monospace;
 }
 
@@ -462,34 +450,6 @@ body:has(.onesearch-setup-overlay) .onesearch-search-content {
 	margin-right: 8px;
 }
 
-/* Job Progress */
-.onesearch-job-progress {
-	margin: 16px 0;
-}
-
-.onesearch-job-progress-bar {
-	width: 100%;
-	height: 12px;
-	background: #dcdcde;
-	border-radius: 6px;
-	overflow: hidden;
-}
-
-.onesearch-job-progress-fill {
-	height: 100%;
-	background: #007cba;
-	border-radius: 6px;
-	transition: width 0.3s ease;
-	min-width: 0;
-}
-
-.onesearch-job-progress-info {
-	display: flex;
-	align-items: center;
-	gap: 10px;
-	margin-top: 8px;
-}
-
 .onesearch-job-status {
 	display: inline-block;
 	padding: 2px 8px;
@@ -530,16 +490,6 @@ body:has(.onesearch-setup-overlay) .onesearch-search-content {
 	color: #666;
 }
 
-.onesearch-job-error {
-	margin: 8px 0 0;
-	padding: 8px 12px;
-	background: #fce4e4;
-	border-left: 4px solid #e11d1d;
-	color: #a11d1d;
-	font-size: 13px;
-	border-radius: 2px;
-}
-
 /* ─── Hierarchical Job Panel ─── */
 
 .onesearch-modal-actions {
@@ -568,7 +518,6 @@ body:has(.onesearch-setup-overlay) .onesearch-search-content {
 	margin-top: 0;
 }
 
-.onesearch-modal-actions .onesearch-btn-cancel,
 .onesearch-job-panel-header .onesearch-btn-cancel {
 	background: #d63638 !important;
 	border-color: #d63638 !important;
@@ -576,7 +525,6 @@ body:has(.onesearch-setup-overlay) .onesearch-search-content {
 	box-shadow: none !important;
 }
 
-.onesearch-modal-actions .onesearch-btn-cancel:hover,
 .onesearch-job-panel-header .onesearch-btn-cancel:hover {
 	background: #a02a2c !important;
 	border-color: #a02a2c !important;
@@ -597,17 +545,12 @@ body:has(.onesearch-setup-overlay) .onesearch-search-content {
 	width: 36px;
 	height: 36px;
 	border: 3px solid #e0e0e0;
-	border-top-color:
- var(--wp-components-color-accent, var(--wp-admin-theme-color, #3858e9));
+	border-top-color: var(
+		--wp-components-color-accent,
+		var(--wp-admin-theme-color, #3858e9)
+	);
 	border-radius: 50%;
 	animation: onesearch-spin 0.7s linear infinite;
-}
-
-@keyframes onesearch-spin {
-
-	to {
-		transform: rotate(360deg);
-	}
 }
 
 .onesearch-reindex-loading-text {
@@ -693,14 +636,6 @@ body:has(.onesearch-setup-overlay) .onesearch-search-content {
 	padding: 1px 6px;
 }
 
-/* Small progress bar */
-.onesearch-job-progress-bar--small {
-	height: 6px;
-	min-width: 60px;
-	flex: 0 0 60px;
-	border-radius: 3px;
-}
-
 /* History section */
 .onesearch-job-history {
 	margin-top: 16px;
@@ -711,7 +646,6 @@ body:has(.onesearch-setup-overlay) .onesearch-search-content {
 .onesearch-job-history-header {
 	font-size: 14px;
 	font-weight: 600;
-	cursor: pointer;
 	padding: 4px 0;
 	color: #1d2327;
 }
@@ -758,19 +692,6 @@ body:has(.onesearch-setup-overlay) .onesearch-search-content {
 	}
 }
 
-@keyframes onesearch-details-in {
-
-	from {
-		opacity: 0;
-		transform: translateY(4px);
-	}
-
-	to {
-		opacity: 1;
-		transform: translateY(0);
-	}
-}
-
 .onesearch-history-actions-col {
 	width: 1%;
 	text-align: right;
@@ -801,8 +722,10 @@ body:has(.onesearch-setup-overlay) .onesearch-search-content {
 	}
 
 	& &-current.components-button {
-		background:
- var(--wp-components-color-accent, var(--wp-admin-theme-color, #3858e9));
+		background: var(
+			--wp-components-color-accent,
+			var(--wp-admin-theme-color, #3858e9)
+		);
 		color: #fff;
 		pointer-events: none;
 	}
