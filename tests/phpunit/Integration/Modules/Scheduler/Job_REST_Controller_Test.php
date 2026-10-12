@@ -10,10 +10,13 @@ declare( strict_types = 1 );
 namespace OneSearch\Tests\Unit\Modules\Rest;
 
 use OneSearch\Modules\Jobs\Abstract_Job;
+use OneSearch\Modules\Jobs\Registry;
 use OneSearch\Modules\Jobs\Reindex_Job;
 use OneSearch\Modules\Jobs\Sync_Job;
+use OneSearch\Modules\Scheduler\Bootstrap;
 use OneSearch\Modules\Scheduler\Job_REST_Controller;
 use OneSearch\Modules\Scheduler\Job_Scheduler;
+use OneSearch\Modules\Schema\Job_Repository;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -24,6 +27,7 @@ use WP_REST_Request;
  */
 #[CoversClass( Job_REST_Controller::class )]
 #[CoversClass( Job_Scheduler::class )]
+#[CoversClass( Registry::class )]
 #[CoversClass( Abstract_Job::class )]
 #[CoversClass( Reindex_Job::class )]
 #[CoversClass( Sync_Job::class )]
@@ -52,6 +56,9 @@ class Job_REST_Controller_Test extends TestCase {
 		wp_set_current_user( $admin_id );
 
 		$this->scheduler = new Job_Scheduler();
+
+		// Main skips module loading under the test install's plain permalinks, so register the job types retries resolve.
+		( new Bootstrap() )->init();
 
 		( new Job_REST_Controller() )->register_hooks();
 		do_action( 'rest_api_init' );
@@ -126,6 +133,182 @@ class Job_REST_Controller_Test extends TestCase {
 		$response = $this->server->dispatch( $request );
 
 		$this->assertSame( 404, $response->get_status() );
+	}
+
+	/**
+	 * A reindex that failed before creating any batch has to be retried as a
+	 * Reindex_Job; rebuilt as a Sync_Job it would fail forever for lack of post_ids.
+	 */
+	public function test_retry_failed_reindex_without_batches_requeues_reindex_job(): void {
+		$job = $this->create_failed_reindex_job();
+
+		$request  = new WP_REST_Request( 'POST', '/onesearch/v1/jobs/' . $job->get_id() . '/retry' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+
+		$status = $this->scheduler->get_status( $job->get_id() );
+		$this->assertSame( 'reindex', $status['type'] );
+		$this->assertSame( Abstract_Job::STATUS_PENDING, $status['status'] );
+
+		$action = ( new Job_Repository() )->get_action( $job->get_id() );
+		$this->assertSame( Reindex_Job::class, $action['args']['job_class'] );
+	}
+
+	/**
+	 * Running the re-queued action rebuilds the batches instead of failing.
+	 */
+	public function test_retried_reindex_job_schedules_batches_when_run(): void {
+		self::factory()->post->create( [ 'post_status' => 'publish' ] );
+		$job = $this->create_failed_reindex_job();
+
+		$this->server->dispatch( new WP_REST_Request( 'POST', '/onesearch/v1/jobs/' . $job->get_id() . '/retry' ) );
+
+		$action = ( new Job_Repository() )->get_action( $job->get_id() );
+		$this->scheduler->execute_job( $action['args']['job_class'], $job->get_id(), 0 );
+
+		$status = $this->scheduler->get_status( $job->get_id() );
+		$this->assertSame( 'reindex', $status['type'] );
+		$this->assertSame( Abstract_Job::STATUS_RUNNING, $status['status'] );
+		$this->assertNull( $status['error'] );
+		$this->assertCount( 1, $status['child_ids'] );
+	}
+
+	/**
+	 * A job whose stored type isn't registered is refused and left untouched.
+	 */
+	public function test_retry_returns_400_for_unregistered_job_type(): void {
+		$job  = $this->create_failed_reindex_job();
+		$data = $this->scheduler->get_status( $job->get_id() );
+
+		$data['type'] = 'unregistered';
+		( new Job_Repository() )->upsert( $data );
+
+		$request  = new WP_REST_Request( 'POST', '/onesearch/v1/jobs/' . $job->get_id() . '/retry' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'onesearch_retry_unknown_type', $response->get_data()['code'] );
+		$this->assertSame( Abstract_Job::STATUS_FAILED, $this->scheduler->get_status( $job->get_id() )['status'] );
+	}
+
+	/**
+	 * A reindex that failed partway through scheduling cancels the batches it had
+	 * created. Retrying must re-run it from scratch rather than count those
+	 * cancelled batches as done and mark the job completed.
+	 */
+	public function test_retry_reindex_that_failed_mid_scheduling_restarts_it(): void {
+		self::factory()->post->create( [ 'post_status' => 'publish' ] );
+
+		$job = new Reindex_Job();
+		$job->set_data( [ 'post_types' => [ 'post' ] ] );
+		$job->mark_running();
+		foreach ( [ 1, 2 ] as $post_id ) {
+			$batch = new Sync_Job();
+			$batch->set_data( [ 'post_ids' => [ $post_id ] ] );
+			$batch->set_parent_id( $job->get_id() );
+			$this->scheduler->schedule( $batch );
+			$job->add_child_id( $batch->get_id() );
+		}
+		foreach ( $job->get_child_ids() as $batch_id ) {
+			$this->scheduler->cancel( $batch_id );
+		}
+		$job->fail( 'Failed to schedule child Sync_Job: simulated' );
+		$this->scheduler->persist_job( $job );
+
+		$response = $this->server->dispatch( new WP_REST_Request( 'POST', '/onesearch/v1/jobs/' . $job->get_id() . '/retry' ) );
+
+		$this->assertSame( 200, $response->get_status() );
+		$status = $this->scheduler->get_status( $job->get_id() );
+		$this->assertSame( Abstract_Job::STATUS_PENDING, $status['status'], 'The reindex must be re-queued, not marked completed.' );
+		$this->assertSame( [], $status['child_ids'] );
+		$this->assertSame( 0, $status['children_completed'] );
+
+		$action = ( new Job_Repository() )->get_action( $job->get_id() );
+		$this->scheduler->execute_job( $action['args']['job_class'], $job->get_id(), 0 );
+
+		$status = $this->scheduler->get_status( $job->get_id() );
+		$this->assertSame( Abstract_Job::STATUS_RUNNING, $status['status'] );
+		$this->assertCount( 1, $status['child_ids'], 'The re-run creates its own batches.' );
+	}
+
+	/**
+	 * Batches that all failed indexed nothing, so the reindex is re-run from scratch.
+	 */
+	public function test_retry_reindex_whose_batches_all_failed_restarts_it(): void {
+		$job = $this->create_failed_reindex_with_batches( [ Abstract_Job::STATUS_FAILED, Abstract_Job::STATUS_FAILED ] );
+
+		$response = $this->server->dispatch( new WP_REST_Request( 'POST', '/onesearch/v1/jobs/' . $job->get_id() . '/retry' ) );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( 'Job restarted from the beginning.', $response->get_data()['message'] );
+		$status = $this->scheduler->get_status( $job->get_id() );
+		$this->assertSame( Abstract_Job::STATUS_PENDING, $status['status'] );
+		$this->assertSame( [], $status['child_ids'] );
+	}
+
+	/**
+	 * Cancelled batches mean scheduling was cut short, so the reindex is re-run from
+	 * scratch even though some batches had indexed: the later batches were never created.
+	 */
+	public function test_retry_reindex_cut_short_after_some_batches_indexed_restarts_it(): void {
+		$job = $this->create_failed_reindex_with_batches( [ Abstract_Job::STATUS_COMPLETED, Abstract_Job::STATUS_CANCELLED ] );
+
+		$response = $this->server->dispatch( new WP_REST_Request( 'POST', '/onesearch/v1/jobs/' . $job->get_id() . '/retry' ) );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( 'Job restarted from the beginning.', $response->get_data()['message'] );
+		$status = $this->scheduler->get_status( $job->get_id() );
+		$this->assertSame( Abstract_Job::STATUS_PENDING, $status['status'] );
+		$this->assertSame( [], $status['child_ids'] );
+	}
+
+	/**
+	 * Persist a failed Reindex_Job whose batches ended in the given statuses.
+	 *
+	 * @param string[] $batch_statuses One terminal status per batch.
+	 */
+	private function create_failed_reindex_with_batches( array $batch_statuses ): Reindex_Job {
+		$job = new Reindex_Job();
+		$job->set_data( [ 'post_types' => [ 'post' ] ] );
+
+		foreach ( $batch_statuses as $i => $batch_status ) {
+			$batch = new Sync_Job();
+			$batch->set_data( [ 'post_ids' => [ $i + 1 ] ] );
+			$batch->set_parent_id( $job->get_id() );
+			if ( Abstract_Job::STATUS_FAILED === $batch_status ) {
+				$batch->fail( 'Permanent batch failure.' );
+			} else {
+				$batch->set_status( $batch_status );
+			}
+			$this->scheduler->persist_job( $batch );
+			$job->add_child_id( $batch->get_id() );
+		}
+
+		$job->set_progress_total( count( $batch_statuses ) );
+		$job->fail( 'Simulated reindex failure.' );
+		$this->scheduler->persist_job( $job );
+
+		return $job;
+	}
+
+	/**
+	 * Persist a Reindex_Job that failed before it scheduled any batch.
+	 */
+	private function create_failed_reindex_job(): Reindex_Job {
+		$job = new Reindex_Job();
+		$job->set_data(
+			[
+				'post_types' => [ 'post' ],
+				'batch_size' => 100,
+			]
+		);
+		$job->mark_running();
+		$this->scheduler->persist_job( $job );
+		$job->fail( 'Failed before any batch was scheduled.' );
+		$this->scheduler->persist_job( $job );
+
+		return $job;
 	}
 
 	/**

@@ -74,6 +74,9 @@ final class Reindex_Job extends Abstract_Job {
 			throw new \InvalidArgumentException( 'Reindex_Job requires post_types in data payload.' );
 		}
 
+		// Every run rebuilds all batches; cancelled ones left by a failed earlier attempt never report back and would stall completion.
+		$this->set_child_ids( [] );
+
 		$allowed_statuses = \OneSearch\Modules\Search\Post_Record::get_allowed_statuses( $post_types );
 
 		// Clearing up front means a failed reindex leaves the site unsearchable until the next successful run.

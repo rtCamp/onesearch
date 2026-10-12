@@ -15,8 +15,8 @@ use OneSearch\Contracts\Traits\Singleton;
  * Class - Registry
  *
  * Singleton registry that maps job type names to their concrete FQCNs.
- * Used by Job_Scheduler to instantiate jobs from stored state, and by
- * Bootstrap to register built-in job types.
+ * Used by Job_REST_Controller to rebuild a stored job as the right class when
+ * retrying it, and by Bootstrap to register built-in job types.
  *
  * Example usage:
  *   Registry::instance()->register( 'sync', Sync_Job::class );

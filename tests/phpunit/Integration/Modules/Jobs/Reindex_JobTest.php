@@ -86,4 +86,21 @@ class Reindex_JobTest extends TestCase {
 		$this->assertSame( [ 'post', 'page' ], $d['post_types'] );
 		$this->assertSame( 50, $d['batch_size'] );
 	}
+
+	/**
+	 * Verifies a re-run drops batches from an earlier attempt, which were cancelled
+	 * when it failed and would otherwise keep the job from ever completing.
+	 */
+	public function test_handle_starts_with_a_fresh_batch_list(): void {
+		self::factory()->post->create( [ 'post_status' => 'publish' ] );
+
+		$j = new Reindex_Job();
+		$j->set_data( [ 'post_types' => [ 'post' ] ] );
+		$j->set_child_ids( [ 'batch-from-an-earlier-attempt' ] );
+
+		$j->handle();
+
+		$this->assertNotContains( 'batch-from-an-earlier-attempt', $j->get_child_ids() );
+		$this->assertCount( 1, $j->get_child_ids() );
+	}
 }

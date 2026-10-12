@@ -10,7 +10,7 @@ declare( strict_types = 1 );
 namespace OneSearch\Modules\Scheduler;
 
 use OneSearch\Modules\Jobs\Abstract_Job;
-use OneSearch\Modules\Jobs\Sync_Job;
+use OneSearch\Modules\Jobs\Registry;
 use OneSearch\Modules\Rest\Abstract_REST_Controller;
 use OneSearch\Modules\Rest\Search_Controller;
 use OneSearch\Modules\Schema\Job_Repository;
@@ -389,7 +389,7 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 	}
 
 	/**
-	 * Retry a failed Sync_Job batch using the same job ID.
+	 * Retry a failed job using the same job ID.
 	 *
 	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
 	 * @return \WP_REST_Response|\WP_Error
@@ -419,26 +419,9 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 			return $this->retry_failed_child_jobs( $scheduler, $status );
 		}
 
-		$group      = 'onesearch_' . ( $status['group'] ?? 'default' );
-		$repository = new Job_Repository();
-		$action_rec = $repository->get_action( $job_id );
-		if ( $action_rec ) {
-			as_unschedule_action( Job_Scheduler::HOOK, $action_rec['args'], $group );
-		}
-
-		$job = Sync_Job::from_array( $status );
-		$job->set_status( Abstract_Job::STATUS_PENDING );
-		$job->set_retry_count( 0 );
-		$job->clear_error();
-
-		try {
-			$scheduler->schedule( $job );
-		} catch ( \Throwable $e ) {
-			return new \WP_Error(
-				'onesearch_retry_failed',
-				$e->getMessage(),
-				[ 'status' => 500 ]
-			);
+		$job = $this->requeue_job( $scheduler, $status );
+		if ( is_wp_error( $job ) ) {
+			return $job;
 		}
 
 		$parent_id = $status['parent_id'] ?? '';
@@ -449,7 +432,7 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 		return new WP_REST_Response(
 			[
 				'success' => true,
-				'message' => __( 'Batch retry scheduled.', 'onesearch' ),
+				'message' => __( 'Retry scheduled.', 'onesearch' ),
 				'job_id'  => $job->get_id(),
 			]
 		);
@@ -476,6 +459,7 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 
 		$failed_children     = [];
 		$completed_children  = 0;
+		$cancelled_children  = 0;
 		$terminal_failed_ids = [];
 
 		foreach ( $child_ids as $child_id ) {
@@ -489,14 +473,32 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 			}
 
 			if ( Abstract_Job::STATUS_FAILED === ( $child_status['status'] ?? '' ) ) {
-				$failed_children[]     = $child_status;
+				// Resolved before the parent's counters are reset below, so an unknown type can't leave it half-updated.
+				$child = $this->job_from_status( $child_status );
+				if ( is_wp_error( $child ) ) {
+					return $child;
+				}
+
+				$failed_children[]     = $child;
 				$terminal_failed_ids[] = $child_id;
 				continue;
 			}
 
-			if ( in_array( $child_status['status'] ?? '', Job_Scheduler::TERMINAL_STATUSES, true ) ) {
+			if ( Abstract_Job::STATUS_CANCELLED === ( $child_status['status'] ?? '' ) ) {
+				++$cancelled_children;
+			} elseif ( Abstract_Job::STATUS_COMPLETED === ( $child_status['status'] ?? '' ) ) {
 				++$completed_children;
 			}
+		}
+
+		/*
+		 * Run from scratch when no batch has indexed anything yet, or when batches were
+		 * cancelled: a failed reindex only cancels its batches when it couldn't create the
+		 * next one, so the later batches don't exist and retrying the rest would miss them.
+		 * Otherwise indexing had started, so only the failed batches are retried below.
+		 */
+		if ( $cancelled_children > 0 || ( 0 === $completed_children && ! empty( $failed_children ) ) ) {
+			return $this->restart_parent_job( $scheduler, $parent_data );
 		}
 
 		if ( empty( $failed_children ) ) {
@@ -532,19 +534,18 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 
 		$retried    = 0;
 		$repository = new Job_Repository();
-		foreach ( $failed_children as $child_status ) {
-			$child_id = (string) ( $child_status['id'] ?? '' );
+		foreach ( $failed_children as $child ) {
+			$child_id = $child->get_id();
 			if ( '' === $child_id ) {
 				continue;
 			}
 
-			$group      = 'onesearch_' . ( $child_status['group'] ?? 'default' );
+			$group      = 'onesearch_' . $child->get_group();
 			$action_rec = $repository->get_action( $child_id );
 			if ( $action_rec ) {
 				as_unschedule_action( Job_Scheduler::HOOK, $action_rec['args'], $group );
 			}
 
-			$child = Sync_Job::from_array( $child_status );
 			$child->set_status( Abstract_Job::STATUS_PENDING );
 			$child->set_retry_count( 0 );
 			$child->clear_error();
@@ -634,6 +635,108 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 		} else {
 			set_transient( $parent_key, $parent_data, Job_Scheduler::TRANSIENT_EXPIRATION );
 		}
+	}
+
+	/**
+	 * Rebuild a stored job as the class registered for its type.
+	 *
+	 * A failed job can be a Reindex_Job that never created batches, so the stored
+	 * type decides the class rather than assuming every retry is a Sync_Job.
+	 *
+	 * @param array<string, mixed> $status Stored job state.
+	 * @return \OneSearch\Modules\Jobs\Abstract_Job|\WP_Error
+	 */
+	private function job_from_status( array $status ) {
+		$type    = (string) ( $status['type'] ?? '' );
+		$classes = Registry::instance()->all();
+
+		if ( ! isset( $classes[ $type ] ) ) {
+			return new \WP_Error(
+				'onesearch_retry_unknown_type',
+				sprintf(
+					/* translators: %s: job type */
+					__( 'Jobs of type "%s" cannot be retried.', 'onesearch' ),
+					$type
+				),
+				[ 'status' => 400 ]
+			);
+		}
+
+		return $classes[ $type ]::from_array( $status );
+	}
+
+	/**
+	 * Queue a stored job to run again from the start, under its existing ID.
+	 *
+	 * @param \OneSearch\Modules\Scheduler\Job_Scheduler $scheduler The job scheduler instance.
+	 * @param array<string, mixed>                       $status    Stored job state.
+	 * @return \OneSearch\Modules\Jobs\Abstract_Job|\WP_Error The queued job.
+	 */
+	private function requeue_job( Job_Scheduler $scheduler, array $status ) {
+		$job = $this->job_from_status( $status );
+		if ( is_wp_error( $job ) ) {
+			return $job;
+		}
+
+		$group      = 'onesearch_' . ( $status['group'] ?? 'default' );
+		$action_rec = ( new Job_Repository() )->get_action( $job->get_id() );
+		if ( $action_rec ) {
+			as_unschedule_action( Job_Scheduler::HOOK, $action_rec['args'], $group );
+		}
+
+		$job->set_status( Abstract_Job::STATUS_PENDING );
+		$job->set_retry_count( 0 );
+		$job->clear_error();
+
+		try {
+			$scheduler->schedule( $job );
+		} catch ( \Throwable $e ) {
+			return new \WP_Error(
+				'onesearch_retry_failed',
+				$e->getMessage(),
+				[ 'status' => 500 ]
+			);
+		}
+
+		return $job;
+	}
+
+	/**
+	 * Re-run a failed parent job from scratch, detaching the batches of its earlier run.
+	 *
+	 * @param \OneSearch\Modules\Scheduler\Job_Scheduler $scheduler   The job scheduler instance.
+	 * @param array<string, mixed>                       $parent_data Stored parent job data.
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	private function restart_parent_job( Job_Scheduler $scheduler, array $parent_data ) {
+		// An old batch still queued would otherwise report into the new run's counters.
+		foreach ( (array) ( $parent_data['child_ids'] ?? [] ) as $child_id ) {
+			$child_status = $scheduler->get_status( (string) $child_id );
+			if ( $child_status && ! in_array( $child_status['status'] ?? '', Job_Scheduler::TERMINAL_STATUSES, true ) ) {
+				$scheduler->cancel( (string) $child_id );
+			}
+		}
+
+		$parent_data['child_ids']          = [];
+		$parent_data['children_completed'] = 0;
+		$parent_data['children_failed']    = 0;
+		$parent_data['children_cancelled'] = 0;
+		$parent_data['progress']           = 0;
+		$parent_data['finished_at']        = null;
+		$parent_data['cancelled_at']       = null;
+
+		$job = $this->requeue_job( $scheduler, $parent_data );
+		if ( is_wp_error( $job ) ) {
+			return $job;
+		}
+
+		return new WP_REST_Response(
+			[
+				'success' => true,
+				'message' => __( 'Job restarted from the beginning.', 'onesearch' ),
+				'job_id'  => $job->get_id(),
+			]
+		);
 	}
 
 	/**
