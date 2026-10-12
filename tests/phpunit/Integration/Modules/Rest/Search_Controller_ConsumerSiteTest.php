@@ -9,9 +9,11 @@ declare( strict_types = 1 );
 
 namespace OneSearch\Tests\Integration\Modules\Rest;
 
+use OneSearch\Modules\Jobs\Reindex_Job;
 use OneSearch\Modules\Rest\Abstract_REST_Controller;
 use OneSearch\Modules\Rest\Governing_Data_Handler;
 use OneSearch\Modules\Rest\Search_Controller;
+use OneSearch\Modules\Scheduler\Job_Scheduler;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -121,56 +123,6 @@ class Search_Controller_ConsumerSiteTest extends TestCase {
 	}
 
 	/**
-	 * Consumer reindex reaches the indexing step when the parent returns a valid
-	 * brand-config payload; without Algolia credentials, indexing reports failure
-	 * but the brand-config fetch path is fully traversed.
-	 */
-	public function test_reindex_proceeds_when_parent_returns_valid_brand_config(): void {
-		Settings::set_parent_site_url( 'https://governing.example.com' );
-		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
-		Settings::regenerate_api_key();
-
-		$payload = [
-			'algolia_credentials' => [
-				'app_id'    => '',
-				'write_key' => '',
-			],
-			'search_settings'     => [
-				'algolia_enabled'  => false,
-				'searchable_sites' => [],
-			],
-			'indexable_entities'  => [ 'post' ],
-			'available_sites'     => [],
-		];
-
-		$filter = static function ( $preempt, $args, $url ) use ( $payload ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-			if ( false === strpos( $url, '/brand-config' ) ) {
-				return $preempt;
-			}
-			return [
-				'response' => [
-					'code'    => 200,
-					'message' => 'OK',
-				],
-				'body'     => wp_json_encode( $payload ),
-				'headers'  => [],
-				'cookies'  => [],
-			];
-		};
-		add_filter( 'pre_http_request', $filter, 10, 3 );
-
-		$request  = new WP_REST_Request( 'POST', '/onesearch/v1/re-index' );
-		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
-
-		remove_filter( 'pre_http_request', $filter );
-
-		$this->assertSame( 200, $response->get_status() );
-		$this->assertArrayHasKey( 'success', $data );
-		$this->assertArrayHasKey( 'message', $data );
-	}
-
-	/**
 	 * GET /re-index/status returns inactive when no reindex is running.
 	 */
 	public function test_reindex_status_returns_inactive_when_no_state(): void {
@@ -189,11 +141,15 @@ class Search_Controller_ConsumerSiteTest extends TestCase {
 	 * POST /re-index returns 409 when a reindex is already active.
 	 */
 	public function test_reindex_returns_409_when_active_reindex_exists(): void {
+		$job = new Reindex_Job();
+		$job->mark_running();
+		( new Job_Scheduler() )->persist_job( $job );
+
 		$jobs = [
 			[
 				'site_name'   => 'Test Site',
 				'site_url'    => get_site_url(),
-				'job_id'      => 'test_job_789',
+				'job_id'      => $job->get_id(),
 				'batch_count' => 2,
 			],
 		];

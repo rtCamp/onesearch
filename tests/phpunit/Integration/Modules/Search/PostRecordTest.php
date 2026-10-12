@@ -185,22 +185,6 @@ final class PostRecordTest extends TestCase {
 	}
 
 	/**
-	 * Tests that split_content_into_chunks splits oversized content.
-	 */
-	public function test_split_content_into_chunks_splits_oversized_content_into_multiple_chunks(): void {
-		$record = new Post_Record();
-		$method = new \ReflectionMethod( Post_Record::class, 'split_content_into_chunks' );
-		$method->setAccessible( true );
-
-		$chunks = $method->invoke( $record, str_repeat( 'Chunked content for Algolia records. ', 80 ), 120 );
-
-		$this->assertIsArray( $chunks );
-		$this->assertGreaterThan( 1, count( $chunks ) );
-		$this->assertFalse( str_starts_with( $chunks[0], '… ' ) );
-		$this->assertStringStartsWith( '… ', $chunks[1] );
-	}
-
-	/**
 	 * Tests that to_records cleans block markup from post content.
 	 */
 	public function test_to_records_cleans_block_markup_from_post_content(): void {

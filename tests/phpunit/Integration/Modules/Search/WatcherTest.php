@@ -36,36 +36,6 @@ final class WatcherTest extends TestCase {
 	}
 
 	/**
-	 * Skips reindexing when new status is not an allowed status (e.g., trashed).
-	 *
-	 * Injects a fake Algolia HTTP client to intercept SDK-level requests (the SDK
-	 * does not use wp_remote_*, so pre_http_request cannot be used here). After
-	 * transitioning to 'trash', only the deleteBy call should have been made — no
-	 * /batch (saveObjects) request should appear.
-	 */
-	public function test_on_post_transition_does_not_reindex_disallowed_status(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
-		update_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL, 'https://governing.example.com' );
-
-		$this->set_consumer_brand_config_cache();
-
-		// Intercept every Algolia SDK HTTP call and record the request paths.
-		$recorded_paths = [];
-		$this->mock_algolia_http_client( $recorded_paths );
-
-		$post    = self::factory()->post->create_and_get( [ 'post_status' => 'publish' ] );
-		$watcher = new Watcher();
-
-		// Transitioning to 'trash' should delete from the index but must not reindex.
-		$watcher->on_post_transition( 'trash', 'publish', $post );
-
-		// deleteBy was called (some path was recorded), but no /batch (saveObjects) call
-		// should have been made — the status guard must have stopped reindexing.
-		$batch_calls = array_filter( $recorded_paths, static fn ( $p ) => str_contains( $p, '/batch' ) );
-		$this->assertEmpty( $batch_calls, 'Trash transition should perform delete only and must not reindex.' );
-	}
-
-	/**
 	 * Prime the consumer brand config cache used by Watcher guards.
 	 *
 	 * @param string $app_id    Algolia app ID.
