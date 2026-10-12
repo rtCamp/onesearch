@@ -109,8 +109,11 @@ export const useReindexJob = ( {
 				] );
 				const jobData = await jobRes.json();
 				const childData = await childRes.json();
+				if ( ! jobRes.ok || ! childRes.ok || ! jobData.job ) {
+					return null;
+				}
 				return {
-					reindexJob: jobData.job || null,
+					reindexJob: jobData.job,
 					children: childData.children || [],
 				};
 			} catch {
@@ -138,8 +141,11 @@ export const useReindexJob = ( {
 					{ headers: { 'X-WP-Nonce': NONCE } }
 				);
 				const data = await res.json();
+				if ( ! res.ok || ! data.job ) {
+					return null;
+				}
 				return {
-					reindexJob: data.job || null,
+					reindexJob: data.job,
 					children: data.children || [],
 				};
 			} catch {
@@ -201,8 +207,9 @@ export const useReindexJob = ( {
 		setSiteStates( updated );
 
 		const allTerminal = updated.every( ( s ) => {
+			// A job that hasn't been read yet, or whose read failed, may still be running.
 			if ( ! s.reindexJob ) {
-				return true;
+				return ! s.site.job_id;
 			}
 			if ( TERMINAL_JOB_STATUSES.includes( s.reindexJob.status ) ) {
 				return true;
@@ -343,7 +350,7 @@ export const useReindexJob = ( {
 			}
 			return state.reindexJob
 				? TERMINAL_JOB_STATUSES.includes( state.reindexJob.status )
-				: true;
+				: ! state.site.job_id;
 		} );
 
 		if ( allTerminal ) {

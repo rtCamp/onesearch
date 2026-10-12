@@ -18,13 +18,15 @@ interface HistoryTableProps {
 
 /**
  * A job is worth retrying when it failed outright, or when it finished with
- * some batches still in a failed state.
+ * some batches still in a failed state. A cancelled job never is: cancelling
+ * was the user's decision, not a failure.
  *
  * @param {JobStatus} job The job to check.
  * @return {boolean} Whether a retry should be offered.
  */
 const isRetryable = ( job: JobStatus ): boolean =>
-	job.status === 'failed' || ( job.children_failed ?? 0 ) > 0;
+	job.status !== 'cancelled' &&
+	( job.status === 'failed' || ( job.children_failed ?? 0 ) > 0 );
 
 /**
  * Formats a job's batch progress as "done/total".

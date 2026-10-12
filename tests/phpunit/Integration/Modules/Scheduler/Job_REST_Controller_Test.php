@@ -281,6 +281,56 @@ class Job_REST_Controller_Test extends TestCase {
 	}
 
 	/**
+	 * Loading the history keeps a run the user cancelled as cancelled, with no retry, even when one of its batches had
+	 * failed before the cancel.
+	 */
+	public function test_history_keeps_a_cancelled_run_cancelled(): void {
+		$job = $this->create_cancelled_reindex_with_batches( [ Abstract_Job::STATUS_COMPLETED, Abstract_Job::STATUS_FAILED ] );
+		$this->run_on_brand_site( $job->get_id(), Abstract_Job::STATUS_COMPLETED, 1 );
+
+		$history = $this->server->dispatch( new WP_REST_Request( 'GET', '/onesearch/v1/jobs/history' ) )->get_data();
+		$jobs    = array_column( $history['jobs'], null, 'id' );
+
+		$this->assertSame( Abstract_Job::STATUS_CANCELLED, $jobs[ $job->get_id() ]['status'] );
+		$this->assertSame( Abstract_Job::STATUS_CANCELLED, $this->scheduler->get_status( $job->get_id() )['status'], 'The stored run must stay cancelled too.' );
+
+		$response = $this->server->dispatch( new WP_REST_Request( 'POST', '/onesearch/v1/jobs/' . $job->get_id() . '/retry' ) );
+
+		$this->assertSame( 400, $response->get_status() );
+	}
+
+	/**
+	 * Retrying a failed batch of a run the user cancelled is refused, since it would reopen the run.
+	 */
+	public function test_retry_refuses_a_batch_of_a_cancelled_run(): void {
+		$job          = $this->create_cancelled_reindex_with_batches( [ Abstract_Job::STATUS_FAILED ] );
+		[ $batch_id ] = $job->get_child_ids();
+
+		$response = $this->server->dispatch( new WP_REST_Request( 'POST', '/onesearch/v1/jobs/' . $batch_id . '/retry' ) );
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'onesearch_retry_cancelled', $response->get_data()['code'] );
+		$this->assertSame( Abstract_Job::STATUS_CANCELLED, $this->scheduler->get_status( $job->get_id() )['status'] );
+		$this->assertSame( Abstract_Job::STATUS_FAILED, $this->scheduler->get_status( $batch_id )['status'] );
+	}
+
+	/**
+	 * Persist a Reindex_Job the user cancelled after its batches ended in the given statuses.
+	 *
+	 * @param string[] $batch_statuses One terminal status per batch.
+	 */
+	private function create_cancelled_reindex_with_batches( array $batch_statuses ): Reindex_Job {
+		$job = $this->create_failed_reindex_with_batches( $batch_statuses );
+
+		$data           = $this->scheduler->get_status( $job->get_id() );
+		$data['status'] = Abstract_Job::STATUS_CANCELLED;
+		$data['error']  = null;
+		( new Job_Repository() )->upsert( $data );
+
+		return $job;
+	}
+
+	/**
 	 * Persist a failed Reindex_Job whose batches ended in the given statuses.
 	 *
 	 * @param string[] $batch_statuses One terminal status per batch.
@@ -876,5 +926,44 @@ class Job_REST_Controller_Test extends TestCase {
 		$this->assertSame( 200, $response->get_status() );
 		$this->assertTrue( $data['success'] );
 		$this->assertArrayHasKey( 'warning', $data );
+	}
+
+	/**
+	 * POST /jobs/remote-cancel passes on the brand site's error when it refuses the cancel.
+	 */
+	public function test_remote_cancel_returns_the_brand_sites_refusal(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Brand',
+					'url'     => 'https://brand.example.com/',
+					'api_key' => 'brand-key',
+				],
+			]
+		);
+		$refuse = static fn () => [
+			'response' => [
+				'code'    => 404,
+				'message' => 'Not Found',
+			],
+			'body'     => (string) wp_json_encode(
+				[
+					'code'    => 'onesearch_job_not_found',
+					'message' => 'Job not found.',
+				]
+			),
+			'headers'  => [],
+			'cookies'  => [],
+		];
+		add_filter( 'pre_http_request', $refuse );
+
+		$request = new WP_REST_Request( 'POST', '/onesearch/v1/jobs/remote-cancel' );
+		$request->set_param( 'site_url', 'https://brand.example.com/' );
+		$request->set_param( 'job_id', 'brand-job' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 404, $response->get_status() );
+		$this->assertSame( 'Job not found.', $response->get_data()['message'] );
 	}
 }

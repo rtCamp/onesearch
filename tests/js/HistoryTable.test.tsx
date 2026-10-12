@@ -67,6 +67,45 @@ describe( 'HistoryTable', () => {
 		).toBe( '0/1' );
 	} );
 
+	it( 'offers a retry for a failed run but not for a cancelled one', () => {
+		const withFailedBatch: JobStatus = {
+			...baseJob,
+			type: 'reindex',
+			child_ids: [ 'a', 'b' ],
+			children_completed: 1,
+			children_failed: 1,
+			children_total: 2,
+		};
+
+		render(
+			<HistoryTable
+				history={ [
+					{ ...withFailedBatch, id: 'failed-run', status: 'failed' },
+					{
+						...withFailedBatch,
+						id: 'cancelled-run',
+						status: 'cancelled',
+					},
+				] }
+				retryingJobId={ null }
+				onRetry={ jest.fn() }
+			/>
+		);
+
+		const [ , failedRow, cancelledRow ] = screen.getAllByRole( 'row' );
+
+		expect(
+			within( failedRow as HTMLElement ).getByRole( 'button', {
+				name: 'Retry',
+			} )
+		).toBeInTheDocument();
+		expect(
+			within( cancelledRow as HTMLElement ).queryByRole( 'button', {
+				name: 'Retry',
+			} )
+		).not.toBeInTheDocument();
+	} );
+
 	it( 'shows finished child batches out of the total for a reindex', () => {
 		expect(
 			renderBatches( {

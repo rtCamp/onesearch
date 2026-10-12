@@ -93,6 +93,18 @@ final class WatcherTest extends TestCase {
 	}
 
 	/**
+	 * A queued sync starts Action Scheduler's runner once the request ends, since a REST save won't.
+	 */
+	public function test_on_post_transition_dispatches_the_queue_at_shutdown(): void {
+		$this->set_up_governing_site();
+
+		$post = self::factory()->post->create_and_get( [ 'post_status' => 'publish' ] );
+		( new Watcher() )->on_post_transition( 'publish', 'draft', $post );
+
+		$this->assertNotFalse( has_action( 'shutdown', [ Job_Scheduler::class, 'dispatch_queue' ] ) );
+	}
+
+	/**
 	 * Indexable post on a consumer site schedules an async Sync_Job.
 	 * Credentials and indexable entities are resolved from the brand config cache,
 	 * but Algolia isn't called during the request; the job runs in an AS worker.

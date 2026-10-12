@@ -61,6 +61,9 @@ final class Watcher implements Registrable {
 
 		try {
 			$scheduler->schedule( $job );
+
+			// AS never starts its runner after a REST request, such as a block editor save; once per request is enough.
+			add_action( 'shutdown', [ Job_Scheduler::class, 'dispatch_queue' ] );
 		} catch ( \Throwable $e ) {
 			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 			error_log( sprintf( '[OneSearch] Failed to schedule Sync_Job: %s', $e->getMessage() ) );

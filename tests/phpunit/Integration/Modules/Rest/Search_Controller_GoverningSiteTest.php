@@ -403,6 +403,31 @@ class Search_Controller_GoverningSiteTest extends TestCase {
 	}
 
 	/**
+	 * A lock left behind by a request that died is taken over once it lapses, instead of blocking every re-index after it.
+	 */
+	public function test_reindex_takes_over_a_lapsed_lock(): void {
+		delete_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );
+		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
+		update_option( Search_Controller::REINDEX_STATE_TRANSIENT . '_lock', time() - 1, false );
+
+		$response = $this->server->dispatch( new WP_REST_Request( 'POST', '/onesearch/v1/re-index' ) );
+
+		$this->assertNotSame( 409, $response->get_status() );
+		$this->assertFalse( get_option( Search_Controller::REINDEX_STATE_TRANSIENT . '_lock' ), 'The request releases the lock it took over.' );
+	}
+
+	/**
+	 * A lock that hasn't lapsed still keeps a second re-index request out.
+	 */
+	public function test_reindex_returns_409_while_the_lock_is_held(): void {
+		update_option( Search_Controller::REINDEX_STATE_TRANSIENT . '_lock', time() + MINUTE_IN_SECONDS, false );
+
+		$response = $this->server->dispatch( new WP_REST_Request( 'POST', '/onesearch/v1/re-index' ) );
+
+		$this->assertSame( 409, $response->get_status() );
+	}
+
+	/**
 	 * A child site that responds but reports `success: false` flips `success` to false on the governing response.
 	 */
 	public function test_reindex_records_child_unsuccessful_response_as_failure(): void {

@@ -233,6 +233,89 @@ class Job_SchedulerTest extends TestCase {
 	}
 
 	/**
+	 * A batch another runner finishes while its reindex is still queueing batches is counted.
+	 *
+	 * Batches used to be queued before the reindex recorded them, and its own later save wrote over the count of a
+	 * batch that had already finished, leaving the reindex running forever.
+	 */
+	public function test_a_batch_finished_while_its_reindex_is_queueing_is_counted(): void {
+		$this->set_up_governing_site();
+		$paths = [];
+		$this->mock_algolia_http_client( $paths );
+
+		self::factory()->post->create_many( 3, [ 'post_status' => 'publish' ] );
+
+		// Another runner picks up the first batch the moment it's queued.
+		$ran_early = null;
+		$run_early = function ( $action_id ) use ( &$ran_early ): void {
+			$action = \ActionScheduler::store()->fetch_action( $action_id );
+			if ( null !== $ran_early || Job_Scheduler::HOOK !== $action->get_hook() ) {
+				return;
+			}
+
+			$ran_early = $action->get_args()['job_id'];
+			$this->scheduler->execute_job( Sync_Job::class, $ran_early );
+		};
+		add_action( 'action_scheduler_stored_action', $run_early );
+
+		$parent_id = $this->start_reindex( 2 );
+		remove_action( 'action_scheduler_stored_action', $run_early );
+
+		$batch_ids = $this->scheduler->get_status( $parent_id )['child_ids'];
+		$this->assertContains( $ran_early, $batch_ids );
+		$this->assertSame( 1, $this->repository->get_counters( $parent_id )['done'] );
+
+		foreach ( array_diff( $batch_ids, [ $ran_early ] ) as $batch_id ) {
+			$this->scheduler->execute_job( Sync_Job::class, $batch_id );
+		}
+
+		$this->assertSame( Abstract_Job::STATUS_COMPLETED, $this->scheduler->get_status( $parent_id )['status'] );
+	}
+
+	/**
+	 * A brand's failed batches count as finished, not as completed, when a run's progress is read from it.
+	 */
+	public function test_remote_progress_counts_failed_batches_as_finished_not_completed(): void {
+		$this->set_up_governing_site();
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Brand',
+					'url'     => 'https://brand.example.com/',
+					'api_key' => 'brand-key',
+				],
+			]
+		);
+		add_filter( 'pre_http_request', [ $this, 'mock_brand_job' ], 10, 3 );
+
+		// children_completed counts both finished batches, the failed one included.
+		$this->brand_job = [
+			'status'             => Abstract_Job::STATUS_FAILED,
+			'children_total'     => 2,
+			'children_completed' => 2,
+			'children_failed'    => 1,
+		];
+
+		$progress = $this->scheduler->fetch_remote_job_progress(
+			[
+				[
+					'site_url' => 'https://brand.example.com/',
+					'job_id'   => 'brand-job',
+				],
+			]
+		);
+
+		$this->assertSame(
+			[
+				'completed' => 1,
+				'terminal'  => 2,
+				'total'     => 2,
+			],
+			$progress
+		);
+	}
+
+	/**
 	 * A batch that finishes while another process holds the parent's lock still gets its parent settled.
 	 *
 	 * The counters are bumped regardless, but the status update needs the lock, so it's retried later

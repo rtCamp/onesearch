@@ -329,6 +329,8 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 	/**
 	 * Retry a failed job using the same job ID.
 	 *
+	 * Only failures are retried: a run the user cancelled, and the batches in it, stay as they are.
+	 *
 	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
 	 * @return \WP_REST_Response|\WP_Error
 	 */
@@ -357,12 +359,23 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 			return $this->retry_failed_child_jobs( $scheduler, $status );
 		}
 
+		$parent_id = (string) ( $status['parent_id'] ?? '' );
+		$parent    = '' !== $parent_id ? $scheduler->get_status( $parent_id ) : null;
+
+		// Retrying a batch reopens its run, and a run the user cancelled stays cancelled.
+		if ( $parent && Abstract_Job::STATUS_CANCELLED === ( $parent['status'] ?? '' ) ) {
+			return new \WP_Error(
+				'onesearch_retry_cancelled',
+				__( 'A cancelled run can\'t be retried.', 'onesearch' ),
+				[ 'status' => 400 ]
+			);
+		}
+
 		$job = $this->requeue_job( $scheduler, $status );
 		if ( is_wp_error( $job ) ) {
 			return $job;
 		}
 
-		$parent_id = $status['parent_id'] ?? '';
 		if ( $parent_id ) {
 			$this->reset_parent_for_retry( $scheduler, $parent_id );
 		}
@@ -849,8 +862,10 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 			return '';
 		};
 
-		// A run that failed on its own stays failed until it's retried, even though failing cancels the batches it had queued.
-		$derived_status = Abstract_Job::STATUS_FAILED === ( $job['status'] ?? '' ) ? '' : $determine_status_from_children();
+		// Keep a failed or cancelled run as it is: failing cancels its batches, and cancelling was the user's call.
+		$derived_status = in_array( $job['status'] ?? '', [ Abstract_Job::STATUS_FAILED, Abstract_Job::STATUS_CANCELLED ], true )
+			? ''
+			: $determine_status_from_children();
 
 		if ( '' !== $derived_status && ( $job['status'] ?? '' ) !== $derived_status ) {
 			$job['status'] = $derived_status;
@@ -1037,9 +1052,10 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 	 *
 	 * @param string $site_url The child site URL.
 	 * @param string $job_id   The job ID to cancel on the child site.
-	 * @return bool True if the child site responded.
+	 * @return bool|\WP_Error True once the child site accepts the cancel, false if it couldn't be reached, or the
+	 *                        child site's error when it refuses.
 	 */
-	private function send_remote_cancel( string $site_url, string $job_id ): bool {
+	private function send_remote_cancel( string $site_url, string $job_id ) {
 		$context = $this->get_remote_job_request_context( $site_url );
 
 		if ( is_wp_error( $context ) ) {
@@ -1065,7 +1081,22 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 			]
 		);
 
-		return ! is_wp_error( $response );
+		if ( is_wp_error( $response ) ) {
+			return false;
+		}
+
+		$code = (int) wp_remote_retrieve_response_code( $response );
+		if ( $code >= 200 && $code < 300 ) {
+			return true;
+		}
+
+		$data = json_decode( (string) wp_remote_retrieve_body( $response ), true );
+
+		return new \WP_Error(
+			'onesearch_remote_cancel_failed',
+			is_array( $data ) && ! empty( $data['message'] ) ? (string) $data['message'] : __( 'Remote cancel failed.', 'onesearch' ),
+			[ 'status' => $code ]
+		);
 	}
 
 	/**
@@ -1073,7 +1104,8 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 	 *
 	 * Proxies a DELETE request to the child site's /jobs/{id} endpoint.
 	 * If the remote site is unreachable, still returns success so the
-	 * local UI can clean up its state without waiting.
+	 * local UI can clean up its state without waiting. A cancel the child
+	 * site refuses comes back as its error.
 	 *
 	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
 	 * @return \WP_REST_Response|\WP_Error
@@ -1083,6 +1115,10 @@ class Job_REST_Controller extends Abstract_REST_Controller {
 		$job_id   = $request->get_param( 'job_id' );
 
 		$sent = $this->send_remote_cancel( (string) $site_url, (string) $job_id );
+
+		if ( is_wp_error( $sent ) ) {
+			return $sent;
+		}
 
 		if ( ! $sent ) {
 			return new WP_REST_Response(

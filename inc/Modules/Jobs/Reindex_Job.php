@@ -11,6 +11,7 @@ namespace OneSearch\Modules\Jobs;
 
 use OneSearch\Modules\Scheduler\Job_Scheduler;
 use OneSearch\Modules\Search\Indexer;
+use OneSearch\Utils;
 
 /**
  * Class - Reindex_Job
@@ -67,9 +68,8 @@ final class Reindex_Job extends Abstract_Job {
 	/**
 	 * Execute the reindex job.
 	 *
-	 * Streams posts page-by-page directly into Sync_Job children, keeping peak
-	 * memory at O(batch_size) regardless of total post count. Each WP_Query
-	 * page becomes exactly one child job — no full ID list is accumulated.
+	 * Each page of posts becomes one Sync_Job child. All of them are stored, then the parent with every child recorded,
+	 * before any is queued: a child that ran sooner would report back to a parent that can't count it.
 	 *
 	 * @throws \InvalidArgumentException If post_types is missing.
 	 * @throws \RuntimeException         If clearing the site's records or scheduling a child fails.
@@ -101,63 +101,89 @@ final class Reindex_Job extends Abstract_Job {
 		$batch_size = self::get_batch_size( $this->data['batch_size'] ?? self::DEFAULT_BATCH_SIZE );
 		$scheduler  = new Job_Scheduler();
 		$group      = 'reindex_' . $this->get_id();
-		$scheduled  = 0;
 		$page       = 1;
 
-		while ( true ) {
-			$query = new \WP_Query( self::get_batch_query_args( $post_types, $batch_size, $page ) );
+		try {
+			while ( true ) {
+				$query = new \WP_Query( self::get_batch_query_args( $post_types, $batch_size, $page ) );
 
-			$posts = $query->posts;
-			if ( ! is_array( $posts ) || empty( $posts ) ) {
-				break;
-			}
-
-			$post_ids = array_map( static fn ( $p ) => is_object( $p ) ? (int) $p->ID : (int) $p, $posts );
-
-			$child = new Sync_Job();
-			$child->set_data(
-				[
-					'post_ids'   => $post_ids,
-					'post_types' => $post_types,
-				]
-			);
-			$child->set_parent_id( $this->get_id() );
-			$child->set_group( $group );
-			$child->set_max_retries( 2 );
-			$child->set_retry_delay_seconds( 30 );
-
-			try {
-				$scheduler->schedule( $child );
-				$this->add_child_id( $child->get_id() );
-				++$scheduled;
-			} catch ( \Throwable $e ) {
-				foreach ( $this->get_child_ids() as $child_id ) {
-					$scheduler->cancel( $child_id );
+				$posts = $query->posts;
+				if ( ! is_array( $posts ) || empty( $posts ) ) {
+					break;
 				}
-				throw new \RuntimeException(
-					sprintf( 'Failed to schedule child Sync_Job: %s', esc_html( $e->getMessage() ) )
+
+				$post_ids = array_map( static fn ( $p ) => is_object( $p ) ? (int) $p->ID : (int) $p, $posts );
+
+				$child = new Sync_Job();
+				$child->set_data(
+					[
+						'post_ids'   => $post_ids,
+						'post_types' => $post_types,
+					]
 				);
+				$child->set_parent_id( $this->get_id() );
+				$child->set_group( $group );
+				$child->set_max_retries( 2 );
+				$child->set_retry_delay_seconds( 30 );
+
+				$scheduler->persist_job( $child );
+				$this->add_child_id( $child->get_id() );
+
+				if ( count( $posts ) < $batch_size ) {
+					break;
+				}
+
+				++$page;
 			}
 
-			if ( count( $posts ) < $batch_size ) {
-				break;
+			$batch_count = count( $this->get_child_ids() );
+			if ( 0 === $batch_count ) {
+				$this->mark_completed();
+				return;
 			}
 
-			++$page;
+			$this->set_progress_total( $batch_count );
+			$this->update_progress( 0 );
+			$this->record_batch_count( $batch_count );
+
+			// The last write of this copy: once the batches are queued, they update the stored parent instead.
+			$scheduler->persist_job( $this );
+
+			foreach ( $this->get_child_ids() as $child_id ) {
+				$scheduler->enqueue( Sync_Job::class, $child_id, $group );
+			}
+		} catch ( \Throwable $e ) {
+			foreach ( $this->get_child_ids() as $child_id ) {
+				$scheduler->cancel( $child_id );
+			}
+			throw new \RuntimeException(
+				sprintf( 'Failed to schedule child Sync_Job: %s', esc_html( $e->getMessage() ) )
+			);
 		}
 
-		if ( 0 === $scheduled ) {
-			$this->mark_completed();
+		Job_Scheduler::dispatch_queue();
+	}
+
+	/**
+	 * Record this site's batch count among the per-site totals a governing site keeps for the run.
+	 *
+	 * Done before the batches are queued, since the parent isn't written from here once they are.
+	 *
+	 * @param int $batch_count The batches this site queued.
+	 */
+	private function record_batch_count( int $batch_count ): void {
+		if ( empty( $this->data['sites'] ) || ! is_array( $this->data['sites'] ) ) {
 			return;
 		}
 
-		$this->set_progress_total( $scheduled );
-		$this->update_progress( 0 );
+		$current_site = Utils::normalize_url( get_site_url() );
+		foreach ( $this->data['sites'] as $i => $site ) {
+			if ( Utils::normalize_url( $site['site_url'] ?? '' ) === $current_site ) {
+				$this->data['sites'][ $i ]['batch_count'] = $batch_count;
+			}
+		}
 
-		// settle_parent() counts the batches from the stored child_ids.
-		$scheduler->persist_job( $this );
-
-		Job_Scheduler::dispatch_queue();
+		$this->data['total_batches'] = (int) array_sum( array_column( $this->data['sites'], 'batch_count' ) );
 	}
 
 	/**

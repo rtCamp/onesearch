@@ -132,26 +132,47 @@ final class Job_Scheduler {
 		$job->set_status( Abstract_Job::STATUS_PENDING );
 		$this->persist_job( $job );
 
-		$args = [
-			'job_class' => get_class( $job ),
-			'job_id'    => $job->get_id(),
-		];
-
-		$action_id = as_enqueue_async_action(
-			self::HOOK,
-			$args,
-			'onesearch_' . $job->get_group()
-		);
-
-		if ( ! $action_id ) {
+		try {
+			return $this->enqueue( get_class( $job ), $job->get_id(), $job->get_group() );
+		} catch ( \RuntimeException $e ) {
 			$job->fail( 'Failed to enqueue action: Action Scheduler returned 0' );
 			$this->persist_job( $job );
+			throw $e;
+		}
+	}
+
+	/**
+	 * Queue the Action Scheduler action that runs a job already stored as pending.
+	 *
+	 * Separate from schedule() so a parent can store its children, then itself, before any child can run and report
+	 * back to a parent that doesn't know it yet.
+	 *
+	 * @param string $job_class FQCN of the job class.
+	 * @param string $job_id    The stored job's ID.
+	 * @param string $group     The job's group.
+	 * @return int The Action Scheduler action ID.
+	 *
+	 * @throws \RuntimeException If Action Scheduler is unavailable or returns an invalid ID.
+	 */
+	public function enqueue( string $job_class, string $job_id, string $group ): int {
+		if ( ! function_exists( 'as_enqueue_async_action' ) ) {
+			throw new \RuntimeException( 'Action Scheduler dependency missing.' );
+		}
+
+		$args = [
+			'job_class' => $job_class,
+			'job_id'    => $job_id,
+		];
+
+		$action_id = as_enqueue_async_action( self::HOOK, $args, 'onesearch_' . $group );
+
+		if ( ! $action_id ) {
 			throw new \RuntimeException(
-				sprintf( 'Failed to schedule job %s: Action Scheduler returned invalid action ID.', esc_html( $job->get_id() ) )
+				sprintf( 'Failed to schedule job %s: Action Scheduler returned invalid action ID.', esc_html( $job_id ) )
 			);
 		}
 
-		$this->repository->set_action( $job->get_id(), $action_id, $args );
+		$this->repository->set_action( $job_id, $action_id, $args );
 
 		return $action_id;
 	}
@@ -413,11 +434,12 @@ final class Job_Scheduler {
 				return;
 			}
 
+			// A parent stored itself before queuing its children, which may have updated it since; this copy would undo that.
 			if ( $job->has_pending_children() ) {
-				$job->set_status( Abstract_Job::STATUS_RUNNING );
-			} else {
-				$job->mark_completed();
+				return;
 			}
+
+			$job->mark_completed();
 			$this->persist_job( $job );
 			$this->notify_parent( $job );
 		} catch ( \Throwable $e ) {
@@ -945,12 +967,12 @@ final class Job_Scheduler {
 				continue;
 			}
 
-			$job_completed = (int) ( $job_data['children_completed'] ?? $job_data['progress'] ?? 0 );
-			$job_failed    = (int) ( $job_data['children_failed'] ?? 0 );
-			$job_cancelled = (int) ( $job_data['children_cancelled'] ?? 0 );
+			// children_completed counts every finished batch, failed ones included.
+			$job_finished = (int) ( $job_data['children_completed'] ?? $job_data['progress'] ?? 0 );
+			$job_failed   = (int) ( $job_data['children_failed'] ?? 0 );
 
-			$completed += $job_completed;
-			$terminal  += $job_completed + $job_failed + $job_cancelled;
+			$completed += max( 0, $job_finished - $job_failed );
+			$terminal  += $job_finished;
 			$total     += (int) ( $job_data['children_total'] ?? $job_data['progress_total'] ?? 0 );
 		}
 

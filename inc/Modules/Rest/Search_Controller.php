@@ -42,6 +42,11 @@ class Search_Controller extends Abstract_REST_Controller {
 	private const STALE_JOB_THRESHOLD = 900;
 
 	/**
+	 * Seconds a re-index request may hold its lock before another request can take it over.
+	 */
+	private const REINDEX_LOCK_TTL = 5 * MINUTE_IN_SECONDS;
+
+	/**
 	 * {@inheritDoc}
 	 */
 	public function register_routes(): void {
@@ -291,17 +296,14 @@ class Search_Controller extends Abstract_REST_Controller {
 	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
 	 */
 	public function reindex( $request ): \WP_REST_Response|\WP_Error {
-		// add_option() is atomic in MySQL, so it doubles as a mutex against concurrent reindex requests.
 		$lock_key = self::REINDEX_STATE_TRANSIENT . '_lock';
-		if ( ! add_option( $lock_key, '1', '', false ) ) {
+		if ( ! self::acquire_reindex_lock( $lock_key ) ) {
 			return new \WP_Error(
 				'onesearch_reindex_active',
 				__( 'A re-index is already in progress. Cancel it or wait for it to complete before starting a new one.', 'onesearch' ),
 				[ 'status' => 409 ]
 			);
 		}
-
-		set_transient( $lock_key . '_expiry', '1', 5 * MINUTE_IN_SECONDS );
 
 		$active_state = $this->get_active_reindex_state();
 		if ( null !== $active_state ) {
@@ -409,27 +411,22 @@ class Search_Controller extends Abstract_REST_Controller {
 
 		array_unshift( $jobs, $local_site );
 
-		// The history table reads the combined cross-site total from the governing job's data.
-		if ( Settings::is_governing_site() ) {
-			$total_batches = (int) array_sum( array_column( $jobs, 'batch_count' ) );
-
-			// Re-read stored state so we never downgrade a terminal status notify_parent() already wrote.
-			$latest    = $scheduler->get_status( $job_id );
-			$merge_job = $latest ? Reindex_Job::from_array( $latest ) : $job;
-			$merge_job->set_data(
+		// A run with live batches already recorded these totals, and writing it here could undo the batches' updates.
+		if ( Settings::is_governing_site() && ( ! $job->get_child_ids() || $job->is_finished() ) ) {
+			$job->set_data(
 				array_merge(
-					$merge_job->get_data() ?: [],
+					$job->get_data(),
 					[
-						'total_batches' => $total_batches,
+						'total_batches' => (int) array_sum( array_column( $jobs, 'batch_count' ) ),
 						'sites'         => $jobs,
 					]
 				)
 			);
-			$scheduler->persist_job( $merge_job );
+			$scheduler->persist_job( $job );
 
 			// With nothing of its own to index, the run finished before its brand sites did, so it waits for them instead.
-			if ( Abstract_Job::STATUS_COMPLETED === $merge_job->get_status() && empty( $merge_job->get_child_ids() ) && count( $jobs ) > 1 ) {
-				$scheduler->await_remote_sites( $merge_job->to_array() );
+			if ( Abstract_Job::STATUS_COMPLETED === $job->get_status() && ! $job->get_child_ids() && count( $jobs ) > 1 ) {
+				$scheduler->await_remote_sites( $job->to_array() );
 			}
 		}
 
@@ -526,7 +523,47 @@ class Search_Controller extends Abstract_REST_Controller {
 	public static function clear_reindex_state(): void {
 		delete_transient( self::REINDEX_STATE_TRANSIENT );
 		delete_option( self::REINDEX_STATE_TRANSIENT . '_lock' );
-		delete_transient( self::REINDEX_STATE_TRANSIENT . '_lock_expiry' );
+	}
+
+	/**
+	 * Take the lock that keeps two re-index requests from running at once.
+	 *
+	 * The lock stores when it expires, so one left behind by a request that died is taken over once that time passes
+	 * instead of blocking every re-index after it.
+	 *
+	 * @param string $lock_key The option name used as the mutex lock.
+	 */
+	private static function acquire_reindex_lock( string $lock_key ): bool {
+		global $wpdb;
+
+		$expires_at = time() + self::REINDEX_LOCK_TTL;
+
+		// Not add_option(): its upsert lets a second request through when the values differ.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+		$acquired = (bool) $wpdb->query(
+			$wpdb->prepare(
+				"INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %d, 'no')",
+				$lock_key,
+				$expires_at
+			)
+		);
+
+		if ( ! $acquired ) {
+			// Conditional on the old expiry, so only one of several waiting requests takes over a lapsed lock.
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+			$acquired = (bool) $wpdb->query(
+				$wpdb->prepare(
+					"UPDATE {$wpdb->options} SET option_value = %d WHERE option_name = %s AND CAST(option_value AS UNSIGNED) < %d",
+					$expires_at,
+					$lock_key,
+					time()
+				)
+			);
+		}
+
+		wp_cache_delete( $lock_key, 'options' );
+
+		return $acquired;
 	}
 
 	/**
@@ -536,7 +573,6 @@ class Search_Controller extends Abstract_REST_Controller {
 	 */
 	private function release_reindex_lock( string $lock_key ): void {
 		delete_option( $lock_key );
-		delete_transient( $lock_key . '_expiry' );
 	}
 
 	/**
