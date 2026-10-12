@@ -2,12 +2,12 @@
 /**
  * Tests for the Job_Scheduler class.
  *
- * @package OneSearch\Tests\Unit\Modules\Scheduler
+ * @package OneSearch\Tests\Integration\Modules\Scheduler
  */
 
 declare(strict_types = 1);
 
-namespace OneSearch\Tests\Unit\Modules\Scheduler;
+namespace OneSearch\Tests\Integration\Modules\Scheduler;
 
 use OneSearch\Modules\Jobs\Abstract_Job;
 use OneSearch\Modules\Jobs\Sync_Job;
@@ -20,7 +20,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
  * Tests for Job_Scheduler.
  */
 #[CoversClass( Job_Scheduler::class )]
-class Job_Scheduler_Test extends TestCase {
+class Job_SchedulerTest extends TestCase {
 	/**
 	 * Scheduler instance used across tests.
 	 *

@@ -2,12 +2,12 @@
 /**
  * Tests for the Reindex_Job class.
  *
- * @package OneSearch\Tests\Unit\Modules\Jobs
+ * @package OneSearch\Tests\Integration\Modules\Jobs
  */
 
 declare(strict_types = 1);
 
-namespace OneSearch\Tests\Unit\Modules\Jobs;
+namespace OneSearch\Tests\Integration\Modules\Jobs;
 
 use OneSearch\Modules\Jobs\Abstract_Job;
 use OneSearch\Modules\Jobs\Reindex_Job;
@@ -18,7 +18,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
  * Tests for Reindex_Job.
  */
 #[CoversClass( Reindex_Job::class )]
-class Reindex_Job_Test extends TestCase {
+class Reindex_JobTest extends TestCase {
 	/**
 	 * Verifies get_type() returns 'reindex'.
 	 */

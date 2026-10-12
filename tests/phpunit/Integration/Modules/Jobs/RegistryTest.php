@@ -1,13 +1,13 @@
 <?php
 /**
- * Unit tests for Registry.
+ * Tests for Registry.
  *
- * @package OneSearch\Tests\Unit\Modules\Jobs
+ * @package OneSearch\Tests\Integration\Modules\Jobs
  */
 
 declare( strict_types = 1 );
 
-namespace OneSearch\Tests\Unit\Modules\Jobs;
+namespace OneSearch\Tests\Integration\Modules\Jobs;
 
 use OneSearch\Modules\Jobs\Abstract_Job;
 use OneSearch\Modules\Jobs\Registry;
@@ -17,42 +17,44 @@ use PHPUnit\Framework\Attributes\CoversClass;
 /**
  * Tests the singleton job Registry.
  *
- * Resets the singleton instance between tests to prevent
- * state leakage.
+ * Each test gets an empty registry, and the plugin's own instance is put back
+ * afterwards so the job types Bootstrap registered survive into later tests.
  */
 #[CoversClass( Registry::class )]
-class Registry_Test extends TestCase {
+class RegistryTest extends TestCase {
 	/**
-	 * Reset the Registry singleton before each test.
+	 * The registry the plugin booted with.
+	 */
+	private ?Registry $original_registry = null;
+
+	/**
+	 * Swap in an empty Registry singleton before each test.
 	 */
 	public function set_up(): void {
 		parent::set_up();
 
-		$this->reset_registry();
+		$this->original_registry = Registry::instance();
+		$this->set_registry_instance( null );
 	}
 
 	/**
 	 * {@inheritDoc}
 	 */
 	public function tear_down(): void {
-		$this->reset_registry();
+		$this->set_registry_instance( $this->original_registry );
 
 		parent::tear_down();
 	}
 
 	/**
-	 * Reset the Registry singleton via reflection.
+	 * Replace the Registry singleton via reflection.
+	 *
+	 * @param \OneSearch\Modules\Jobs\Registry|null $instance The instance to install, or null to have the next call build an empty one.
 	 */
-	private function reset_registry(): void {
+	private function set_registry_instance( ?Registry $instance ): void {
 		$ref_instance = new \ReflectionProperty( Registry::class, 'instance' );
 		$ref_instance->setAccessible( true );
-		$ref_instance->setValue( null, null );
-
-		$ref_jobs = new \ReflectionProperty( Registry::class, 'jobs' );
-		$ref_jobs->setAccessible( true );
-
-		$instance = Registry::instance();
-		$ref_jobs->setValue( $instance, [] );
+		$ref_instance->setValue( null, $instance );
 	}
 
 	/**
