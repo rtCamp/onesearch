@@ -46,13 +46,7 @@ function run_uninstaller(): void {
  * The (site-specific) uninstall function.
  */
 function uninstall(): void {
-	// A remote failure shouldn't block the local cleanup below.
-	try {
-		cleanup_algolia_index();
-	} catch ( \Throwable $e ) {
-		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Nowhere else to report it during uninstall.
-		error_log( 'OneSearch uninstall: Algolia cleanup failed: ' . $e->getMessage() );
-	}
+	cleanup_algolia_index();
 	delete_proxy_attachment();
 
 	// Wait until the end to delete options and transients.
@@ -133,11 +127,17 @@ function cleanup_algolia_index(): void {
 
 	// The index is shared by all sites, so brand sites only delete their own records.
 	if ( \OneSearch\Modules\Settings\Settings::is_governing_site() ) {
-		$indexer->delete_index();
-		return;
+		$is_deleted = $indexer->delete_index();
+	} else {
+		$is_deleted = $indexer->delete_site_records( [ get_site_url() ] );
 	}
 
-	$indexer->delete_site_records( [ get_site_url() ] );
+	if ( is_wp_error( $is_deleted ) ) {
+		$data = $is_deleted->get_error_data();
+
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Nowhere else to report it during uninstall.
+		error_log( sprintf( 'OneSearch uninstall: Algolia cleanup failed: %s %s', $is_deleted->get_error_message(), $data['message'] ?? '' ) );
+	}
 }
 
 /**
