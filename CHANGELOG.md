@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.2.0](https://github.com/rtCamp/onesearch/compare/v1.1.2...v1.2.0) (2026-10-16)
+
+
+### Added
+
+* migrate Algolia v3 to v4 and refactor internal usage ([#323](https://github.com/rtCamp/onesearch/issues/323)) ([bf7231f](https://github.com/rtCamp/onesearch/commit/bf7231f44d325c45d7d0c104d92736d3d84a2a1a))
+
+
+### Fixed
+
+* prevent fatal error when uninstalling the plugin ([#329](https://github.com/rtCamp/onesearch/issues/329)) ([98bd33f](https://github.com/rtCamp/onesearch/commit/98bd33f12c109fef50ec03008b7e53f3c1c218c0))
+* propagate disconnects between brand and governing sites ([#321](https://github.com/rtCamp/onesearch/issues/321)) ([a7214d3](https://github.com/rtCamp/onesearch/commit/a7214d3d3eb4c2f616009e51335344edee74faf3))
+* remove stale posts when publish status changes ([#305](https://github.com/rtCamp/onesearch/issues/305)) ([adf5ed7](https://github.com/rtCamp/onesearch/commit/adf5ed73eac1bb12bc8a1264a668e92c5ac552e6))
+* update Composer deps and remediate PHPStan lints ([#307](https://github.com/rtCamp/onesearch/issues/307)) ([992bb13](https://github.com/rtCamp/onesearch/commit/992bb13aa4d73112dcf4c04bb390edfd039622f4))
+
+
+### Changed
+
+* **deps-dev:** bump compression from 1.8.1 to 1.8.2 ([#337](https://github.com/rtCamp/onesearch/issues/337)) ([3b28612](https://github.com/rtCamp/onesearch/commit/3b28612fa5dbe2cb2fd490b3808c2fbb9aa1dcb3))
+* **deps-dev:** bump the composer-dev-minor-patch group with 2 updates ([#331](https://github.com/rtCamp/onesearch/issues/331)) ([7a79d7d](https://github.com/rtCamp/onesearch/commit/7a79d7d7f8938d8cf68626fe93cae4c9eb1a8b11))
+* **deps-dev:** bump the npm-dev-minor-patch group with 2 updates ([#333](https://github.com/rtCamp/onesearch/issues/333)) ([fc49631](https://github.com/rtCamp/onesearch/commit/fc49631e886cf0f630ff0d421e91379f8680dc26))
+* **deps-dev:** bump the npm-dev-minor-patch group with 5 updates ([#327](https://github.com/rtCamp/onesearch/issues/327)) ([391d546](https://github.com/rtCamp/onesearch/commit/391d54697c9d29bc6da68fce548bdbc93f06f410))
+* **deps-dev:** bump typescript-eslint ([#328](https://github.com/rtCamp/onesearch/issues/328)) ([99d4284](https://github.com/rtCamp/onesearch/commit/99d428419f9d00408949d10b5422a3d0f88eede6))
+* **deps:** bump proxy-addr from 2.0.7 to 2.0.8 ([#334](https://github.com/rtCamp/onesearch/issues/334)) ([78d47cb](https://github.com/rtCamp/onesearch/commit/78d47cb8dbf068d3f17db124eef0429a8e68bb70))
+* **deps:** bump shell-quote from 1.10.0 to 1.12.0 ([#335](https://github.com/rtCamp/onesearch/issues/335)) ([a4f4e56](https://github.com/rtCamp/onesearch/commit/a4f4e56e2b1974344e1387edd6d383eb100ed143))
+* **deps:** bump source-map-js from 1.2.1 to 1.2.2 ([#336](https://github.com/rtCamp/onesearch/issues/336)) ([0dae55a](https://github.com/rtCamp/onesearch/commit/0dae55a9c6afe2722297859a736a2283019f4392))
+* **deps:** bump the github-actions-updates group with 2 updates ([#332](https://github.com/rtCamp/onesearch/issues/332)) ([8db8a93](https://github.com/rtCamp/onesearch/commit/8db8a93c7b9bcdfa3681211da0a13b6523ee309c))
+
 ## [1.1.2](https://github.com/rtCamp/onesearch/compare/v1.1.1...v1.1.2) (2026-08-26)
 
 
