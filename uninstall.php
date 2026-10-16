@@ -127,11 +127,17 @@ function cleanup_algolia_index(): void {
 
 	// The index is shared by all sites, so brand sites only delete their own records.
 	if ( \OneSearch\Modules\Settings\Settings::is_governing_site() ) {
-		$indexer->delete_index();
-		return;
+		$is_deleted = $indexer->delete_index();
+	} else {
+		$is_deleted = $indexer->delete_site_records( [ get_site_url() ] );
 	}
 
-	$indexer->delete_site_records( [ get_site_url() ] );
+	if ( is_wp_error( $is_deleted ) ) {
+		$data = $is_deleted->get_error_data();
+
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Nowhere else to report it during uninstall.
+		error_log( sprintf( 'OneSearch uninstall: Algolia cleanup failed: %s %s', $is_deleted->get_error_message(), $data['message'] ?? '' ) );
+	}
 }
 
 /**
@@ -144,6 +150,11 @@ function load_dependencies(): bool {
 	$autoloader_path = __DIR__ . '/inc/Autoloader.php';
 	if ( ! file_exists( $autoloader_path ) ) {
 		return false;
+	}
+
+	// The main plugin file isn't loaded during uninstall, but the autoloader needs this.
+	if ( ! defined( 'ONESEARCH_DIR' ) ) {
+		define( 'ONESEARCH_DIR', plugin_dir_path( __FILE__ ) );
 	}
 
 	require_once $autoloader_path; // phpcs:ignore WordPressVIPMinimum.Files.IncludingFile.UsingVariable
