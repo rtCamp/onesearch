@@ -122,7 +122,7 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 		$shared_sites    = Settings::get_shared_sites();
 		$searchable_urls = array_keys( $shared_sites );
 		// Add governing site itself.
-		$searchable_urls[] = trailingslashit( get_site_url() );
+		$searchable_urls[] = Utils::get_current_site_url();
 
 		return rest_ensure_response(
 			[
@@ -208,7 +208,7 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 	 * Return public post types for the current site (and children if governing).
 	 */
 	public function get_all_post_types(): \WP_REST_Response|\WP_Error {
-		$site_url = trailingslashit( get_site_url() );
+		$site_url = Utils::get_current_site_url();
 
 		$site_payload = [
 			'site_name'  => (string) get_bloginfo( 'name' ),

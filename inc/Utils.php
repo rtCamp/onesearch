@@ -25,6 +25,15 @@ final class Utils {
 	}
 
 	/**
+	 * Gets the normalized URL that identifies the current site across the network.
+	 *
+	 * Uses `get_option( 'home' )` since `get_home_url()` changes the scheme per the current request.
+	 */
+	public static function get_current_site_url(): string {
+		return self::normalize_url( (string) get_option( 'home' ) );
+	}
+
+	/**
 	 * Logs a message to the PHP error log when debugging is enabled.
 	 *
 	 * @param string $message The message to log. Will be prefixed with the plugin name.

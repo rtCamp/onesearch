@@ -757,7 +757,7 @@ final class Search implements Registrable {
 		if ( ! Settings::is_consumer_site() ) {
 			$all_sites = Search_Settings::get_search_settings();
 
-			$search_config = $all_sites[ Utils::normalize_url( get_site_url() ) ] ?? null;
+			$search_config = $all_sites[ Utils::get_current_site_url() ] ?? null;
 		} else {
 			$brand_config  = Governing_Data_Handler::get_brand_config();
 			$search_config = is_array( $brand_config ) && ! empty( $brand_config['search_settings'] ) ? $brand_config['search_settings'] : null;
@@ -888,7 +888,7 @@ final class Search implements Registrable {
 		// Parent: use local data.
 		if ( Settings::is_governing_site() ) {
 			$search_config  = Search_Settings::get_search_settings();
-			$selected_sites = $search_config[ trailingslashit( get_site_url() ) ] ?? [];
+			$selected_sites = $search_config[ Utils::get_current_site_url() ] ?? [];
 			return $selected_sites['searchable_sites'] ?? [];
 		}
 
@@ -966,7 +966,7 @@ final class Search implements Registrable {
 	 * @return PostRecord[]
 	 */
 	private function get_all_chunks_for_records( array $records ): array {
-		$site_url      = Utils::normalize_url( get_site_url() );
+		$site_url      = Utils::get_current_site_url();
 		$site_post_ids = [];
 
 		foreach ( $records as $record ) {
@@ -1015,7 +1015,7 @@ final class Search implements Registrable {
 		$site_url = isset( $record['site_url'] ) ? Utils::normalize_url( $record['site_url'] ) : '';
 
 		// If sites are local, use the local post.
-		if ( Utils::normalize_url( get_site_url() ) === $site_url ) {
+		if ( Utils::get_current_site_url() === $site_url ) {
 			$post = get_post( (int) $record['post_id'] );
 
 			if ( ! $post instanceof \WP_Post ) {

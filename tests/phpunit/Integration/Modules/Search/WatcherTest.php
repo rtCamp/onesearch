@@ -422,7 +422,7 @@ final class WatcherTest extends TestCase {
 			Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES,
 			[
 				'entities' => [
-					Utils::normalize_url( get_site_url() ) => $entities,
+					Utils::get_current_site_url() => $entities,
 				],
 			]
 		);

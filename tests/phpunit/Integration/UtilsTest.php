@@ -59,4 +59,13 @@ final class UtilsTest extends TestCase {
 			],
 		];
 	}
+
+	/**
+	 * The current site is identified by the normalized home URL.
+	 */
+	public function test_get_current_site_url_returns_the_normalized_home_url(): void {
+		add_filter( 'pre_option_home', static fn (): string => 'http://example.org/blog' );
+
+		$this->assertSame( 'http://example.org/blog/', Utils::get_current_site_url() );
+	}
 }

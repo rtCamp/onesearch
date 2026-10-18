@@ -12,6 +12,7 @@ namespace OneSearch\Modules\Rest;
 use OneSearch\Modules\Search\Indexer;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
+use OneSearch\Utils;
 use WP_REST_Response;
 use WP_REST_Server;
 
@@ -224,7 +225,7 @@ class Search_Controller extends Abstract_REST_Controller {
 
 		if ( is_wp_error( $indexed ) ) {
 			$errors[] = [
-				'site_url' => get_site_url(),
+				'site_url' => Utils::get_current_site_url(),
 				'message'  => $indexed->get_error_message() ?: __( 'Re-index failed.', 'onesearch' ),
 			];
 		}
@@ -271,7 +272,7 @@ class Search_Controller extends Abstract_REST_Controller {
 					'headers' => [
 						'Accept'            => 'application/json',
 						'Content-Type'      => 'application/json',
-						'Origin'            => get_site_url(),
+						'Origin'            => untrailingslashit( Utils::get_current_site_url() ),
 						'X-OneSearch-Token' => $site_data['api_key'],
 					],
 					'timeout' => 45, // phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout -- Allow longer timeout for reindexing.

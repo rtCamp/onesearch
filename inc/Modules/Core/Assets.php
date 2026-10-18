@@ -13,6 +13,7 @@ use OneSearch\Contracts\Interfaces\Registrable;
 use OneSearch\Modules\Rest\Abstract_REST_Controller;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
+use OneSearch\Utils;
 
 /**
  * Class Assets
@@ -67,12 +68,12 @@ final class Assets implements Registrable {
 
 		if ( empty( self::$localized_data ) ) {
 			self::$localized_data = [
-				'currentSiteUrl'        => esc_url( home_url( '/' ) ),
+				'currentSiteUrl'        => Utils::get_current_site_url(),
 				'hasAlgoliaCredentials' => ! empty( $algolia_creds['app_id'] ) && ! empty( $algolia_creds['write_key'] ),
 				'nonce'                 => wp_create_nonce( 'wp_rest' ),
 				'api_key'               => Settings::get_api_key(),
 				'restNamespace'         => Abstract_REST_Controller::NAMESPACE,
-				'restUrl'               => esc_url( home_url( '/wp-json/' ) ),
+				'restUrl'               => esc_url_raw( rest_url() ),
 				'setupUrl'              => admin_url( 'admin.php?page=onesearch-settings' ),
 				'sharedSites'           => array_values( Settings::get_shared_sites() ),
 				'siteType'              => Settings::get_site_type(),

@@ -74,7 +74,7 @@ final class Indexer {
 	public static function get_indexable_post_types(): array|\WP_Error {
 		if ( Settings::is_governing_site() ) {
 			$entities   = Search_Settings::get_indexable_entities();
-			$post_types = $entities['entities'][ Utils::normalize_url( get_site_url() ) ] ?? null;
+			$post_types = $entities['entities'][ Utils::get_current_site_url() ] ?? null;
 
 			return is_array( $post_types ) ? array_values( array_unique( array_map( 'strval', $post_types ) ) ) : [];
 		}
@@ -182,7 +182,7 @@ final class Indexer {
 			return $index;
 		}
 
-		$is_deleted = $this->delete_site_records( [ get_site_url() ] );
+		$is_deleted = $this->delete_site_records( [ Utils::get_current_site_url() ] );
 		if ( is_wp_error( $is_deleted ) ) {
 			return $is_deleted;
 		}
@@ -396,7 +396,7 @@ final class Indexer {
 	 */
 	private static function get_index_name(): string {
 		$site_url = Settings::is_governing_site()
-			? get_site_url()
+			? Utils::get_current_site_url()
 			: Settings::get_parent_site_url();
 
 		$host = ! empty( $site_url ) ? wp_parse_url( $site_url, PHP_URL_HOST ) : null;

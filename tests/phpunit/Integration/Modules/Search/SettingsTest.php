@@ -464,7 +464,7 @@ final class SettingsTest extends TestCase {
 	 */
 	private function set_up_governing_credentials(): void {
 		// Name the index after a known host, since the test site's URL depends on the environment.
-		add_filter( 'option_siteurl', static fn (): string => 'https://governing.example.org', 11 );
+		add_filter( 'option_home', static fn (): string => 'https://governing.example.org', 11 );
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
 		Search_Settings::set_algolia_credentials(
 			[
