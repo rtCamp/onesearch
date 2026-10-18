@@ -12,6 +12,7 @@
 		"languages",
 		"vendor",
 		"vendor-prefixed",
+		"composer.json",
 		"readme.txt",
 		"onesearch.php",
 		"uninstall.php"
