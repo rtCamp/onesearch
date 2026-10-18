@@ -78,7 +78,6 @@ function delete_proxy_attachment(): void {
 function delete_options(): void {
 	$options = [
 		// Add more options as needed.
-		PLUGIN_PREFIX . 'version', // Set by Main::activate().
 
 		// Governing site options.
 		PLUGIN_PREFIX . 'site_type',
@@ -129,7 +128,9 @@ function cleanup_algolia_index(): void {
 	if ( \OneSearch\Modules\Settings\Settings::is_governing_site() ) {
 		$is_deleted = $indexer->delete_index();
 	} else {
-		$is_deleted = $indexer->delete_site_records( [ get_site_url() ] );
+		// Consumer sites need to delete their own records, and deregister from the governing site.
+		\OneSearch\Modules\Rest\Governing_Data_Handler::deregister_from_governing_site();
+		$is_deleted = $indexer->delete_site_records( [ \OneSearch\Utils::get_current_site_url() ] );
 	}
 
 	if ( is_wp_error( $is_deleted ) ) {
