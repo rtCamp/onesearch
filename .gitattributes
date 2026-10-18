@@ -20,6 +20,7 @@
 /phpunit.xml.dist export-ignore
 /playwright.config.ts export-ignore
 /release-please-config.json export-ignore
+/stylelint.config.mjs export-ignore
 /tsconfig.base.json export-ignore
 /tsconfig.json export-ignore
 /webpack.config.js export-ignore

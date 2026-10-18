@@ -2,7 +2,6 @@
 /* stylelint-disable selector-id-pattern */
 
 .toplevel_page_onesearch {
-
 	.components-modal-header-heading {
 		font-size: 1.25rem;
 		margin-top: 1rem;
@@ -11,7 +10,6 @@
 
 #onesearch-search-settings,
 #onesearch-settings-page {
-
 	.components-snackbar {
 		position: fixed;
 		bottom: 20px;
@@ -296,12 +294,7 @@
 	margin: 0 0 2px 0;
 	font-size: 13px;
 	color: #666;
-	font-family:
-		"SF Mono",
- Consolas,
- "Liberation Mono",
- Menlo,
- Courier,
+	font-family: "SF Mono", Consolas, "Liberation Mono", Menlo, Courier,
 		monospace;
 }
 
