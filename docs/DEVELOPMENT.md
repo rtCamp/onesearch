@@ -53,9 +53,8 @@ Code contributions, bug reports, and feature requests are welcome! The following
 ├── assets/  # Static assets that do not need compiling.
 │   └── src/
 │       ├── admin/
-│       │   ├── onboarding/ # Plugin activation modal.
-│       │   ├── search/     # Indices and Search settings.
-│       │   └── settings/   # Plugin settings.
+│       │   ├── search/   # Indices and Search settings.
+│       │   └── settings/ # Plugin settings.
 │       ├── components/
 │       │   ├── AlgoliaSettings.tsx
 │       │   ├── MultiSelectChips.tsx
@@ -63,10 +62,10 @@ Code contributions, bug reports, and feature requests are welcome! The following
 │       │   ├── SiteModal.tsx
 │       │   ├── SiteSearchSettings.tsx
 │       │   ├── SiteSettings.tsx
-│       │   └── SiteTable.tsx
+│       │   ├── SiteTable.tsx
+│       │   └── SiteTypeSettings.tsx
 │       ├── css/
-│       │   ├── admin.scss
-│       │   └── onboarding.scss
+│       │   └── admin.scss
 │       ├── images/
 │       └── js/
 │           └── utils.ts

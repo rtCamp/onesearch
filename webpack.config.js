@@ -3,6 +3,7 @@
  */
 const fs = require( 'fs' );
 const path = require( 'path' );
+const CopyWebpackPlugin = require( 'copy-webpack-plugin' );
 const RemoveEmptyScriptsPlugin = require( 'webpack-remove-empty-scripts' );
 
 /**
@@ -64,13 +65,6 @@ const scripts = {
 			'admin/search',
 			'index.tsx'
 		),
-		onboarding: path.resolve(
-			process.cwd(),
-			'assets',
-			'src',
-			'admin/onboarding',
-			'index.tsx'
-		),
 		settings: path.resolve(
 			process.cwd(),
 			'assets',
@@ -100,6 +94,20 @@ const scripts = {
 	},
 	plugins: [
 		...sharedConfig.plugins,
+		// Copies images that PHP references, like the menu icon.
+		new CopyWebpackPlugin( {
+			patterns: [
+				{
+					from: path.resolve(
+						process.cwd(),
+						'assets',
+						'src',
+						'images'
+					),
+					to: 'images',
+				},
+			],
+		} ),
 		// Removes empty `.js` files (e.g., polyfills that resolve to nothing)
 		new RemoveEmptyScriptsPlugin( {
 			stage: RemoveEmptyScriptsPlugin.STAGE_AFTER_PROCESS_PLUGINS,

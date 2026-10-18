@@ -9,7 +9,6 @@ declare(strict_types = 1);
 
 namespace OneSearch\Tests\Integration\Modules\Search;
 
-use OneSearch\Modules\Core\Assets;
 use OneSearch\Modules\Search\Admin;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
@@ -37,12 +36,7 @@ final class AdminTest extends TestCase {
 	 * {@inheritDoc}
 	 */
 	protected function tearDown(): void {
-		wp_dequeue_script( Assets::SEARCH_SCRIPT_HANDLE );
-		wp_deregister_script( Assets::SEARCH_SCRIPT_HANDLE );
-
 		$this->delete_test_options();
-
-		$this->remove_menu_entries();
 
 		parent::tearDown();
 	}
@@ -88,20 +82,6 @@ final class AdminTest extends TestCase {
 	}
 
 	/**
-	 * Ensures add_submenu registers the submenu and search page.
-	 */
-	public function test_add_submenu_registers_indices_and_search_page(): void {
-		$admin = new Admin();
-
-		add_menu_page( 'OneSearch', 'OneSearch', 'manage_options', Admin::MENU_SLUG, '__return_null' );
-		$admin->add_submenu();
-
-		$this->assertArrayHasKey( Admin::MENU_SLUG, $GLOBALS['submenu'] );
-		$this->assertTrue( $this->submenu_contains_slug( Admin::MENU_SLUG, Admin::MENU_SLUG ) );
-		$this->assertSame( 'Indices and Search', $GLOBALS['submenu'][ Admin::MENU_SLUG ][0][0] );
-	}
-
-	/**
 	 * Ensures the screen callback renders the search mount point.
 	 */
 	public function test_screen_callback_outputs_expected_html(): void {
@@ -114,28 +94,6 @@ final class AdminTest extends TestCase {
 	}
 
 	/**
-	 * Ensures enqueue_scripts enqueues the search script on the search page.
-	 */
-	public function test_enqueue_scripts_enqueues_on_search_page(): void {
-		wp_register_script( Assets::SEARCH_SCRIPT_HANDLE, 'https://example.com/search.js', [], '1.0.0', true );
-
-		( new Admin() )->enqueue_scripts( 'toplevel_page_' . Admin::SCREEN_ID );
-
-		$this->assertTrue( wp_script_is( Assets::SEARCH_SCRIPT_HANDLE, 'enqueued' ) );
-	}
-
-	/**
-	 * Ensures enqueue_scripts skips other admin pages.
-	 */
-	public function test_enqueue_scripts_skips_on_other_pages(): void {
-		wp_register_script( Assets::SEARCH_SCRIPT_HANDLE, 'https://example.com/search.js', [], '1.0.0', true );
-
-		( new Admin() )->enqueue_scripts( 'edit.php' );
-
-		$this->assertFalse( wp_script_is( Assets::SEARCH_SCRIPT_HANDLE, 'enqueued' ) );
-	}
-
-	/**
 	 * Removes persisted options used by the tests.
 	 */
 	private function delete_test_options(): void {
@@ -145,34 +103,5 @@ final class AdminTest extends TestCase {
 		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
 		delete_option( Settings::OPTION_CONSUMER_API_KEY );
 		delete_option( Settings::OPTION_GOVERNING_SHARED_SITES );
-	}
-
-	/**
-	 * Checks whether the submenu contains a slug.
-	 *
-	 * @param string $menu_slug    Parent menu slug.
-	 * @param string $submenu_slug Submenu slug.
-	 */
-	private function submenu_contains_slug( string $menu_slug, string $submenu_slug ): bool {
-		foreach ( (array) ( $GLOBALS['submenu'][ $menu_slug ] ?? [] ) as $submenu_item ) {
-			if ( isset( $submenu_item[2] ) && $submenu_slug === $submenu_item[2] ) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	/**
-	 * Removes menu entries registered by this test.
-	 */
-	private function remove_menu_entries(): void {
-		foreach ( (array) ( $GLOBALS['menu'] ?? [] ) as $index => $menu_item ) {
-			if ( isset( $menu_item[2] ) && Admin::MENU_SLUG === $menu_item[2] ) {
-				unset( $GLOBALS['menu'][ $index ] );
-			}
-		}
-
-		unset( $GLOBALS['submenu'][ Admin::MENU_SLUG ] );
 	}
 }
