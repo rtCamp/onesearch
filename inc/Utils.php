@@ -23,4 +23,18 @@ final class Utils {
 	public static function normalize_url( string $url ): string {
 		return (string) trailingslashit( trim( $url ) );
 	}
+
+	/**
+	 * Logs a message to the PHP error log when debugging is enabled.
+	 *
+	 * @param string $message The message to log. Will be prefixed with the plugin name.
+	 */
+	public static function log( string $message ): void {
+		if ( ! defined( 'WP_DEBUG' ) || ! WP_DEBUG ) {
+			return;
+		}
+
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Debug-only logging.
+		error_log( 'OneSearch: ' . $message );
+	}
 }

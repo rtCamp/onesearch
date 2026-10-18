@@ -986,8 +986,7 @@ final class Search implements Registrable {
 		$post_records = $this->get_indexer()->get_post_records( array_values( array_unique( $site_post_ids ) ) );
 
 		if ( is_wp_error( $post_records ) ) {
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- @todo we need visibility until we have a proper Logger.
-			error_log( 'OneSearch: Error fetching chunks from Algolia: ' . $post_records->get_error_message() );
+			Utils::log( 'Error fetching chunks from Algolia: ' . $post_records->get_error_message() );
 			return $records;
 		}
 
