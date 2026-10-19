@@ -332,6 +332,74 @@ describe( 'SiteSearchSettings', () => {
 		).toBeEnabled();
 	} );
 
+	it( 'keeps the settings of sites that are not listed when disabling all', async () => {
+		const hiddenSiteUrl = 'https://hidden.example.com/';
+		const hiddenSettings = {
+			algolia_enabled: true,
+			searchable_sites: [ hiddenSiteUrl, brandSiteUrl ],
+		};
+		window.OneSearchSettings.sharedSites = [
+			{ name: 'Brand Site', url: brandSiteUrl },
+			// Its post types haven't loaded, so it isn't listed.
+			{ name: 'Hidden Site', url: hiddenSiteUrl },
+		];
+
+		mockedApiFetch.mockImplementation( ( options ) =>
+			Promise.resolve(
+				'POST' === options.method
+					? options.data
+					: {
+							onesearch_sites_search_settings: {
+								[ brandSiteUrl ]: {
+									algolia_enabled: true,
+									searchable_sites: [ brandSiteUrl ],
+								},
+								[ hiddenSiteUrl ]: hiddenSettings,
+							},
+					  }
+			)
+		);
+
+		render(
+			<SiteSearchSettings
+				indexableEntities={ {
+					...defaultEntities,
+					[ hiddenSiteUrl ]: [ 'post' ],
+				} }
+				allPostTypes={ defaultPostTypes }
+				setNotice={ jest.fn() }
+				isIndexableEntitiesSaving={ false }
+			/>
+		);
+
+		await screen.findByText( 'Site Search Configuration' );
+		fireEvent.click(
+			screen.getByRole( 'button', { name: 'Disable All' } )
+		);
+		fireEvent.click(
+			screen.getByRole( 'button', { name: 'Save Settings' } )
+		);
+
+		await waitFor( () => {
+			expect(
+				mockedApiFetch.mock.calls.some(
+					( [ options ] ) => 'POST' === options.method
+				)
+			).toBe( true );
+		} );
+		expect(
+			mockedApiFetch.mock.calls.find(
+				( [ options ] ) => 'POST' === options.method
+			)?.[ 0 ]
+		).toMatchObject( {
+			data: {
+				onesearch_sites_search_settings: {
+					[ hiddenSiteUrl ]: hiddenSettings,
+				},
+			},
+		} );
+	} );
+
 	it( 'disables buttons while entities are saving', async () => {
 		mockedApiFetch.mockResolvedValueOnce( {
 			onesearch_sites_search_settings: {},

@@ -333,7 +333,9 @@ const SiteSearchSettings = ( {
 
 	// Handling bulk toggles.
 	const handleBulkToggle = ( enable: boolean ) => {
-		const newSettings: Record< string, SiteSearchSetting > = {};
+		const newSettings: Record< string, SiteSearchSetting > = {
+			...searchSettings,
+		};
 		let skippedCount = 0;
 
 		allSites.forEach( ( site ) => {
