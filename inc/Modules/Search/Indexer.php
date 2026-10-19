@@ -182,7 +182,7 @@ final class Indexer {
 			return $index;
 		}
 
-		// Wait for the old records to be deleted before the new ones are saved, since Algolia doesn't handle separate requests in order.
+		// Wait until the old records are gone, so a failed delete doesn't leave them mixed in with the new ones.
 		$is_deleted = $this->delete_site_records( [ Utils::get_current_site_url() ], true );
 		if ( is_wp_error( $is_deleted ) ) {
 			return $is_deleted;
