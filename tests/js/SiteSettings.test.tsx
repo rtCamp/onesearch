@@ -342,6 +342,7 @@ describe( 'SiteSettings', () => {
 		render( <SiteSettings /> );
 
 		const field = await screen.findByDisplayValue( 'api-key' );
+		expect( field ).toBe( screen.getByLabelText( 'API Key' ) );
 		expect( field ).not.toBeDisabled();
 		expect( field ).toHaveAttribute( 'readonly' );
 	} );

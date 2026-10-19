@@ -219,6 +219,8 @@ const SiteSettings = () => {
 				<CardBody>
 					<div>
 						<TextareaControl
+							label={ __( 'API Key', 'onesearch' ) }
+							hideLabelFromVision
 							value={ apiKey }
 							// Not disabled, so the key can still be selected and copied by hand.
 							readOnly
