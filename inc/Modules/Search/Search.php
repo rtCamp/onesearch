@@ -261,7 +261,7 @@ final class Search implements Registrable {
 				continue;
 			}
 
-			return $tax_data['term_link'];
+			return esc_url_raw( $tax_data['term_link'] );
 		}
 
 		return $term_link;
@@ -323,7 +323,7 @@ final class Search implements Registrable {
 			$fake_term                   = new \WP_Term( new \stdClass() );
 			$fake_term->count            = $tax_data['count'];
 			$fake_term->description      = $tax_data['description'];
-			$fake_term->name             = $tax_data['name'];
+			$fake_term->name             = sanitize_text_field( $tax_data['name'] );
 			$fake_term->parent           = $tax_data['parent'];
 			$fake_term->slug             = $tax_data['slug'];
 			$fake_term->taxonomy         = $tax_data['taxonomy'];
@@ -494,7 +494,8 @@ final class Search implements Registrable {
 		unset( $attr['srcset'], $attr['sizes'] );
 
 		if ( empty( $attr['alt'] ) && ! empty( $remote_post->post_title ) ) {
-			$attr['alt'] = esc_attr( $remote_post->post_title );
+			// Core escapes the attributes after this filter.
+			$attr['alt'] = wp_strip_all_tags( $remote_post->post_title );
 		}
 
 		return $attr;
@@ -1016,7 +1017,7 @@ final class Search implements Registrable {
 			}
 
 			$post->onesearch_site_url  = $site_url;
-			$post->onesearch_site_name = $record['site_name'] ?? '';
+			$post->onesearch_site_name = sanitize_text_field( $record['site_name'] ?? '' );
 
 			return $post;
 		}
@@ -1035,15 +1036,15 @@ final class Search implements Registrable {
 
 		$post->ID                = $proxy_id > 0 ? $proxy_id : -1 - absint( $record['post_id'] ); // @phpstan-ignore assign.propertyType (A negative ID is used to represent remote post.)
 		$post->filter            = 'raw';
-		$post->guid              = $record['permalink'] ?? '';
-		$post->post_content      = $record['content'] ?? '';
-		$post->post_excerpt      = $record['post_excerpt'] ?? '';
+		$post->guid              = esc_url_raw( $record['permalink'] ?? '' );
+		$post->post_content      = wp_kses_post( $record['content'] ?? '' );
+		$post->post_excerpt      = wp_kses_post( $record['post_excerpt'] ?? '' );
 		$post->post_name         = $record['post_name'] ?? '';
 		$post->post_status       = 'publish';
-		$post->post_title        = $record['post_title'] ?? '';
+		$post->post_title        = wp_kses_post( $record['post_title'] ?? '' );
 		$post->post_type         = $post_type; // @phpstan-ignore assign.propertyType (Partial records may not have a post_type.)
-		$post->post_date_gmt     = isset( $record['post_date_gmt'] ) ? (string) wp_date( 'Y-m-d H:i:s', $record['post_date_gmt'] ) : '';
-		$post->post_modified_gmt = isset( $record['post_modified_gmt'] ) ? (string) wp_date( 'Y-m-d H:i:s', $record['post_modified_gmt'] ) : '';
+		$post->post_date_gmt     = isset( $record['post_date_gmt'] ) ? gmdate( 'Y-m-d H:i:s', (int) $record['post_date_gmt'] ) : '';
+		$post->post_modified_gmt = isset( $record['post_modified_gmt'] ) ? gmdate( 'Y-m-d H:i:s', (int) $record['post_modified_gmt'] ) : '';
 
 		// Get the post_date and modified_date from the GMT values.
 		$post->post_date     = get_date_from_gmt( $post->post_date_gmt );
@@ -1052,16 +1053,16 @@ final class Search implements Registrable {
 		// Set negative author ID to avoid conflicts.
 		if ( isset( $record['post_author_data'] ) ) {
 			$post->post_author                               = (string) ( -1000 - absint( $record['post_author_data']['author_id'] ) );
-			$post->onesearch_remote_post_author_display_name = $record['post_author_data']['author_display_name'] ?? '';
-			$post->onesearch_remote_post_author_link         = $record['post_author_data']['author_posts_url'] ?? '';
-			$post->onesearch_remote_post_author_gravatar     = $record['post_author_data']['author_avatar'] ?? '';
+			$post->onesearch_remote_post_author_display_name = sanitize_text_field( $record['post_author_data']['author_display_name'] ?? '' );
+			$post->onesearch_remote_post_author_link         = esc_url_raw( $record['post_author_data']['author_posts_url'] ?? '' );
+			$post->onesearch_remote_post_author_gravatar     = esc_url_raw( $record['post_author_data']['author_avatar'] ?? '' );
 		}
 
 		// Set Custom OneSearch properties.
 		$post->onesearch_original_id       = $record['post_id'];
 		$post->onesearch_remote_taxonomies = $record['taxonomies'] ?? [];
 		$post->onesearch_site_url          = $record['site_url'] ?? '';
-		$post->onesearch_site_name         = $record['site_name'] ?? '';
+		$post->onesearch_site_name         = sanitize_text_field( $record['site_name'] ?? '' );
 		$post->onesearch_thumbnail         = $record['thumbnail'] ?? [];
 
 		return $post;

@@ -292,6 +292,98 @@ final class SearchTest extends TestCase {
 	}
 
 	/**
+	 * Any site with the write key can write records, so the remote fields that themes print are sanitized.
+	 */
+	public function test_remote_records_are_sanitized(): void {
+		$result = $this->run_search(
+			new Search(),
+			[
+				'hits' => [
+					self::get_remote_hit(
+						[
+							'post_title'       => '<img src=x onerror=alert(1)>Evil <b>title</b>',
+							'post_excerpt'     => '<script>alert(2)</script>Excerpt',
+							'content'          => '<script>alert(3)</script><p onclick="x()">Hi <a href="javascript:alert(4)">l</a></p>',
+							'permalink'        => 'javascript:alert(5)',
+							'site_name'        => '<b>Evil</b> Site',
+							'post_author_data' => [
+								'author_id'           => 3,
+								'author_display_name' => '<i>Mallory</i>',
+								'author_posts_url'    => 'javascript:alert(6)',
+								'author_avatar'       => 'data:text/html,x',
+							],
+						]
+					),
+				],
+			]
+		);
+
+		$this->assertCount( 1, $result );
+		$post = $result[0];
+
+		$this->assertStringNotContainsString( 'onerror', $post->post_title );
+		$this->assertStringContainsString( '<b>title</b>', $post->post_title );
+		$this->assertStringNotContainsString( '<script', $post->post_excerpt );
+		$this->assertStringNotContainsString( '<script', $post->post_content );
+		$this->assertStringNotContainsString( 'onclick', $post->post_content );
+		$this->assertStringNotContainsString( 'javascript:', $post->post_content );
+		$this->assertSame( '', $post->guid );
+		$this->assertSame( 'Evil Site', $post->onesearch_site_name );
+		$this->assertSame( 'Mallory', $post->onesearch_remote_post_author_display_name );
+		$this->assertSame( '', $post->onesearch_remote_post_author_link );
+		$this->assertSame( '', $post->onesearch_remote_post_author_gravatar );
+	}
+
+	/**
+	 * Remote term names and links are sanitized when core asks for them.
+	 */
+	public function test_remote_terms_are_sanitized(): void {
+		$this->enable_search_for_governing_site();
+		$this->prime_main_search_query( 'test query' );
+
+		$post_id = self::factory()->post->create();
+		$post    = get_post( $post_id );
+
+		$this->assertInstanceOf( \WP_Post::class, $post );
+
+		$post->onesearch_original_id       = 12;
+		$post->onesearch_remote_taxonomies = [
+			[
+				'taxonomy'    => 'category',
+				'term_id'     => 22,
+				'slug'        => 'news',
+				'name'        => '<script>alert(1)</script>News',
+				'term_link'   => 'javascript:alert(2)',
+				'count'       => 1,
+				'description' => '',
+				'parent'      => 0,
+			],
+		];
+
+		wp_cache_set( $post_id, $post, 'posts' );
+		$GLOBALS['post'] = $post; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- The remote post being rendered.
+
+		$search = new Search();
+		$terms  = $search->get_post_terms( [], $post_id, 'category' );
+
+		$this->assertIsArray( $terms );
+		$this->assertSame( 'News', $terms[0]->name );
+		$this->assertSame( '', $search->get_term_link( 'https://example.com/category/news/', 22, 'category' ) );
+	}
+
+	/**
+	 * Dates are built from the GMT timestamp, independent of the timezone.
+	 */
+	public function test_remote_post_dates_are_built_from_gmt_timestamps(): void {
+		update_option( 'timezone_string', 'America/New_York' );
+
+		$result = $this->run_search( new Search(), [ 'hits' => [ self::get_remote_hit( [ 'post_date_gmt' => 1710000000 ] ) ] ] );
+
+		$this->assertSame( '2024-03-09 16:00:00', $result[0]->post_date_gmt );
+		$this->assertSame( '2024-03-09 11:00:00', $result[0]->post_date );
+	}
+
+	/**
 	 * A remote post split into chunks gets its full content, and keeps the highlights of the chunk that matched.
 	 */
 	public function test_get_algolia_results_joins_chunked_remote_posts(): void {
@@ -1102,7 +1194,7 @@ final class SearchTest extends TestCase {
 		$post->ID                    = $proxy_id;
 		$post->post_type             = 'attachment';
 		$post->onesearch_original_id = 8;
-		$post->post_title            = 'Remote Image';
+		$post->post_title            = 'Remote <em>Image</em>';
 		$post->onesearch_thumbnail   = [
 			'url'    => 'https://remote.example.com/uploads/photo.jpeg',
 			'width'  => 300,
@@ -1124,6 +1216,7 @@ final class SearchTest extends TestCase {
 
 		$this->assertArrayNotHasKey( 'srcset', $attr );
 		$this->assertArrayNotHasKey( 'sizes', $attr );
+		// Markup is stripped, and core escapes the attribute itself.
 		$this->assertSame( 'Remote Image', $attr['alt'] );
 	}
 
