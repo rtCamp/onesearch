@@ -124,6 +124,27 @@ final class PostRecordTest extends TestCase {
 	}
 
 	/**
+	 * The records of an indexing batch still have the posts' terms, read from the term cache the query primes.
+	 */
+	public function test_records_of_indexable_posts_keep_their_terms(): void {
+		$category = self::factory()->category->create_and_get( [ 'name' => 'News' ] );
+		$this->assertInstanceOf( \WP_Term::class, $category );
+
+		self::factory()->post->create(
+			[
+				'post_category' => [ $category->term_id ],
+				'tags_input'    => [ 'breaking' ],
+			]
+		);
+
+		$posts   = Post_Record::get_indexable_posts( [ 'post' ], 1, 10 );
+		$records = ( new Post_Record() )->to_records( $posts[0] );
+
+		$this->assertSame( $category->term_id, $records[0]['taxonomies']['category'][0]['term_id'] );
+		$this->assertSame( 'breaking', $records[0]['taxonomies']['post_tag'][0]['slug'] );
+	}
+
+	/**
 	 * Tests that get_indexable_posts sets paged when batching.
 	 */
 	public function test_get_indexable_posts_sets_paged_when_batching(): void {

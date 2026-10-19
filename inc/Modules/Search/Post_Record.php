@@ -250,8 +250,9 @@ final class Post_Record {
 			'post_type'              => $post_types,
 			'post_status'            => self::get_allowed_statuses( $post_types ),
 			'posts_per_page'         => $posts_per_page,
-			'update_post_meta_cache' => false,
-			'update_post_term_cache' => false,
+			// Records need the meta and terms of every post, so load them with one query per batch.
+			'update_post_meta_cache' => true,
+			'update_post_term_cache' => true,
 			'ignore_sticky_posts'    => true,
 			'no_found_rows'          => true,
 		];
@@ -264,6 +265,10 @@ final class Post_Record {
 		$query = new \WP_Query( $args );
 		/** @var \WP_Post[] $posts */
 		$posts = $query->get_posts();
+
+		// Records include the featured images too.
+		update_post_thumbnail_cache( $query );
+
 		return $posts;
 	}
 
@@ -472,9 +477,10 @@ final class Post_Record {
 		$taxonomy_data = [];
 
 		foreach ( $taxonomies as $taxonomy ) {
-			$terms = wp_get_object_terms( $post->ID, $taxonomy->name );
+			// The term cache is primed by the indexing query for the whole batch.
+			$terms = get_the_terms( $post, $taxonomy->name );
 
-			if ( is_wp_error( $terms ) || empty( $terms ) ) {
+			if ( ! is_array( $terms ) || empty( $terms ) ) {
 				continue;
 			}
 
