@@ -355,7 +355,7 @@ final class Post_Record {
 		$total_chunks  = (int) ( $records[0]['total_chunks'] ?? 0 );
 		$chunk_indexes = array_map( static fn ( array $record ): int => (int) ( $record['chunk_index'] ?? 0 ), $records );
 
-		if ( $total_chunks < 1 || range( 0, $total_chunks - 1 ) !== $chunk_indexes ) {
+		if ( count( $records ) !== $total_chunks || range( 0, $total_chunks - 1 ) !== $chunk_indexes ) {
 			return null;
 		}
 

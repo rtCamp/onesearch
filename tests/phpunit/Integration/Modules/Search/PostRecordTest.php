@@ -301,6 +301,14 @@ final class PostRecordTest extends TestCase {
 
 		$this->assertNull( Post_Record::join_content( $records ) );
 		$this->assertNull( Post_Record::join_content( [] ) );
+
+		// A record claiming far more chunks than it came with.
+		$record = [
+			'chunk_index'  => 0,
+			'total_chunks' => PHP_INT_MAX,
+			'content'      => 'Huge',
+		];
+		$this->assertNull( Post_Record::join_content( [ $record ] ) );
 	}
 
 	/**
