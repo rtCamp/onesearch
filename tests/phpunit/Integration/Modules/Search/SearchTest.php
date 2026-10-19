@@ -376,7 +376,7 @@ final class SearchTest extends TestCase {
 	}
 
 	/**
-	 * Remote term names and links are sanitized when core asks for them.
+	 * Remote term names, descriptions and links are sanitized when core asks for them.
 	 */
 	public function test_remote_terms_are_sanitized(): void {
 		$result = $this->run_search(
@@ -388,10 +388,11 @@ final class SearchTest extends TestCase {
 							'taxonomies' => [
 								'category' => [
 									[
-										'term_id'   => 22,
-										'name'      => '<script>alert(1)</script>News',
-										'slug'      => 'news',
-										'term_link' => 'javascript:alert(2)',
+										'term_id'     => 22,
+										'name'        => '<script>alert(1)</script>News',
+										'slug'        => 'news',
+										'description' => '<p>About</p><script>alert(3)</script>',
+										'term_link'   => 'javascript:alert(2)',
 									],
 								],
 							],
@@ -401,15 +402,13 @@ final class SearchTest extends TestCase {
 			]
 		);
 
-		$GLOBALS['post'] = $result[0]; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- The remote post being rendered.
-
 		$terms = get_the_terms( $result[0]->ID, 'category' );
 
 		$this->assertIsArray( $terms );
 		$this->assertSame( 'News', $terms[0]->name );
-		$this->set_in_the_loop( true );
+		$this->assertStringNotContainsString( '<script>', term_description( $terms[0] ) );
+		$this->assertStringContainsString( '<p>About</p>', term_description( $terms[0] ) );
 		$this->assertSame( '', get_term_link( $terms[0] ) );
-		$this->set_in_the_loop( false );
 	}
 
 	/**
@@ -576,7 +575,7 @@ final class SearchTest extends TestCase {
 	}
 
 	/**
-	 * Remote terms resolve through the post's synthetic ID, with their links.
+	 * Remote terms resolve through the post's synthetic ID, with their links, including where core looks a term up by ID.
 	 */
 	public function test_remote_terms_resolve_through_core(): void {
 		$search = new Search();
@@ -612,27 +611,23 @@ final class SearchTest extends TestCase {
 			]
 		);
 
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Simulating the in-loop post.
-		$GLOBALS['post'] = $result[0];
-
 		$terms = get_the_terms( $result[0]->ID, 'category' );
 
 		$this->assertIsArray( $terms );
 		$this->assertCount( 1, $terms );
 		$this->assertSame( 'Remote News', $terms[0]->name );
 		$this->assertSame( 'category', $terms[0]->taxonomy );
-		$this->assertSame( 22, $terms[0]->term_id );
 		$this->assertSame( 0, $terms[0]->count );
 		$this->assertSame( '', $terms[0]->description );
-
-		// Core passes the term object to the term_link filters.
-		$this->set_in_the_loop( true );
 		$this->assertSame( 'https://remote.example.com/category/remote-news/', get_term_link( $terms[0] ) );
-		$this->set_in_the_loop( false );
+
+		// `the_category()` links each category by its ID.
+		$this->assertStringContainsString( 'href="https://remote.example.com/category/remote-news/"', get_the_category_list( ', ', '', $result[0]->ID ) );
 
 		$tags = get_the_terms( $result[0]->ID, 'post_tag' );
 		$this->assertIsArray( $tags );
 		$this->assertSame( 'Tag', $tags[0]->name );
+		$this->assertStringContainsString( 'href="https://remote.example.com/tag/tag/"', (string) get_the_tag_list( '', ', ', '', $result[0]->ID ) );
 
 		// A taxonomy the record has no terms in doesn't fall through to the database.
 		global $wpdb;
@@ -642,9 +637,9 @@ final class SearchTest extends TestCase {
 	}
 
 	/**
-	 * Outside the loop, a local term keeps its own link even when the first result is a remote post with a term of the same ID.
+	 * A local term keeps its own link even when a remote post has a term with the same ID.
 	 */
-	public function test_local_term_links_stay_local_outside_the_loop(): void {
+	public function test_local_term_links_stay_local(): void {
 		$local = self::factory()->category->create_and_get( [ 'slug' => 'local-news' ] );
 		$this->assertInstanceOf( \WP_Term::class, $local );
 
@@ -960,230 +955,6 @@ final class SearchTest extends TestCase {
 		$result = $search->get_post_type_permalink( 'https://example.com/test/', $post );
 
 		$this->assertSame( 'https://example.com/test/', $result );
-	}
-
-	/**
-	 * Returns the default term link when search is not enabled.
-	 *
-	 * Sets otherwise valid query/post context so disabled search is the only unmet
-	 * precondition.
-	 */
-	public function test_get_term_link_returns_default_when_search_disabled(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-		$this->prime_main_search_query( 'test query' );
-
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
-		global $post;
-
-		$post                              = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-		$post->ID                          = -99;
-		$post->onesearch_original_id       = 98;
-		$post->onesearch_remote_taxonomies = [
-			'category' => [
-				[
-					'term_id'   => 7,
-					'slug'      => 'news',
-					'term_link' => 'https://remote.example.com/category/news/',
-				],
-			],
-		];
-
-		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
-
-		$search = new Search();
-		$this->set_private_property( $search, 'remote_posts_map', [ $post->ID => $post ] );
-		$result = $search->get_term_link( 'https://example.com/category/news/', 7, 'category' );
-
-		$this->assertSame( 'https://example.com/category/news/', $result );
-	}
-
-	/**
-	 * Returns remote term link when search is enabled and taxonomy data exists.
-	 */
-	public function test_get_term_link_returns_remote_when_search_enabled(): void {
-		$this->enable_search_for_governing_site();
-		$this->prime_main_search_query( 'test query' );
-
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
-		global $post;
-
-		$post                              = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-		$post->ID                          = -13;
-		$post->onesearch_original_id       = 12;
-		$post->onesearch_remote_taxonomies = [
-			'category' => [
-				[
-					'term_id'   => 7,
-					'slug'      => 'news',
-					'term_link' => 'https://remote.example.com/category/news/',
-				],
-			],
-		];
-
-		$search = new Search();
-		$this->set_private_property( $search, 'remote_posts_map', [ $post->ID => $post ] );
-		$this->set_in_the_loop( true );
-		$result = $search->get_term_link( 'https://example.com/category/news/', 7, 'category' );
-		$this->set_in_the_loop( false );
-
-		$this->assertSame( 'https://remote.example.com/category/news/', $result );
-	}
-
-	/**
-	 * Delegates to get_term_link with 'category' taxonomy.
-	 */
-	public function test_get_category_link_returns_default_when_search_disabled(): void {
-		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
-
-		$search = new Search();
-		$result = $search->get_category_link( 'https://example.com/category/tech/', 5 );
-
-		$this->assertSame( 'https://example.com/category/tech/', $result );
-	}
-
-	/**
-	 * Delegates to get_term_link with 'category' taxonomy for enabled remote search.
-	 */
-	public function test_get_category_link_returns_remote_when_search_enabled(): void {
-		$this->enable_search_for_governing_site();
-		$this->prime_main_search_query( 'test query' );
-
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
-		global $post;
-
-		$post                              = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-		$post->ID                          = -105;
-		$post->onesearch_original_id       = 104;
-		$post->onesearch_remote_taxonomies = [
-			'category' => [
-				[
-					'term_id'   => 5,
-					'slug'      => 'tech',
-					'term_link' => 'https://remote.example.com/category/tech/',
-				],
-			],
-		];
-
-		$search = new Search();
-		$this->set_private_property( $search, 'remote_posts_map', [ $post->ID => $post ] );
-		$this->set_in_the_loop( true );
-		$result = $search->get_category_link( 'https://example.com/category/tech/', 5 );
-		$this->set_in_the_loop( false );
-
-		$this->assertSame( 'https://remote.example.com/category/tech/', $result );
-	}
-
-	/**
-	 * Delegates to get_term_link with 'post_tag' taxonomy.
-	 */
-	public function test_get_tag_link_returns_default_when_search_disabled(): void {
-		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
-
-		$search = new Search();
-		$result = $search->get_tag_link( 'https://example.com/tag/php/', 3 );
-
-		$this->assertSame( 'https://example.com/tag/php/', $result );
-	}
-
-	/**
-	 * Delegates to get_term_link with 'post_tag' taxonomy for enabled remote search.
-	 */
-	public function test_get_tag_link_returns_remote_when_search_enabled(): void {
-		$this->enable_search_for_governing_site();
-		$this->prime_main_search_query( 'test query' );
-
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
-		global $post;
-
-		$post                              = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-		$post->ID                          = -106;
-		$post->onesearch_original_id       = 105;
-		$post->onesearch_remote_taxonomies = [
-			'post_tag' => [
-				[
-					'term_id'   => 3,
-					'slug'      => 'php',
-					'term_link' => 'https://remote.example.com/tag/php/',
-				],
-			],
-		];
-
-		$search = new Search();
-		$this->set_private_property( $search, 'remote_posts_map', [ $post->ID => $post ] );
-		$this->set_in_the_loop( true );
-		$result = $search->get_tag_link( 'https://example.com/tag/php/', 3 );
-		$this->set_in_the_loop( false );
-
-		$this->assertSame( 'https://remote.example.com/tag/php/', $result );
-	}
-
-	/**
-	 * Returns original terms when search is not enabled.
-	 */
-	public function test_get_post_terms_returns_original_when_search_disabled(): void {
-		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
-
-		$search   = new Search();
-		$original = [ new \WP_Term( new \stdClass() ) ];
-
-		$result = $search->get_post_terms( $original, 1, 'category' );
-		$this->assertSame( $original, $result );
-	}
-
-	/**
-	 * Returns mapped terms for enabled search when remote taxonomy metadata exists.
-	 */
-	public function test_get_post_terms_returns_remote_terms_when_search_enabled(): void {
-		$this->enable_search_for_governing_site();
-		$this->prime_main_search_query( 'test query' );
-
-		$post                              = new \WP_Post( new \stdClass() );
-		$post->ID                          = 5_000_000;
-		$post->onesearch_original_id       = 12;
-		$post->onesearch_remote_taxonomies = [
-			'category' => [
-				[
-					'term_id'     => 22,
-					'slug'        => 'remote-news',
-					'name'        => 'Remote News',
-					'term_link'   => 'https://remote.example.com/category/remote-news/',
-					'count'       => 3,
-					'description' => 'Remote category',
-					'parent'      => 0,
-				],
-			],
-			'post_tag' => [
-				[
-					'term_id' => 23,
-					'slug'    => 'a-tag',
-					'name'    => 'A tag',
-				],
-			],
-		];
-
-		$search = new Search();
-		$this->set_private_property( $search, 'remote_posts_map', [ 5_000_000 => $post ] );
-
-		$result = $search->get_post_terms( [], 5_000_000, 'category' );
-
-		$this->assertIsArray( $result );
-		$this->assertCount( 1, $result );
-		$this->assertInstanceOf( \WP_Term::class, $result[0] );
-		$this->assertSame( 'Remote News', $result[0]->name );
-		$this->assertSame( 'category', $result[0]->taxonomy );
-		$this->assertSame( 22, $result[0]->term_id );
-		$this->assertSame( 22, $result[0]->term_taxonomy_id );
-		$this->assertSame( 3, $result[0]->count );
-		$this->assertSame( 'Remote category', $result[0]->description );
-
-		// Only the requested taxonomy, tolerating the optional fields being absent.
-		$tags = $search->get_post_terms( [], 5_000_000, 'post_tag' );
-		$this->assertCount( 1, $tags );
-		$this->assertSame( 0, $tags[0]->count );
-		$this->assertSame( '', $tags[0]->description );
-
-		// Posts that aren't remote are left alone.
-		$this->assertSame( [], $search->get_post_terms( [], self::factory()->post->create(), 'category' ) );
 	}
 
 	/**

@@ -82,6 +82,13 @@ final class Search implements Registrable {
 	private array $remote_attachments_map = [];
 
 	/**
+	 * Map of the synthetic IDs of the terms of remote posts to their links on the remote site.
+	 *
+	 * @var array<int, string>
+	 */
+	private array $remote_term_links_map = [];
+
+	/**
 	 * {@inheritDoc}
 	 */
 	public function register_hooks(): void {
@@ -101,11 +108,8 @@ final class Search implements Registrable {
 		add_filter( 'get_avatar_url', [ $this, 'get_post_author_avatar' ], 10, 2 );
 		add_action( 'the_post', [ $this, 'set_remote_authordata' ], 10, 1 );
 
-		// Term and taxonomy link handling for remote objects.
-		add_filter( 'term_link', [ $this, 'get_term_link' ], 10, 3 );
-		add_filter( 'category_link', [ $this, 'get_category_link' ], 10, 2 );
-		add_filter( 'tag_link', [ $this, 'get_tag_link' ], 10, 2 );
-		add_filter( 'get_the_terms', [ $this, 'get_post_terms' ], 10, 3 );
+		// Term links of remote posts.
+		add_filter( 'term_link', [ $this, 'get_term_link' ], 10, 2 );
 
 		// Featured images and attachments of remote posts.
 		add_filter( 'wp_get_attachment_image_src', [ $this, 'get_remote_attachment_image_src' ], 10, 4 );
@@ -289,105 +293,19 @@ final class Search implements Registrable {
 	}
 
 	/**
-	 * Resolve term link for remote posts using stored taxonomy metadata.
+	 * Return the remote link of a remote post's term.
 	 *
-	 * @param string              $term_link Default term link.
-	 * @param int|string|\WP_Term $term      Term ID or slug.
-	 * @param string              $taxonomy  Taxonomy name.
+	 * @param string   $term_link Default term link.
+	 * @param \WP_Term $term      The term.
 	 *
 	 * @return string
 	 */
-	public function get_term_link( $term_link, $term, $taxonomy ) {
-		global $post;
-
-		// Outside the loop the global post is still the first result, so a local term with the same ID would get its link.
-		if ( ! in_the_loop() || ! $this->is_remote_post( $post ) || ! isset( $post->onesearch_remote_taxonomies ) || ! $this->is_filtering_main_search() ) {
+	public function get_term_link( $term_link, $term ) {
+		if ( ! $term instanceof \WP_Term ) {
 			return $term_link;
 		}
 
-		foreach ( $post->onesearch_remote_taxonomies as $tax_name => $terms ) {
-			if ( $tax_name !== $taxonomy || ! is_array( $terms ) ) {
-				continue;
-			}
-
-			foreach ( $terms as $tax_term ) {
-				if ( empty( $tax_term['term_link'] ) || ! $this->is_same_term( $tax_term, $term ) ) {
-					continue;
-				}
-
-				return esc_url_raw( $tax_term['term_link'] );
-			}
-		}
-
-		return $term_link;
-	}
-
-	/**
-	 * Category link helper for remote posts.
-	 *
-	 * @param string $cat_link    Default link.
-	 * @param int    $category_id Category ID.
-	 *
-	 * @return string
-	 */
-	public function get_category_link( $cat_link, $category_id ) {
-		return $this->get_term_link( $cat_link, $category_id, 'category' );
-	}
-
-	/**
-	 * Tag link helper for remote posts.
-	 *
-	 * @param string $tag_link Default link.
-	 * @param int    $tag_id   Tag ID.
-	 *
-	 * @return string
-	 */
-	public function get_tag_link( $tag_link, $tag_id ) {
-		return $this->get_term_link( $tag_link, $tag_id, 'post_tag' );
-	}
-
-	/**
-	 * Populate terms for remote posts from stored taxonomy metadata.
-	 *
-	 * @param array|\WP_Term[]|false $terms    Default terms.
-	 * @param int                    $post_id  Post ID (synthetic for remote posts).
-	 * @param string                 $taxonomy Taxonomy.
-	 *
-	 * @return array|\WP_Term[]|false
-	 */
-	public function get_post_terms( $terms, $post_id, $taxonomy ) {
-		$post = $this->remote_posts_map[ (int) $post_id ] ?? null;
-
-		if ( ! $post instanceof \WP_Post || ! isset( $post->onesearch_remote_taxonomies ) || ! $this->is_filtering_main_search() ) {
-			return $terms;
-		}
-
-		$filtered_terms = [];
-
-		foreach ( $post->onesearch_remote_taxonomies as $tax_name => $tax_terms ) {
-			if ( $tax_name !== $taxonomy || ! is_array( $tax_terms ) ) {
-				continue;
-			}
-
-			foreach ( $tax_terms as $tax_data ) {
-				$term_id = (int) ( $tax_data['term_id'] ?? 0 );
-
-				$fake_term                   = new \WP_Term( new \stdClass() );
-				$fake_term->count            = (int) ( $tax_data['count'] ?? 0 );
-				$fake_term->description      = (string) ( $tax_data['description'] ?? '' );
-				$fake_term->name             = sanitize_text_field( (string) ( $tax_data['name'] ?? '' ) );
-				$fake_term->parent           = (int) ( $tax_data['parent'] ?? 0 );
-				$fake_term->slug             = (string) ( $tax_data['slug'] ?? '' );
-				$fake_term->taxonomy         = $tax_name;
-				$fake_term->term_id          = $term_id;
-				$fake_term->term_taxonomy_id = $term_id;
-				$fake_term->term_group       = 0;
-
-				$filtered_terms[] = $fake_term;
-			}
-		}
-
-		return ! empty( $filtered_terms ) ? $filtered_terms : $terms;
+		return $this->remote_term_links_map[ $term->term_id ] ?? $term_link;
 	}
 
 	/**
@@ -508,24 +426,6 @@ final class Search implements Registrable {
 	}
 
 	/**
-	 * Whether a stored remote term is the one core asked about.
-	 *
-	 * @param array<string,mixed> $tax_term The stored term.
-	 * @param mixed               $term     A WP_Term, term ID or slug.
-	 */
-	private function is_same_term( array $tax_term, $term ): bool {
-		if ( $term instanceof \WP_Term ) {
-			return (int) ( $tax_term['term_id'] ?? 0 ) === $term->term_id && ( $tax_term['slug'] ?? '' ) === $term->slug;
-		}
-
-		if ( is_int( $term ) || ( is_string( $term ) && ctype_digit( $term ) ) ) {
-			return (int) ( $tax_term['term_id'] ?? 0 ) === (int) $term;
-		}
-
-		return is_string( $term ) && ( $tax_term['slug'] ?? '' ) === $term;
-	}
-
-	/**
 	 * Locate the remote post a permalink request belongs to.
 	 *
 	 * Some link filters pass the WP_Post object, others only an ID. A featured image links to the post it belongs to.
@@ -563,11 +463,49 @@ final class Search implements Registrable {
 			}
 
 			// Every taxonomy of the post type, since core asks for terms the record doesn't have too, e.g. for the post classes.
-			$taxonomies = is_array( $post->onesearch_remote_taxonomies ?? null ) ? array_keys( $post->onesearch_remote_taxonomies ) : [];
-			$taxonomies = array_unique( array_merge( array_map( 'strval', $taxonomies ), get_object_taxonomies( $post->post_type ) ) );
+			$term_ids = array_fill_keys( get_object_taxonomies( $post->post_type ), [] );
+			foreach ( is_array( $post->onesearch_remote_taxonomies ?? null ) ? $post->onesearch_remote_taxonomies : [] as $taxonomy => $tax_terms ) {
+				$term_ids[ (string) $taxonomy ] = [];
 
-			$this->prime_remote_post_cache( $post, $meta, $taxonomies );
+				foreach ( is_array( $tax_terms ) ? $tax_terms : [] as $tax_term ) {
+					if ( is_array( $tax_term ) ) {
+						$term_ids[ (string) $taxonomy ][] = $this->register_remote_term( $tax_term, (string) $taxonomy );
+					}
+				}
+			}
+
+			$this->prime_remote_post_cache( $post, $meta, $term_ids );
 		}
+	}
+
+	/**
+	 * Creates the term that stands in for a term of a remote post.
+	 *
+	 * It gets a synthetic ID, since the remote ID can belong to a different local term, and core looks some terms up by ID (e.g. `get_the_category_list()`).
+	 * The remote parent ID means nothing locally, so the term has no parent.
+	 *
+	 * @param array<string, mixed> $tax_term The term from the record.
+	 * @param string               $taxonomy The term's taxonomy.
+	 *
+	 * @return int The term's synthetic ID.
+	 */
+	private function register_remote_term( array $tax_term, string $taxonomy ): int {
+		$term                   = new \WP_Term( new \stdClass() );
+		$term->term_id          = $this->next_remote_id++;
+		$term->term_taxonomy_id = $term->term_id;
+		$term->count            = (int) ( $tax_term['count'] ?? 0 );
+		$term->description      = wp_kses_post( (string) ( $tax_term['description'] ?? '' ) );
+		$term->name             = sanitize_text_field( (string) ( $tax_term['name'] ?? '' ) );
+		$term->slug             = (string) ( $tax_term['slug'] ?? '' );
+		$term->taxonomy         = $taxonomy;
+
+		wp_cache_set( $term->term_id, $term, 'terms' );
+
+		if ( ! empty( $tax_term['term_link'] ) ) {
+			$this->remote_term_links_map[ $term->term_id ] = esc_url_raw( (string) $tax_term['term_link'] );
+		}
+
+		return $term->term_id;
 	}
 
 	/**
@@ -602,16 +540,16 @@ final class Search implements Registrable {
 	/**
 	 * Primes the object cache for a synthetic post, so core resolves it, its meta and its terms without querying the database.
 	 *
-	 * @param \WP_Post                    $post       The synthetic post.
-	 * @param array<string, list<string>> $meta       The post's meta, as core caches it.
-	 * @param string[]                    $taxonomies The taxonomies the post has terms in.
+	 * @param \WP_Post                    $post     The synthetic post.
+	 * @param array<string, list<string>> $meta     The post's meta, as core caches it.
+	 * @param array<string, int[]>        $term_ids The post's term IDs, by taxonomy.
 	 */
-	private function prime_remote_post_cache( \WP_Post $post, array $meta, array $taxonomies ): void {
+	private function prime_remote_post_cache( \WP_Post $post, array $meta, array $term_ids ): void {
 		wp_cache_set( $post->ID, $post, 'posts' );
 		wp_cache_set( $post->ID, $meta, 'post_meta' );
 
-		foreach ( $taxonomies as $taxonomy ) {
-			wp_cache_set( $post->ID, [], $taxonomy . '_relationships' );
+		foreach ( $term_ids as $taxonomy => $ids ) {
+			wp_cache_set( $post->ID, $ids, $taxonomy . '_relationships' );
 		}
 	}
 
