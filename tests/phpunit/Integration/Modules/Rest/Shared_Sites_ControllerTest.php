@@ -13,6 +13,7 @@ use OneSearch\Modules\Rest\Abstract_REST_Controller;
 use OneSearch\Modules\Rest\Shared_Sites_Controller;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
+use OneSearch\Utils;
 use PHPUnit\Framework\Attributes\CoversClass;
 use WP_REST_Request;
 
@@ -55,9 +56,16 @@ class Shared_Sites_ControllerTest extends TestCase {
 	}
 
 	/**
-	 * Returns 400 when duplicate site URLs exist.
+	 * Returns 400 when duplicate site URLs exist, before any brand site is checked.
 	 */
 	public function test_set_shared_sites_rejects_duplicate_urls(): void {
+		$requested_urls = [];
+		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requested_urls[] = $url;
+			return new \WP_Error( 'blocked', 'Intercepted' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
 		$request = new WP_REST_Request( 'POST', '/onesearch/v1/shared-sites' );
 		$request->set_body(
 			wp_json_encode(
@@ -81,14 +89,32 @@ class Shared_Sites_ControllerTest extends TestCase {
 
 		$response = $this->server->dispatch( $request );
 
+		remove_filter( 'pre_http_request', $filter );
+
 		$this->assertSame( 400, $response->get_status() );
 		$this->assertSame( 'duplicate_site_url', $response->get_data()['code'] );
+		$this->assertSame( [], $requested_urls );
 	}
 
 	/**
 	 * Saves valid sites data successfully.
 	 */
 	public function test_set_shared_sites_returns_success_for_valid_data(): void {
+		// Its sanitizer gives each site an id.
+		( new Settings() )->register_settings();
+
+		// Both brand sites pass their health check.
+		$filter = static fn (): array => [
+			'response' => [
+				'code'    => 200,
+				'message' => 'OK',
+			],
+			'body'     => '',
+			'headers'  => [],
+			'cookies'  => [],
+		];
+		add_filter( 'pre_http_request', $filter );
+
 		$request = new WP_REST_Request( 'POST', '/onesearch/v1/shared-sites' );
 		$request->set_body(
 			wp_json_encode(
@@ -113,8 +139,11 @@ class Shared_Sites_ControllerTest extends TestCase {
 		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
+		remove_filter( 'pre_http_request', $filter );
+
 		$this->assertSame( 200, $response->get_status() );
 		$this->assertCount( 2, $data['shared_sites'] );
+		$this->assertNotEmpty( $data['shared_sites'][0]['id'] );
 
 		// Verify data was actually persisted to the database.
 		$stored = Settings::get_shared_sites();
@@ -147,5 +176,186 @@ class Shared_Sites_ControllerTest extends TestCase {
 
 		// sites_data is required by the route schema → request fails validation.
 		$this->assertSame( 400, $response->get_status() );
+	}
+
+	/**
+	 * Saving health-checks a new site from this server with its key, and leaves the unchanged ones alone.
+	 */
+	public function test_set_shared_sites_checks_new_sites(): void {
+		Settings::set_shared_sites(
+			[
+				[
+					'id'      => 'abc-1',
+					'name'    => 'A',
+					'url'     => 'https://a.example.com/',
+					'api_key' => 'ka',
+				],
+			]
+		);
+
+		$sent   = [];
+		$filter = static function ( $preempt, array $args, string $url ) use ( &$sent ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$sent[] = [ $args, $url ];
+
+			return [
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
+				],
+				'body'     => '',
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$response = $this->set_shared_sites(
+			[
+				[
+					'id'      => 'abc-1',
+					'name'    => 'A',
+					'url'     => 'https://a.example.com/',
+					'api_key' => 'ka',
+				],
+				[
+					'name'    => 'B',
+					'url'     => 'https://b.example.com/',
+					'api_key' => 'typed-key',
+				],
+			]
+		);
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertCount( 1, $sent );
+		$this->assertSame( 'https://b.example.com/wp-json/onesearch/v1/governing-site', $sent[0][1] );
+		$this->assertSame( 'POST', $sent[0][0]['method'] );
+		$this->assertSame( 'typed-key', $sent[0][0]['headers']['X-OneSearch-Token'] );
+		$this->assertSame( Utils::get_current_site_url(), $sent[0][0]['headers']['X-OneSearch-Site-URL'] );
+	}
+
+	/**
+	 * A key the brand site rejects, and a brand site connected elsewhere, are reported as such, and anything else as a failed check. None of them is saved.
+	 */
+	public function test_set_shared_sites_reports_the_brand_answer(): void {
+		$filter = static fn ( $preempt, array $args ): array => [ // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			'response' => [
+				'code'    => [
+					'bad'       => 401,
+					'connected' => 409,
+				][ $args['headers']['X-OneSearch-Token'] ] ?? 500,
+				'message' => '',
+			],
+			'body'     => '',
+			'headers'  => [],
+			'cookies'  => [],
+		];
+		add_filter( 'pre_http_request', $filter, 10, 2 );
+
+		$responses = [];
+		foreach ( [ 'bad', 'connected', 'good' ] as $api_key ) {
+			$responses[ $api_key ] = $this->set_shared_sites(
+				[
+					[
+						'name'    => 'B',
+						'url'     => 'https://b.example.com',
+						'api_key' => $api_key,
+					],
+				]
+			);
+		}
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertSame( 'onesearch_bad_key', $responses['bad']->get_data()['code'] );
+		$this->assertSame( 'onesearch_already_connected', $responses['connected']->get_data()['code'] );
+		$this->assertSame( 'onesearch_health_check_failed', $responses['good']->get_data()['code'] );
+		$this->assertSame( [], Settings::get_shared_sites() );
+	}
+
+	/**
+	 * Removing a site by id removes it through the setting, and tells the brand site.
+	 */
+	public function test_delete_shared_site_removes_and_notifies_the_brand(): void {
+		Settings::set_shared_sites(
+			[
+				[
+					'id'      => 'abc-1',
+					'name'    => 'A',
+					'url'     => 'https://a.example.com',
+					'api_key' => 'ka',
+				],
+			]
+		);
+
+		$sent   = [];
+		$filter = static function ( $preempt, array $args, string $url ) use ( &$sent ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$sent = [ $args, $url ];
+
+			return [
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
+				],
+				'body'     => '',
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$data = $this->server->dispatch( new WP_REST_Request( 'DELETE', '/onesearch/v1/shared-sites/abc-1' ) )->get_data();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertTrue( $data['governing_site_notified'] );
+		$this->assertSame( [], Settings::get_shared_sites() );
+		$this->assertSame( 'https://a.example.com/wp-json/onesearch/v1/governing-site', $sent[1] );
+		$this->assertSame( 'DELETE', $sent[0]['method'] );
+		$this->assertSame( 'ka', $sent[0]['headers']['X-OneSearch-Token'] );
+		$this->assertSame( Utils::get_current_site_url(), $sent[0]['headers']['X-OneSearch-Site-URL'] );
+	}
+
+	/**
+	 * A brand site that can't be notified is explained, and the site is removed anyway. Unknown ids are 404.
+	 */
+	public function test_delete_shared_site_explains_an_unreachable_brand_and_unknown_ids(): void {
+		Settings::set_shared_sites(
+			[
+				[
+					'id'      => 'abc-1',
+					'name'    => 'A',
+					'url'     => 'https://a.example.com',
+					'api_key' => 'ka',
+				],
+			]
+		);
+
+		$this->assertSame( 404, $this->server->dispatch( new WP_REST_Request( 'DELETE', '/onesearch/v1/shared-sites/nope' ) )->get_status() );
+
+		$filter = static fn () => new \WP_Error( 'http_request_failed', 'down' );
+		add_filter( 'pre_http_request', $filter );
+
+		$data = $this->server->dispatch( new WP_REST_Request( 'DELETE', '/onesearch/v1/shared-sites/abc-1' ) )->get_data();
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertFalse( $data['governing_site_notified'] );
+		$this->assertStringContainsString( 'could not be notified', $data['message'] );
+		$this->assertSame( [], Settings::get_shared_sites() );
+	}
+
+	/**
+	 * Dispatches a save of the brand sites.
+	 *
+	 * @param array<int,array<string,string>> $sites_data The brand sites.
+	 */
+	private function set_shared_sites( array $sites_data ): \WP_REST_Response {
+		$request = new WP_REST_Request( 'POST', '/onesearch/v1/shared-sites' );
+		$request->set_header( 'Content-Type', 'application/json' );
+		$request->set_body( (string) wp_json_encode( [ 'sites_data' => $sites_data ] ) );
+
+		return $this->server->dispatch( $request );
 	}
 }

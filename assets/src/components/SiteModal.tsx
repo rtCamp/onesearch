@@ -109,33 +109,6 @@ const SiteModal = ( {
 		setShowNotice( false );
 
 		try {
-			// Connect the brand site to this governing site
-			const connectResponse = await fetch(
-				`${ formData.url }/wp-json/onesearch/v1/governing-site`,
-				{
-					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json',
-						'X-OneSearch-Token': formData.api_key,
-						'X-OneSearch-Site-URL':
-							window.OneSearchSettings.currentSiteUrl,
-					},
-				}
-			);
-
-			if ( ! connectResponse.ok ) {
-				setErrors( {
-					...newErrors,
-					message: __(
-						"Couldn't connect to the brand site. Please verify the API key and make sure it isn't connected to another governing site.",
-						'onesearch'
-					),
-				} );
-				setShowNotice( true );
-				setIsProcessing( false );
-				return;
-			}
-
 			// check if same url is already added or not.
 			let isAlreadyExists = false;
 			sites.forEach( ( site ) => {

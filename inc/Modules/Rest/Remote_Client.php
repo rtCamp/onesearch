@@ -243,6 +243,42 @@ class Remote_Client {
 	}
 
 	/**
+	 * Runs a brand site's health check, which also connects it to this governing site.
+	 *
+	 * @param string $url     The brand site's URL.
+	 * @param string $api_key The brand site's API key.
+	 *
+	 * @return true|\WP_Error True if the brand site accepted the key.
+	 */
+	public static function check_brand_site( string $url, string $api_key ): true|\WP_Error {
+		$response = self::request(
+			$url,
+			'governing-site',
+			$api_key,
+			[
+				'method'  => \WP_REST_Server::CREATABLE,
+				'timeout' => 5, // phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout -- An admin is waiting for the answer.
+			]
+		);
+
+		$code = is_wp_error( $response ) ? 0 : (int) wp_remote_retrieve_response_code( $response );
+
+		if ( 200 === $code ) {
+			return true;
+		}
+
+		if ( 401 === $code || 403 === $code ) {
+			return new \WP_Error( 'onesearch_bad_key', __( 'The brand site rejected this API key. Copy the key from the brand site\'s OneSearch settings and try again.', 'onesearch' ), [ 'status' => 400 ] );
+		}
+
+		if ( 409 === $code ) {
+			return new \WP_Error( 'onesearch_already_connected', __( 'This brand site is already connected to a different governing site. Disconnect it there first, then try again.', 'onesearch' ), [ 'status' => 409 ] );
+		}
+
+		return new \WP_Error( 'onesearch_health_check_failed', __( 'Could not reach the brand site. Check the URL, and that OneSearch is active there, then try again.', 'onesearch' ), [ 'status' => 502 ] );
+	}
+
+	/**
 	 * Gets available public post types for child sites.
 	 *
 	 * @return \WP_Error|array{

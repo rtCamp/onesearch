@@ -91,8 +91,7 @@ Code contributions, bug reports, and feature requests are welcome! The following
 │   │       └── Singleton.php
 │   ├── Modules/
 │   │   ├── Core/
-│   │   │   ├── Assets.php  # JS/CSS asset loader.
-│   │   │   └── Rest.php
+│   │   │   └── Assets.php  # JS/CSS asset loader.
 │   │   ├── Rest/ # One controller per route prefix.
 │   │   │   ├── Abstract_REST_Controller.php
 │   │   │   ├── Algolia_Credentials_Controller.php

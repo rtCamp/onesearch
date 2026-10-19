@@ -3,9 +3,15 @@
  */
 import { useState } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+/**
+ * WordPress dependencies
+ */
+import apiFetch from '@wordpress/api-fetch';
 
 import SiteModal from '@/components/SiteModal';
 import { defaultBrandSite } from '@/admin/settings/page';
+
+const mockedApiFetch = apiFetch as jest.MockedFunction< typeof apiFetch >;
 
 const baseFormData = {
 	...defaultBrandSite,
@@ -78,11 +84,8 @@ describe( 'SiteModal', () => {
 		).toHaveLength( 2 );
 	} );
 
-	it( 'prevents duplicate site urls after a successful connect', async () => {
+	it( 'prevents duplicate site urls', async () => {
 		const onSubmit = jest.fn().mockResolvedValue( true );
-		global.fetch = jest.fn().mockResolvedValue( {
-			ok: true,
-		} ) as typeof fetch;
 
 		render(
 			<SiteModalHarness
@@ -108,30 +111,8 @@ describe( 'SiteModal', () => {
 		expect( onSubmit ).not.toHaveBeenCalled();
 	} );
 
-	it( 'shows a connect error when the remote site rejects the credentials', async () => {
-		const onSubmit = jest.fn().mockResolvedValue( true );
-		global.fetch = jest.fn().mockResolvedValue( {
-			ok: false,
-		} ) as typeof fetch;
-
-		render( <SiteModalHarness onSubmit={ onSubmit } /> );
-
-		fireEvent.click( screen.getByRole( 'button', { name: 'Add Site' } ) );
-
-		// WordPress renders notices in both accessibility region and visible content
-		expect(
-			await screen.findAllByText(
-				"Couldn't connect to the brand site. Please verify the API key and make sure it isn't connected to another governing site."
-			)
-		).toHaveLength( 2 );
-		expect( onSubmit ).not.toHaveBeenCalled();
-	} );
-
 	it( 'shows an error when saving the site fails', async () => {
 		const onSubmit = jest.fn().mockResolvedValue( false );
-		global.fetch = jest.fn().mockResolvedValue( {
-			ok: true,
-		} ) as typeof fetch;
 
 		render( <SiteModalHarness onSubmit={ onSubmit } /> );
 
@@ -146,46 +127,19 @@ describe( 'SiteModal', () => {
 		expect( onSubmit ).toHaveBeenCalled();
 	} );
 
-	it( 'handles unexpected fetch failures gracefully', async () => {
-		global.fetch = jest
-			.fn()
-			.mockRejectedValue( new Error( 'network failed' ) ) as typeof fetch;
-
-		render( <SiteModalHarness /> );
-
-		fireEvent.click( screen.getByRole( 'button', { name: 'Add Site' } ) );
-
-		// WordPress renders notices in both accessibility region and visible content
-		expect(
-			await screen.findAllByText(
-				'An unexpected error occurred. Please try again.'
-			)
-		).toHaveLength( 2 );
-	} );
-
-	it( 'submits after a successful connect', async () => {
+	it( 'submits without calling the brand site, which the server checks on save', async () => {
 		const onSubmit = jest.fn().mockResolvedValue( true );
-		global.fetch = jest.fn().mockResolvedValue( {
-			ok: true,
-		} ) as typeof fetch;
 
 		render( <SiteModalHarness onSubmit={ onSubmit } /> );
 
 		fireEvent.click( screen.getByRole( 'button', { name: 'Add Site' } ) );
 
 		await waitFor( () => {
-			expect( global.fetch ).toHaveBeenCalledWith(
-				'https://brand.example.com/wp-json/onesearch/v1/governing-site',
-				expect.objectContaining( {
-					method: 'POST',
-					headers: expect.objectContaining( {
-						'X-OneSearch-Token': 'secret-key',
-					} ),
-				} )
-			);
+			expect( onSubmit ).toHaveBeenCalled();
 		} );
 
-		expect( onSubmit ).toHaveBeenCalled();
+		expect( mockedApiFetch ).not.toHaveBeenCalled();
+		expect( global.fetch ).not.toHaveBeenCalled();
 		expect( screen.queryByRole( 'alert' ) ).not.toBeInTheDocument();
 	} );
 } );
