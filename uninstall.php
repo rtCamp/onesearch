@@ -126,6 +126,11 @@ function cleanup_algolia_index(): void {
 
 	// The index is shared by all sites, so brand sites only delete their own records.
 	if ( \OneSearch\Modules\Settings\Settings::is_governing_site() ) {
+		// Governing sites tell their brand sites to forget them, and delete the shared index.
+		foreach ( \OneSearch\Modules\Settings\Settings::get_shared_sites() as $site_data ) {
+			\OneSearch\Modules\Rest\Remote_Client::disconnect_brand_site( $site_data );
+		}
+
 		$is_deleted = $indexer->delete_index();
 	} else {
 		// Consumer sites need to delete their own records, and deregister from the governing site.

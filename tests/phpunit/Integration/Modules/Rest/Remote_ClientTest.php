@@ -171,6 +171,53 @@ class Remote_ClientTest extends TestCase {
 	}
 
 	/**
+	 * Disconnecting a brand site sends it an authenticated DELETE, and reports whether it confirmed.
+	 */
+	public function test_disconnect_brand_site_sends_authenticated_delete(): void {
+		$sent   = [];
+		$filter = static function ( $preempt, array $args, string $url ) use ( &$sent ): array { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$sent[] = [
+				'url'  => $url,
+				'args' => $args,
+			];
+
+			return [
+				'response' => [
+					// Brand B no longer knows this governing site.
+					'code'    => str_contains( $url, 'b.example.com' ) ? 404 : 200,
+					'message' => '',
+				],
+				'body'     => '',
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$confirmed = Remote_Client::disconnect_brand_site(
+			[
+				'url'     => 'https://a.example.com/',
+				'api_key' => 'key-a',
+			]
+		);
+		$refused   = Remote_Client::disconnect_brand_site(
+			[
+				'url'     => 'https://b.example.com/',
+				'api_key' => 'key-b',
+			]
+		);
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertTrue( $confirmed );
+		$this->assertFalse( $refused );
+		$this->assertSame( 'https://a.example.com/wp-json/onesearch/v1/governing-site', $sent[0]['url'] );
+		$this->assertSame( 'DELETE', $sent[0]['args']['method'] );
+		$this->assertSame( 'key-a', $sent[0]['args']['headers']['X-OneSearch-Token'] );
+		$this->assertSame( Utils::get_current_site_url(), $sent[0]['args']['headers']['X-OneSearch-Site-URL'] );
+	}
+
+	/**
 	 * Deletes the brand site's cached config transient.
 	 */
 	public function test_clear_brand_config_cache_deletes_the_transient(): void {
