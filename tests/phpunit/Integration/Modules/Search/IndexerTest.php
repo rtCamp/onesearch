@@ -124,7 +124,7 @@ final class IndexerTest extends TestCase {
 	public function test_returns_not_configured_error_without_governing_site(): void {
 		$this->mock_algolia_http_client( $this->paths );
 
-		$result = ( new Indexer() )->delete_post( 1 );
+		$result = ( new Indexer() )->delete_posts( [ 1 ] );
 
 		$this->assertWPError( $result );
 		$this->assertSame( Indexer::ERROR_NOT_CONFIGURED, $result->get_error_code() );
@@ -165,7 +165,7 @@ final class IndexerTest extends TestCase {
 		$post    = self::factory()->post->create_and_get();
 		$indexer = new Indexer();
 		$indexer->save_post( $post );
-		$indexer->delete_post( $post->ID );
+		$indexer->delete_posts( [ $post->ID ] );
 
 		$calls = array_values( array_filter( $this->paths, static fn ( string $path ) => ! str_contains( $path, '/task/' ) ) );
 
@@ -287,22 +287,35 @@ final class IndexerTest extends TestCase {
 
 		// Settings, batch, and delete tasks.
 		$this->assertTrue( $indexer->save_post( self::factory()->post->create_and_get() ) );
-		$this->assertTrue( $indexer->delete_post( 42 ) );
+		$this->assertTrue( $indexer->delete_posts( [ 42 ] ) );
 		$this->assertSame( 6, $task_checks );
 	}
 
 	/**
-	 * A post's records are deleted by the `site_post_id` they were saved with.
+	 * Posts' records are deleted by the `site_post_id` they were saved with.
 	 */
-	public function test_delete_post(): void {
+	public function test_delete_posts(): void {
 		$this->set_up_governing_site();
 		$this->mock_algolia_http_client( $this->paths, null, null, $this->requests );
 
-		$this->assertTrue( ( new Indexer() )->delete_post( 42 ) );
+		$post_record = new Post_Record();
+
+		$this->assertTrue( ( new Indexer() )->delete_posts( [ 42, 43 ] ) );
 		$this->assertSame(
-			[ sprintf( 'site_post_id:"%s"', ( new Post_Record() )->get_site_post_id( 42 ) ) ],
+			[ sprintf( 'site_post_id:"%s" OR site_post_id:"%s"', $post_record->get_site_post_id( 42 ), $post_record->get_site_post_id( 43 ) ) ],
 			$this->get_delete_filters()
 		);
+	}
+
+	/**
+	 * Deleting no posts sends nothing to Algolia.
+	 */
+	public function test_delete_posts_without_posts(): void {
+		$this->set_up_governing_site();
+		$this->mock_algolia_http_client( $this->paths );
+
+		$this->assertTrue( ( new Indexer() )->delete_posts( [] ) );
+		$this->assertSame( [], $this->paths );
 	}
 
 	/**
@@ -327,7 +340,7 @@ final class IndexerTest extends TestCase {
 		$this->mock_algolia_http_client( $this->paths );
 
 		$indexer = new Indexer();
-		$indexer->delete_post( 42 );
+		$indexer->delete_posts( [ 42 ] );
 		$indexer->delete_site_records( [ 'https://a.example.com/' ] );
 
 		$this->assertSame( [], array_filter( $this->paths, static fn ( string $path ): bool => str_ends_with( $path, '/settings' ) ) );

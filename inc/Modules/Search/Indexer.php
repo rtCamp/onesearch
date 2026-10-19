@@ -252,15 +252,25 @@ final class Indexer {
 	}
 
 	/**
-	 * Deletes a post's records.
+	 * Deletes the records of the given posts.
 	 *
-	 * @param int $post_id The post ID.
+	 * @param int[] $post_ids The post IDs.
 	 *
 	 * @return true|\WP_Error
 	 */
-	public function delete_post( int $post_id ): bool|\WP_Error {
+	public function delete_posts( array $post_ids ): bool|\WP_Error {
+		if ( empty( $post_ids ) ) {
+			return true;
+		}
+
 		return $this->delete_by_filter(
-			self::filter_any_of( 'site_post_id', [ ( new Post_Record() )->get_site_post_id( $post_id ) ] )
+			self::filter_any_of(
+				'site_post_id',
+				array_map(
+					[ new Post_Record(), 'get_site_post_id' ],
+					$post_ids
+				)
+			)
 		);
 	}
 
