@@ -754,6 +754,32 @@ final class SearchTest extends TestCase {
 	}
 
 	/**
+	 * The proxy attachment that 1.1.x created is deleted.
+	 */
+	public function test_delete_legacy_proxy_attachment_deletes_the_proxy(): void {
+		$proxy_id = self::factory()->attachment->create( [ 'post_name' => 'onesearch-remote-attachment-proxy' ] );
+		update_option( 'onesearch_proxy_attachment_id', $proxy_id );
+
+		( new Search() )->delete_legacy_proxy_attachment();
+
+		$this->assertNull( get_post( $proxy_id ) );
+		$this->assertFalse( get_option( 'onesearch_proxy_attachment_id' ) );
+	}
+
+	/**
+	 * An attachment that isn't the proxy is kept, even when the option points at it.
+	 */
+	public function test_delete_legacy_proxy_attachment_keeps_other_attachments(): void {
+		$attachment_id = self::factory()->attachment->create( [ 'post_name' => 'holiday-photo' ] );
+		update_option( 'onesearch_proxy_attachment_id', $attachment_id );
+
+		( new Search() )->delete_legacy_proxy_attachment();
+
+		$this->assertInstanceOf( \WP_Post::class, get_post( $attachment_id ) );
+		$this->assertFalse( get_option( 'onesearch_proxy_attachment_id' ) );
+	}
+
+	/**
 	 * A remote attachment result is served from its own file.
 	 */
 	public function test_remote_attachment_results_resolve_to_their_file(): void {

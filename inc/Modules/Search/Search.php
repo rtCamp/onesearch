@@ -30,6 +30,13 @@ final class Search implements Registrable {
 	private const REMOTE_ID_BASE = ( 2 ** 53 ) - 1_000_000;
 
 	/**
+	 * Option key storing the ID of the shared "proxy" attachment that 1.1.x and earlier created.
+	 *
+	 * @todo Remove when we no longer need to worry about migration.
+	 */
+	private const LEGACY_PROXY_ATTACHMENT_OPTION = 'onesearch_proxy_attachment_id';
+
+	/**
 	 * The indexer, once instantiated.
 	 */
 	private ?Indexer $indexer = null;
@@ -104,6 +111,28 @@ final class Search implements Registrable {
 		add_filter( 'wp_get_attachment_image_src', [ $this, 'get_remote_attachment_image_src' ], 10, 4 );
 		add_filter( 'wp_get_attachment_image_attributes', [ $this, 'filter_remote_attachment_image_attributes' ], 10, 3 );
 		add_filter( 'wp_get_attachment_url', [ $this, 'get_remote_attachment_url' ], 10, 2 );
+
+		// Nothing uses or hides the proxy attachment of 1.1.x anymore, so it would show up in the Media Library.
+		add_action( 'admin_init', [ $this, 'delete_legacy_proxy_attachment' ] );
+	}
+
+	/**
+	 * Deletes the shared "proxy" attachment that 1.1.x and earlier created for remote results.
+	 *
+	 * @todo Remove when we no longer need to worry about migration.
+	 */
+	public function delete_legacy_proxy_attachment(): void {
+		$proxy_id = (int) get_option( self::LEGACY_PROXY_ATTACHMENT_OPTION, 0 );
+		if ( $proxy_id <= 0 ) {
+			return;
+		}
+
+		$proxy_post = get_post( $proxy_id );
+		if ( $proxy_post instanceof \WP_Post && 'attachment' === $proxy_post->post_type && 'onesearch-remote-attachment-proxy' === $proxy_post->post_name ) {
+			wp_delete_post( $proxy_id, true );
+		}
+
+		delete_option( self::LEGACY_PROXY_ATTACHMENT_OPTION );
 	}
 
 	/**
