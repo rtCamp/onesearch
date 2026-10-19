@@ -93,12 +93,18 @@ Code contributions, bug reports, and feature requests are welcome! The following
 │   │   ├── Core/
 │   │   │   ├── Assets.php  # JS/CSS asset loader.
 │   │   │   └── Rest.php
-│   │   ├── Rest/
+│   │   ├── Rest/ # One controller per route path.
 │   │   │   ├── Abstract_REST_Controller.php
-│   │   │   ├── Basic_Options_Controller.php
-│   │   │   ├── Governing_Data_Controller.php
-│   │   │   ├── Governing_Data_Handler.php
-│   │   │   └── Search_Controller.php
+│   │   │   ├── Algolia_Credentials_Controller.php
+│   │   │   ├── Brand_Config_Controller.php
+│   │   │   ├── Brand_Site_Controller.php
+│   │   │   ├── Governing_Site_Controller.php
+│   │   │   ├── Health_Check_Controller.php
+│   │   │   ├── Post_Types_Controller.php
+│   │   │   ├── Reindex_Controller.php
+│   │   │   ├── Remote_Client.php # Sends the requests between the governing and brand sites.
+│   │   │   ├── Secret_Key_Controller.php
+│   │   │   └── Shared_Sites_Controller.php
 │   │   ├── Search/ # Algolia-related functionality.
 │   │   │   ├── Admin.php
 │   │   │   ├── Indexer.php # Syncs the site's content with Algolia.

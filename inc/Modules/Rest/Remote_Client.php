@@ -1,8 +1,6 @@
 <?php
 /**
- * Handles cross-site requests for governing brand data.
- *
- * Powered by the Governing_Data_Controller REST endpoint.
+ * Sends the requests between a governing site and its brand sites.
  *
  * @package OneSearch\Modules\Rest
  */
@@ -16,7 +14,7 @@ use OneSearch\Modules\Settings\Settings;
 use OneSearch\Utils;
 
 /**
- * Class - Governing_Data_Handler
+ * Class - Remote_Client
  *
  * @phpstan-type SiteConfig array{
  *  algolia_credentials: array{app_id: string, write_key: string},
@@ -25,7 +23,7 @@ use OneSearch\Utils;
  *  available_sites: string[],
  * }
  */
-class Governing_Data_Handler {
+class Remote_Client {
 	/**
 	 * The transient key used by the consumer sites to cache brand configuration.
 	 */
@@ -74,23 +72,7 @@ class Governing_Data_Handler {
 			);
 		}
 
-		$endpoint = sprintf(
-			'%s/wp-json/%s/brand-config',
-			untrailingslashit( $parent_url ),
-			Abstract_REST_Controller::NAMESPACE,
-		);
-
-		$response = wp_safe_remote_get(
-			$endpoint,
-			[
-				'headers' => [
-					'Accept'               => 'application/json',
-					'Content-Type'         => 'application/json',
-					'X-OneSearch-Token'    => $our_public_key,
-					'X-OneSearch-Site-URL' => Utils::get_current_site_url(),
-				],
-			]
-		);
+		$response = self::request( $parent_url, 'brand-config', $our_public_key );
 
 		if ( is_wp_error( $response ) ) {
 			return $response;
@@ -187,22 +169,12 @@ class Governing_Data_Handler {
 			);
 		}
 
-		$endpoint = sprintf(
-			'%s/wp-json/%s/brand-site',
-			untrailingslashit( $parent_url ),
-			Abstract_REST_Controller::NAMESPACE,
-		);
-
-		$response = wp_safe_remote_request(
-			$endpoint,
+		$response = self::request(
+			$parent_url,
+			'brand-site',
+			$our_public_key,
 			[
 				'method'  => \WP_REST_Server::DELETABLE,
-				'headers' => [
-					'Accept'               => 'application/json',
-					'Content-Type'         => 'application/json',
-					'X-OneSearch-Token'    => $our_public_key,
-					'X-OneSearch-Site-URL' => Utils::get_current_site_url(),
-				],
 				'timeout' => 15, // phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout -- The governing site purges this site's Algolia records before responding.
 			]
 		);
@@ -275,23 +247,7 @@ class Governing_Data_Handler {
 				continue;
 			}
 
-			$endpoint = sprintf(
-				'%s/wp-json/%s/all-post-types',
-				untrailingslashit( $site_data['url'] ),
-				Abstract_REST_Controller::NAMESPACE,
-			);
-
-			$response = wp_safe_remote_get(
-				$endpoint,
-				[
-					'headers' => [
-						'Accept'               => 'application/json',
-						'Content-Type'         => 'application/json',
-						'X-OneSearch-Token'    => $site_data['api_key'],
-						'X-OneSearch-Site-URL' => Utils::get_current_site_url(),
-					],
-				]
-			);
+			$response = self::request( $site_data['url'], 'all-post-types', $site_data['api_key'] );
 
 			if ( is_wp_error( $response ) ) {
 				$errors[] = [
@@ -349,13 +305,92 @@ class Governing_Data_Handler {
 	}
 
 	/**
-	 * Clear the cached brand configuration.
+	 * Trigger batch reindexing of all child sites (for governing sites).
+	 *
+	 * @return true|array{site_url: string, message: string}[] Array of errors encountered, true if successful.
+	 */
+	public static function reindex_brand_sites() {
+		$shared_sites = Settings::get_shared_sites();
+
+		$errors = [];
+		// Build the requests array for each site.
+		foreach ( $shared_sites as $site_data ) {
+			if ( empty( $site_data['url'] ) || empty( $site_data['api_key'] ) ) {
+				$errors[] = [
+					'site_url' => $site_data['url'] ?: '(missing)',
+					'message'  => __( 'Missing url or api_key.', 'onesearch' ),
+				];
+				continue;
+			}
+
+			$response = self::request(
+				$site_data['url'],
+				're-index',
+				$site_data['api_key'],
+				[
+					'method'  => \WP_REST_Server::CREATABLE,
+					'timeout' => 45, // phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout -- Allow longer timeout for reindexing.
+				]
+			);
+
+			if ( is_wp_error( $response ) ) {
+				$errors[] = [
+					'site_url' => $site_data['url'],
+					// translators: %s is the error message.
+					'message'  => sprintf( __( 'Invalid response received. Error %s', 'onesearch' ), esc_html( $response->get_error_message() ) ),
+				];
+				continue;
+			}
+
+			$code = wp_remote_retrieve_response_code( $response );
+			$body = wp_remote_retrieve_body( $response );
+
+			if ( 200 !== $code ) {
+				$errors[] = [
+					'site_url' => $site_data['url'],
+					// translators: %s is the error code.
+					'message'  => sprintf( esc_html__( 'Failed to connect to the child site. Error code %s', 'onesearch' ), esc_html( (string) $code ) ),
+				];
+				continue;
+			}
+
+			$response_data = json_decode( $body, true );
+			if ( null === $response_data || ! is_array( $response_data ) ) {
+				$errors[] = [
+					'site_url' => $site_data['url'],
+					// translators: %s is the error message.
+					'message'  => __( 'The site returned an invalid response.', 'onesearch' ),
+				];
+				continue;
+			}
+
+			if ( empty( $response_data['success'] ) ) {
+				$site_messages = is_array( $response_data['errors'] ?? null ) ? array_filter( array_column( $response_data['errors'], 'message' ), 'is_string' ) : [];
+
+				$errors[] = [
+					'site_url' => $site_data['url'],
+					'message'  => $site_messages ? implode( ' ', $site_messages ) : __( 'The site failed to re-index.', 'onesearch' ),
+				];
+			}
+		}
+
+		return $errors ?: true;
+	}
+
+	/**
+	 * Clears this brand site's cached configuration.
+	 */
+	public static function clear_brand_config_cache(): void {
+		delete_transient( self::TRANSIENT_KEY );
+	}
+
+	/**
+	 * Tells the brand sites to clear their cached configuration.
 	 *
 	 * @param ?string $site_url Optional site URL to clear cache for a specific site. If null, clears cache for all shared sites.
 	 */
-	public static function clear_brand_config_cache( ?string $site_url = null ): void {
+	public static function clear_brand_sites_config_cache( ?string $site_url = null ): void {
 		if ( ! Settings::is_governing_site() ) {
-			delete_transient( self::TRANSIENT_KEY );
 			return;
 		}
 
@@ -372,27 +407,41 @@ class Governing_Data_Handler {
 			}
 
 			// Clear cache on each shared site.
-			$endpoint = sprintf(
-				'%s/wp-json/%s/brand-config',
-				untrailingslashit( $site_data['url'] ),
-				Abstract_REST_Controller::NAMESPACE,
-			);
-
-			wp_safe_remote_post(
-				$endpoint,
+			self::request(
+				$site_data['url'],
+				'brand-config',
+				$site_data['api_key'],
 				[
 					'method'   => \WP_REST_Server::DELETABLE,
-					'headers'  => [
-						'Accept'               => 'application/json',
-						'Content-Type'         => 'application/json',
-						'X-OneSearch-Token'    => $site_data['api_key'],
-						'X-OneSearch-Site-URL' => Utils::get_current_site_url(),
-					],
 					// Don't wait to see if the cache flush was successful.
 					'blocking' => false,
 				]
 			);
 		}
+	}
+
+	/**
+	 * Sends a request to a OneSearch route on another site, signed with the API key that site checks.
+	 *
+	 * @param string              $site_url The other site's URL.
+	 * @param string              $route    The route, relative to the OneSearch namespace.
+	 * @param string              $api_key  The API key the other site checks.
+	 * @param array<string,mixed> $args     Extra request arguments, like the method and timeout.
+	 *
+	 * @return array<string,mixed>|\WP_Error The response.
+	 */
+	private static function request( string $site_url, string $route, string $api_key, array $args = [] ): array|\WP_Error {
+		return wp_safe_remote_request(
+			sprintf( '%s/wp-json/%s/%s', untrailingslashit( $site_url ), Abstract_REST_Controller::NAMESPACE, $route ),
+			$args + [
+				'headers' => [
+					'Accept'               => 'application/json',
+					'Content-Type'         => 'application/json',
+					'X-OneSearch-Token'    => $api_key,
+					'X-OneSearch-Site-URL' => Utils::get_current_site_url(),
+				],
+			]
+		);
 	}
 
 	/**

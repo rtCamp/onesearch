@@ -9,7 +9,7 @@ declare(strict_types = 1);
 
 namespace OneSearch\Tests\Integration\Modules\Search;
 
-use OneSearch\Modules\Rest\Governing_Data_Handler;
+use OneSearch\Modules\Rest\Remote_Client;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
@@ -430,13 +430,13 @@ final class SettingsTest extends TestCase {
 	 * Adding or updating an unrelated option does not purge the brand config cache.
 	 */
 	public function test_unrelated_option_does_not_purge_cache(): void {
-		set_transient( Governing_Data_Handler::TRANSIENT_KEY, [ 'test' => true ], 3600 );
+		set_transient( Remote_Client::TRANSIENT_KEY, [ 'test' => true ], 3600 );
 		( new Search_Settings() )->register_hooks();
 
 		add_option( 'some_unrelated_option', 'first' );
 		update_option( 'some_unrelated_option', 'second' );
 
-		$this->assertNotFalse( get_transient( Governing_Data_Handler::TRANSIENT_KEY ) );
+		$this->assertNotFalse( get_transient( Remote_Client::TRANSIENT_KEY ) );
 	}
 
 	/**

@@ -1,6 +1,6 @@
 <?php
 /**
- * Tests for Governing_Data_Controller on a standalone (untyped) site.
+ * Tests for Post_Types_Controller on a standalone site.
  *
  * @package OneSearch\Tests\Integration\Modules\Rest
  */
@@ -10,21 +10,21 @@ declare( strict_types = 1 );
 namespace OneSearch\Tests\Integration\Modules\Rest;
 
 use OneSearch\Modules\Rest\Abstract_REST_Controller;
-use OneSearch\Modules\Rest\Governing_Data_Controller;
+use OneSearch\Modules\Rest\Post_Types_Controller;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use WP_REST_Request;
 
 /**
- * Standalone-site scenarios for {@see Governing_Data_Controller}.
+ * Standalone-site scenarios for {@see Post_Types_Controller}.
  *
  * No site type is set, mirroring an install that hasn't been onboarded as part
  * of a federation.
  */
-#[CoversClass( Governing_Data_Controller::class )]
+#[CoversClass( Post_Types_Controller::class )]
 #[CoversClass( Abstract_REST_Controller::class )]
-class Governing_Data_Controller_StandaloneSiteTest extends TestCase {
+class Post_Types_Controller_StandaloneSiteTest extends TestCase {
 	/**
 	 * REST server.
 	 */
@@ -45,7 +45,7 @@ class Governing_Data_Controller_StandaloneSiteTest extends TestCase {
 		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
 		wp_set_current_user( $admin_id );
 
-		( new Governing_Data_Controller() )->register_hooks();
+		( new Post_Types_Controller() )->register_hooks();
 		do_action( 'rest_api_init' );
 	}
 
@@ -60,13 +60,12 @@ class Governing_Data_Controller_StandaloneSiteTest extends TestCase {
 	}
 
 	/**
-	 * Standalone site only registers all-post-types; brand-config is omitted.
+	 * Standalone site registers all-post-types.
 	 */
-	public function test_registers_only_all_post_types(): void {
+	public function test_registers_all_post_types(): void {
 		$routes = $this->server->get_routes();
-		$ns     = '/' . Governing_Data_Controller::NAMESPACE;
+		$ns     = '/' . Post_Types_Controller::NAMESPACE;
 
-		$this->assertArrayNotHasKey( $ns . '/brand-config', $routes );
 		$this->assertArrayHasKey( $ns . '/all-post-types', $routes );
 	}
 

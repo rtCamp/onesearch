@@ -11,7 +11,7 @@ namespace OneSearch\Modules\Search;
 
 use OneSearch\Contracts\Interfaces\Registrable;
 use OneSearch\Encryptor;
-use OneSearch\Modules\Rest\Governing_Data_Handler;
+use OneSearch\Modules\Rest\Remote_Client;
 use OneSearch\Modules\Settings\Settings as Admin_Settings;
 use OneSearch\Utils;
 
@@ -60,8 +60,8 @@ final class Settings implements Registrable {
 			self::OPTION_GOVERNING_INDEXABLE_SITES,
 			self::OPTION_GOVERNING_SEARCH_SETTINGS,
 		] as $option ) {
-			add_action( 'add_option_' . $option, static fn () => Governing_Data_Handler::clear_brand_config_cache() );
-			add_action( 'update_option_' . $option, static fn () => Governing_Data_Handler::clear_brand_config_cache() );
+			add_action( 'add_option_' . $option, static fn () => Remote_Client::clear_brand_sites_config_cache() );
+			add_action( 'update_option_' . $option, static fn () => Remote_Client::clear_brand_sites_config_cache() );
 		}
 	}
 

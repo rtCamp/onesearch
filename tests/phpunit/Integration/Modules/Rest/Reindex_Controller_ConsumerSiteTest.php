@@ -1,6 +1,6 @@
 <?php
 /**
- * Tests for Search_Controller on a consumer site.
+ * Tests for Reindex_Controller on a consumer site.
  *
  * @package OneSearch\Tests\Integration\Modules\Rest
  */
@@ -10,19 +10,19 @@ declare( strict_types = 1 );
 namespace OneSearch\Tests\Integration\Modules\Rest;
 
 use OneSearch\Modules\Rest\Abstract_REST_Controller;
-use OneSearch\Modules\Rest\Governing_Data_Handler;
-use OneSearch\Modules\Rest\Search_Controller;
+use OneSearch\Modules\Rest\Reindex_Controller;
+use OneSearch\Modules\Rest\Remote_Client;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use WP_REST_Request;
 
 /**
- * Consumer-site scenarios for {@see Search_Controller}.
+ * Consumer-site scenarios for {@see Reindex_Controller}.
  */
-#[CoversClass( Search_Controller::class )]
+#[CoversClass( Reindex_Controller::class )]
 #[CoversClass( Abstract_REST_Controller::class )]
-class Search_Controller_ConsumerSiteTest extends TestCase {
+class Reindex_Controller_ConsumerSiteTest extends TestCase {
 	/**
 	 * REST server.
 	 */
@@ -43,7 +43,7 @@ class Search_Controller_ConsumerSiteTest extends TestCase {
 		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
 		wp_set_current_user( $admin_id );
 
-		( new Search_Controller() )->register_hooks();
+		( new Reindex_Controller() )->register_hooks();
 		do_action( 'rest_api_init' );
 	}
 
@@ -58,13 +58,12 @@ class Search_Controller_ConsumerSiteTest extends TestCase {
 	}
 
 	/**
-	 * Consumer site only registers re-index; governing-only endpoints are omitted.
+	 * Consumer site registers re-index.
 	 */
-	public function test_skips_governing_endpoints(): void {
+	public function test_registers_reindex(): void {
 		$routes = $this->server->get_routes();
-		$ns     = '/' . Search_Controller::NAMESPACE;
+		$ns     = '/' . Reindex_Controller::NAMESPACE;
 
-		$this->assertArrayNotHasKey( $ns . '/algolia-credentials', $routes );
 		$this->assertArrayHasKey( $ns . '/re-index', $routes );
 	}
 
@@ -73,7 +72,7 @@ class Search_Controller_ConsumerSiteTest extends TestCase {
 	 */
 	public function test_reindex_fails_without_parent_url(): void {
 		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
-		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
+		delete_transient( Remote_Client::TRANSIENT_KEY );
 
 		$request  = new WP_REST_Request( 'POST', '/onesearch/v1/re-index' );
 		$response = $this->server->dispatch( $request );
@@ -88,7 +87,7 @@ class Search_Controller_ConsumerSiteTest extends TestCase {
 	 */
 	public function test_reindex_fails_when_brand_config_fails(): void {
 		Settings::set_parent_site_url( 'https://governing.example.com' );
-		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
+		delete_transient( Remote_Client::TRANSIENT_KEY );
 		Settings::regenerate_api_key();
 
 		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
@@ -124,7 +123,7 @@ class Search_Controller_ConsumerSiteTest extends TestCase {
 	 */
 	public function test_reindex_proceeds_when_parent_returns_valid_brand_config(): void {
 		Settings::set_parent_site_url( 'https://governing.example.com' );
-		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
+		delete_transient( Remote_Client::TRANSIENT_KEY );
 		Settings::regenerate_api_key();
 
 		$payload = [
