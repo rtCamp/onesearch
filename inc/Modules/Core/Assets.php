@@ -72,11 +72,12 @@ final class Assets implements Registrable {
 				'algoliaAppId'          => $algolia_creds['app_id'] ?? '',
 				'hasAlgoliaCredentials' => ! empty( $algolia_creds['app_id'] ) && ! empty( $algolia_creds['write_key'] ),
 				'nonce'                 => wp_create_nonce( 'wp_rest' ),
-				'api_key'               => Settings::get_api_key(),
+				// Only brand sites use a key of their own, so governing sites don't generate one.
+				'api_key'               => Settings::is_consumer_site() ? Settings::get_api_key() : '',
 				'restNamespace'         => Abstract_REST_Controller::NAMESPACE,
 				'restUrl'               => esc_url_raw( rest_url() ),
 				'setupUrl'              => admin_url( 'admin.php?page=onesearch-settings' ),
-				'sharedSites'           => array_values( Settings::get_shared_sites() ),
+				'sharedSites'           => Settings::get_shared_sites_without_keys(),
 				'siteType'              => Settings::get_site_type(),
 			];
 		}

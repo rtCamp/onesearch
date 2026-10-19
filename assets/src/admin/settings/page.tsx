@@ -28,7 +28,8 @@ export interface BrandSite {
 	id?: string;
 	name: string;
 	url: string;
-	api_key: string;
+	// Only set while the admin types a key.
+	api_key?: string;
 }
 
 export const defaultBrandSite: BrandSite = {
@@ -57,7 +58,7 @@ const SettingsPage = () => {
 	const [ showModal, setShowModal ] = useState( false );
 	const [ editingIndex, setEditingIndex ] = useState< EditingIndex >( null );
 	const [ sites, setSites ] = useState< BrandSite[] >(
-		( window.OneSearchSettings.sharedSites ?? [] ) as BrandSite[]
+		window.OneSearchSettings.sharedSites ?? []
 	);
 	const [ formData, setFormData ] = useState< BrandSite >( defaultBrandSite );
 	const [ notice, setNotice ] = useState< NoticeType | null >( null );

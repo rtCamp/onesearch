@@ -50,11 +50,14 @@ function SiteModalHarness( {
 
 describe( 'SiteModal', () => {
 	it( 'disables submit when editing without changes', () => {
+		// The key field starts empty when editing.
+		const stored = { ...baseFormData, api_key: '' };
+
 		render(
 			<SiteModalHarness
 				editing
-				initialData={ baseFormData }
-				originalData={ baseFormData }
+				initialData={ stored }
+				originalData={ stored }
 			/>
 		);
 
@@ -141,5 +144,49 @@ describe( 'SiteModal', () => {
 		expect( mockedApiFetch ).not.toHaveBeenCalled();
 		expect( global.fetch ).not.toHaveBeenCalled();
 		expect( screen.queryByRole( 'alert' ) ).not.toBeInTheDocument();
+	} );
+
+	it( 'saves an edit without a new key', async () => {
+		const onSubmit = jest.fn().mockResolvedValue( true );
+		const stored = { ...baseFormData, id: 'one', api_key: '' };
+
+		render(
+			<SiteModalHarness
+				editing
+				onSubmit={ onSubmit }
+				initialData={ { ...stored, name: 'Renamed' } }
+				originalData={ stored }
+				sites={ [ stored ] }
+			/>
+		);
+
+		fireEvent.click(
+			screen.getByRole( 'button', { name: 'Update Site' } )
+		);
+
+		await waitFor( () => {
+			expect( onSubmit ).toHaveBeenCalled();
+		} );
+	} );
+
+	it( 'needs the key again when an edit changes the URL', () => {
+		const stored = { ...baseFormData, id: 'one', api_key: '' };
+
+		render(
+			<SiteModalHarness
+				editing
+				initialData={ {
+					...stored,
+					url: 'https://moved.example.com',
+				} }
+				originalData={ stored }
+				sites={ [ stored ] }
+			/>
+		);
+
+		expect(
+			screen.getByRole( 'button', { name: 'Update Site' } )
+		).toBeDisabled();
+		expect( screen.getByText( 'API Key*' ) ).toBeInTheDocument();
 	} );
 } );

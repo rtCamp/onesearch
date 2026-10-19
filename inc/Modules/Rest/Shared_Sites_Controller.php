@@ -77,7 +77,7 @@ class Shared_Sites_Controller extends Abstract_REST_Controller {
 		// check if same url exists more than once or not.
 		$urls     = [];
 		$to_check = [];
-		foreach ( $sites_data as $site ) {
+		foreach ( $sites_data as &$site ) {
 			if ( isset( $site['url'] ) && in_array( $site['url'], $urls, true ) ) {
 				return new \WP_Error( 'duplicate_site_url', __( 'Brand Site already exists.', 'onesearch' ), [ 'status' => 400 ] );
 			}
@@ -85,17 +85,25 @@ class Shared_Sites_Controller extends Abstract_REST_Controller {
 			// Add a unique ID if it doesn't exist.
 			$site['id'] = $site['id'] ?? wp_generate_uuid4();
 
+			// The browser never gets the keys, so a site saved without one keeps its stored key. Not once its URL changes, since the key belongs to the old site.
+			$site['api_key'] = trim( (string) ( $site['api_key'] ?? '' ) );
+			$stored          = '' !== $site['id'] ? ( $stored_sites[ $site['id'] ] ?? null ) : null;
+			$same_url        = null !== $stored && Utils::normalize_url( (string) ( $site['url'] ?? '' ) ) === Utils::normalize_url( $stored['url'] );
+			if ( $same_url && '' === $site['api_key'] ) {
+				$site['api_key'] = $stored['api_key'];
+			}
+
 			// New sites, and sites whose URL or key changed, are health-checked before they're saved, which also connects them.
-			$stored = $stored_sites[ $site['id'] ] ?? null;
-			if ( null === $stored || Utils::normalize_url( (string) ( $site['url'] ?? '' ) ) !== Utils::normalize_url( $stored['url'] ) || ( $site['api_key'] ?? '' ) !== $stored['api_key'] ) {
+			if ( ! $same_url || $site['api_key'] !== $stored['api_key'] ) {
 				$to_check[] = $site;
 			}
 
 			$urls[] = $site['url'] ?? '';
 		}
+		unset( $site );
 
 		foreach ( $to_check as $site ) {
-			$checked = Remote_Client::check_brand_site( (string) ( $site['url'] ?? '' ), (string) ( $site['api_key'] ?? '' ) );
+			$checked = Remote_Client::check_brand_site( (string) ( $site['url'] ?? '' ), $site['api_key'] );
 
 			if ( is_wp_error( $checked ) ) {
 				return $checked;
@@ -107,7 +115,7 @@ class Shared_Sites_Controller extends Abstract_REST_Controller {
 		// Return what was stored, so the browser has the ids it removes sites by.
 		return rest_ensure_response(
 			[
-				'shared_sites' => array_values( Settings::get_shared_sites() ),
+				'shared_sites' => Settings::get_shared_sites_without_keys(),
 			]
 		);
 	}

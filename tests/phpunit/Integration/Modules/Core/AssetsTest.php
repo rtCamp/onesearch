@@ -81,4 +81,45 @@ final class AssetsTest extends TestCase {
 		$this->assertArrayHasKey( 'sharedSites', $data );
 		$this->assertArrayHasKey( 'siteType', $data );
 	}
+
+	/**
+	 * Keeps the brand sites' API keys out of the page, and doesn't generate a key on governing sites.
+	 */
+	public function test_get_localized_data_omits_secrets(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING, false );
+		delete_option( Settings::OPTION_CONSUMER_API_KEY );
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Brand',
+					'url'     => 'https://brand.example.com',
+					'api_key' => 'brand-secret',
+				],
+			]
+		);
+		$this->reset_localized_data();
+
+		$data = Assets::get_localized_data();
+
+		$this->assertSame( '', $data['api_key'], 'Governing sites have no consumer key.' );
+		$this->assertFalse( get_option( Settings::OPTION_CONSUMER_API_KEY ), 'No consumer key is generated on governing sites.' );
+		$this->assertCount( 1, $data['sharedSites'] );
+		$this->assertArrayNotHasKey( 'api_key', $data['sharedSites'][0] );
+		$this->assertStringNotContainsString( 'brand-secret', (string) wp_json_encode( $data ) );
+
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER, false );
+		$this->reset_localized_data();
+
+		$this->assertNotSame( '', Assets::get_localized_data()['api_key'] );
+
+		$this->reset_localized_data();
+	}
+
+	/**
+	 * Clears the static localized data cache.
+	 */
+	private function reset_localized_data(): void {
+		$property = new \ReflectionProperty( Assets::class, 'localized_data' );
+		$property->setValue( null, [] );
+	}
 }

@@ -113,36 +113,8 @@ final class Settings implements Registrable {
 				'label'             => __( 'Brand Sites', 'onesearch' ),
 				'description'       => __( 'An array of brand sites connected to this governing site.', 'onesearch' ),
 				'sanitize_callback' => [ self::class, 'sanitize_shared_sites' ],
-				'show_in_rest'      => [
-					'schema' => [
-						'type'  => 'array',
-						'items' => [
-							'type'       => 'object',
-							'properties' => [
-								'id'      => [
-									'type' => 'string',
-								],
-								'name'    => [
-									'type' => 'string',
-								],
-								'url'     => [
-									'type'   => 'string',
-									'format' => 'uri',
-								],
-								'logo'    => [
-									'type'   => 'string',
-									'format' => 'uri',
-								],
-								'logo_id' => [
-									'type' => 'integer',
-								],
-								'api_key' => [
-									'type' => 'string',
-								],
-							],
-						],
-					],
-				],
+				// The stored sites hold the brand keys, which never leave the server. They're managed through the OneSearch routes.
+				'show_in_rest'      => false,
 			],
 		];
 
@@ -269,6 +241,30 @@ final class Settings implements Registrable {
 		}
 
 		return $brands_to_return;
+	}
+
+	/**
+	 * Gets the brand sites for the browser, without their API keys. The keys never leave the server.
+	 *
+	 * @return array{
+	 *  id: string,
+	 *  name: string,
+	 *  url: string,
+	 *  logo: string,
+	 *  logo_id: int,
+	 * }[]
+	 */
+	public static function get_shared_sites_without_keys(): array {
+		return array_map(
+			static fn ( array $site ): array => [
+				'id'      => $site['id'],
+				'name'    => $site['name'],
+				'url'     => $site['url'],
+				'logo'    => $site['logo'],
+				'logo_id' => $site['logo_id'],
+			],
+			array_values( self::get_shared_sites() )
+		);
 	}
 
 	/**

@@ -179,6 +179,100 @@ class Shared_Sites_ControllerTest extends TestCase {
 	}
 
 	/**
+	 * A stored site keeps its key when it's saved without one, and the response leaves the key out.
+	 */
+	public function test_set_shared_sites_keeps_stored_keys(): void {
+		Settings::set_shared_sites(
+			[
+				[
+					'id'      => 'abc-1',
+					'name'    => 'A',
+					'url'     => 'https://a.example.com',
+					'api_key' => 'keep-me',
+				],
+			]
+		);
+
+		$response = $this->set_shared_sites(
+			[
+				[
+					'id'   => 'abc-1',
+					'name' => 'A renamed',
+					'url'  => 'https://a.example.com',
+				],
+			]
+		);
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( 'keep-me', Settings::get_shared_sites()['https://a.example.com/']['api_key'] );
+		$this->assertSame( 'A renamed', $response->get_data()['shared_sites'][0]['name'] );
+		$this->assertArrayNotHasKey( 'api_key', $response->get_data()['shared_sites'][0] );
+	}
+
+	/**
+	 * A blank key, even with stray whitespace, keeps the stored key, but a site that moved to another URL doesn't keep it and is checked again.
+	 */
+	public function test_set_shared_sites_only_keeps_the_key_of_an_unchanged_url(): void {
+		Settings::set_shared_sites(
+			[
+				[
+					'id'      => 'abc-1',
+					'name'    => 'A',
+					'url'     => 'https://a.example.com',
+					'api_key' => 'key-a',
+				],
+				[
+					'id'      => 'abc-2',
+					'name'    => 'B',
+					'url'     => 'https://b.example.com',
+					'api_key' => 'key-b',
+				],
+			]
+		);
+
+		$checked_urls = [];
+		$filter       = static function ( $preempt, $args, $url ) use ( &$checked_urls ): array { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$checked_urls[] = $url;
+
+			return [
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
+				],
+				'body'     => '',
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$response = $this->set_shared_sites(
+			[
+				[
+					'id'      => 'abc-1',
+					'name'    => 'A',
+					'url'     => 'https://a.example.com/',
+					'api_key' => " \n",
+				],
+				[
+					'id'   => 'abc-2',
+					'name' => 'B',
+					'url'  => 'https://elsewhere.example.com',
+				],
+			]
+		);
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( [ 'https://elsewhere.example.com/wp-json/onesearch/v1/governing-site' ], $checked_urls );
+
+		$sites = Settings::get_shared_sites();
+		$this->assertSame( 'key-a', $sites['https://a.example.com/']['api_key'] );
+		$this->assertSame( '', $sites['https://elsewhere.example.com/']['api_key'] );
+	}
+
+	/**
 	 * Saving health-checks a new site from this server with its key, and leaves the unchanged ones alone.
 	 */
 	public function test_set_shared_sites_checks_new_sites(): void {
