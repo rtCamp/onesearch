@@ -13,6 +13,8 @@ use OneSearch\Algolia\Connection;
 use OneSearch\Algolia\Index;
 use OneSearch\Tests\TestCase;
 use OneSearch\Vendor\Algolia\AlgoliaSearch\Algolia as AlgoliaSDK;
+use OneSearch\Vendor\Algolia\AlgoliaSearch\Http\CurlHttpClient;
+use OneSearch\Vendor\Algolia\AlgoliaSearch\Http\HttpClientInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
@@ -21,12 +23,15 @@ use PHPUnit\Framework\Attributes\CoversClass;
 #[CoversClass( Connection::class )]
 final class ConnectionTest extends TestCase {
 	/**
-	 * {@inheritDoc}
+	 * A new connection sets the SDK's cURL client, so the SDK never picks a transport (e.g. a global Guzzle) by itself.
 	 */
-	protected function tearDown(): void {
-		AlgoliaSDK::resetHttpClient();
+	public function test_uses_the_curl_client(): void {
+		// Stands in for a client the SDK picked by itself.
+		AlgoliaSDK::setHttpClient( $this->createStub( HttpClientInterface::class ) );
 
-		parent::tearDown();
+		new Connection( 'test-app', 'test-key' );
+
+		$this->assertInstanceOf( CurlHttpClient::class, AlgoliaSDK::getHttpClient() );
 	}
 
 	/**

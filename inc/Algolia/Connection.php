@@ -9,7 +9,9 @@ declare(strict_types = 1);
 
 namespace OneSearch\Algolia;
 
+use OneSearch\Vendor\Algolia\AlgoliaSearch\Algolia;
 use OneSearch\Vendor\Algolia\AlgoliaSearch\Api\SearchClient;
+use OneSearch\Vendor\Algolia\AlgoliaSearch\Http\CurlHttpClient;
 
 /**
  * Class - Connection
@@ -32,6 +34,16 @@ final class Connection {
 	 * @param string $api_key The Algolia API key.
 	 */
 	public function __construct( string $app_id, string $api_key ) {
+		/**
+		 * Filters the HTTP client the Algolia SDK sends requests with.
+		 *
+		 * @param \OneSearch\Vendor\Algolia\AlgoliaSearch\Http\HttpClientInterface $http_client The HTTP client. Defaults to the SDK's (prefixed) bundled cURL client.
+		 */
+		$http_client = apply_filters( 'onesearch_algolia_http_client', new CurlHttpClient() );
+
+		// The SDK reads the client when the API client is created, so it has to be set first.
+		Algolia::setHttpClient( $http_client );
+
 		$this->client  = SearchClient::create( $app_id, $api_key );
 		$this->api_key = $api_key;
 	}

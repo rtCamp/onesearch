@@ -16,7 +16,6 @@ use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use OneSearch\Utils;
-use OneSearch\Vendor\Algolia\AlgoliaSearch\Algolia as AlgoliaSDK;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
@@ -42,15 +41,6 @@ final class IndexerTest extends TestCase {
 	 * @var array<int, array{path: string, body: string}>
 	 */
 	private array $requests = [];
-
-	/**
-	 * {@inheritDoc}
-	 */
-	protected function tearDown(): void {
-		AlgoliaSDK::resetHttpClient();
-
-		parent::tearDown();
-	}
 
 	/**
 	 * Credentials are only valid when they grant every permission the indexer uses.

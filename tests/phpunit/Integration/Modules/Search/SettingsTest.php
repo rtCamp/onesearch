@@ -13,7 +13,6 @@ use OneSearch\Modules\Rest\Governing_Data_Handler;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
-use OneSearch\Vendor\Algolia\AlgoliaSearch\Algolia as AlgoliaSDK;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
@@ -21,15 +20,6 @@ use PHPUnit\Framework\Attributes\CoversClass;
  */
 #[CoversClass( \OneSearch\Modules\Search\Settings::class )]
 final class SettingsTest extends TestCase {
-	/**
-	 * {@inheritDoc}
-	 */
-	protected function tearDown(): void {
-		AlgoliaSDK::resetHttpClient();
-
-		parent::tearDown();
-	}
-
 	/**
 	 * Ensures register_hooks adds expected actions.
 	 */

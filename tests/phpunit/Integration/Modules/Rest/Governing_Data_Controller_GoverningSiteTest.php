@@ -15,7 +15,6 @@ use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use OneSearch\Utils;
-use OneSearch\Vendor\Algolia\AlgoliaSearch\Algolia as AlgoliaSDK;
 use PHPUnit\Framework\Attributes\CoversClass;
 use WP_REST_Request;
 
@@ -58,8 +57,6 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 	public function tear_down(): void {
 		global $wp_rest_server;
 		$wp_rest_server = null;
-
-		AlgoliaSDK::resetHttpClient();
 
 		parent::tear_down();
 	}
