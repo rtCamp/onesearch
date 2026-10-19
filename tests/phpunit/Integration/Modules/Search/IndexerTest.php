@@ -167,19 +167,18 @@ final class IndexerTest extends TestCase {
 		$indexer->save_post( $post );
 		$indexer->delete_posts( [ $post->ID ] );
 
-		$calls = array_values( array_filter( $this->paths, static fn ( string $path ) => ! str_contains( $path, '/task/' ) ) );
-
 		$this->assertSame(
 			[
 				// Read, and then pushed, since the mock's settings don't match.
 				self::INDEX_PATH . '/settings',
 				self::INDEX_PATH . '/settings',
 				self::INDEX_PATH . '/batch',
-				// Checked for stale chunks.
-				self::INDEX_PATH . '/query',
+				// Chunks beyond the new count.
+				self::INDEX_PATH . '/deleteByQuery',
 				self::INDEX_PATH . '/deleteByQuery',
 			],
-			$calls
+			$this->paths,
+			'Writes should not poll tasks or read the saved chunks back.'
 		);
 		$this->assertSame( Post_Record::get_index_settings(), json_decode( $this->requests[1]['body'], true ) );
 	}
@@ -200,52 +199,24 @@ final class IndexerTest extends TestCase {
 		( new Indexer() )->save_post( self::factory()->post->create_and_get() );
 
 		$this->assertSame(
-			[ self::INDEX_PATH . '/settings', self::INDEX_PATH . '/batch', self::INDEX_PATH . '/query' ],
-			array_values( array_filter( $this->paths, static fn ( string $path ) => ! str_contains( $path, '/task/' ) ) )
+			[ self::INDEX_PATH . '/settings', self::INDEX_PATH . '/batch', self::INDEX_PATH . '/deleteByQuery' ],
+			$this->paths
 		);
 	}
 
 	/**
-	 * Chunks left over from when a post was longer are deleted when it's saved.
+	 * Chunks left over from when a post was longer are deleted after it's saved, without reading them back first.
 	 */
 	public function test_save_post_deletes_stale_chunks(): void {
 		$this->set_up_governing_site();
+		$this->mock_algolia_http_client( $this->paths, null, null, $this->requests );
 
 		$post         = self::factory()->post->create_and_get( [ 'post_content' => 'Short.' ] );
 		$site_post_id = ( new Post_Record() )->get_site_post_id( $post->ID );
 
-		$this->mock_algolia_http_client(
-			$this->paths,
-			static fn ( string $path ): string => str_ends_with( $path, '/query' )
-				? (string) wp_json_encode(
-					[
-						'hits' => array_map(
-							static fn ( int $chunk_index ): array => [
-								'site_post_id' => $site_post_id,
-								'chunk_index'  => $chunk_index,
-							],
-							[ 0, 1, 2 ]
-						),
-					]
-				)
-				: '{"taskID":1,"status":"published"}',
-			null,
-			$this->requests
-		);
-
 		$this->assertTrue( ( new Indexer() )->save_post( $post ) );
 		$this->assertSame( [ sprintf( 'site_post_id:"%s" AND chunk_index >= 1', $site_post_id ) ], $this->get_delete_filters() );
-	}
-
-	/**
-	 * Saving a post that didn't shrink skips the slow delete.
-	 */
-	public function test_save_post_skips_deleting_without_stale_chunks(): void {
-		$this->set_up_governing_site();
-		$this->mock_algolia_http_client( $this->paths, null, null, $this->requests );
-
-		$this->assertTrue( ( new Indexer() )->save_post( self::factory()->post->create_and_get() ) );
-		$this->assertSame( [], $this->get_delete_filters() );
+		$this->assertNotContains( self::INDEX_PATH . '/query', $this->paths );
 	}
 
 	/**
@@ -261,34 +232,6 @@ final class IndexerTest extends TestCase {
 		$this->assertWPError( $result );
 		$this->assertSame( 'onesearch_post_too_big', $result->get_error_code() );
 		$this->assertSame( [], $this->get_delete_filters() );
-	}
-
-	/**
-	 * Writes wait for tasks that aren't published on the first check.
-	 */
-	public function test_waits_for_pending_tasks(): void {
-		$this->set_up_governing_site();
-
-		$task_checks = 0;
-		$this->mock_algolia_http_client(
-			$this->paths,
-			static function ( string $path ) use ( &$task_checks ): string {
-				if ( ! str_contains( $path, '/task/' ) ) {
-					return '{"taskID":1}';
-				}
-
-				// Every task is published on its second check.
-				++$task_checks;
-				return 1 === $task_checks % 2 ? '{"status":"notPublished"}' : '{"status":"published"}';
-			}
-		);
-
-		$indexer = new Indexer();
-
-		// Settings, batch, and delete tasks.
-		$this->assertTrue( $indexer->save_post( self::factory()->post->create_and_get() ) );
-		$this->assertTrue( $indexer->delete_posts( [ 42 ] ) );
-		$this->assertSame( 6, $task_checks );
 	}
 
 	/**
@@ -441,6 +384,37 @@ final class IndexerTest extends TestCase {
 			$this->get_delete_filters()
 		);
 		$this->assertSame( [ ( new Post_Record() )->get_site_post_id( $page_id ) ], $this->get_saved_site_post_ids() );
+	}
+
+	/**
+	 * Re-indexing waits until the site's old records are deleted before it saves the new ones, and keeps checking while the delete is pending.
+	 */
+	public function test_reindex_waits_for_the_old_records_to_be_deleted(): void {
+		$this->set_up_governing_site();
+		self::factory()->post->create();
+
+		$task_checks = 0;
+		$this->mock_algolia_http_client(
+			$this->paths,
+			static function ( string $path ) use ( &$task_checks ): string {
+				if ( ! str_contains( $path, '/task/' ) ) {
+					return '{"taskID":1}';
+				}
+
+				// Published on the second check.
+				++$task_checks;
+				return 1 === $task_checks ? '{"status":"notPublished"}' : '{"status":"published"}';
+			}
+		);
+
+		$this->assertTrue( ( new Indexer() )->reindex() );
+
+		$delete = array_search( self::INDEX_PATH . '/deleteByQuery', $this->paths, true );
+		$this->assertIsInt( $delete );
+		$this->assertSame(
+			[ self::INDEX_PATH . '/deleteByQuery', self::INDEX_PATH . '/task/1', self::INDEX_PATH . '/task/1', self::INDEX_PATH . '/batch' ],
+			array_slice( $this->paths, $delete, 4 )
+		);
 	}
 
 	/**

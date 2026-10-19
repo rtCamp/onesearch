@@ -14,8 +14,6 @@ use OneSearch\Vendor\Algolia\AlgoliaSearch\Support\Helpers;
 
 /**
  * Class - Index
- *
- * Write operations wait until Algolia has applied them before returning.
  */
 final class Index {
 	/**
@@ -80,10 +78,7 @@ final class Index {
 	 */
 	public function save_records( array $records ): bool|\WP_Error {
 		try {
-			// Wait ourselves, since the client's own wait is broken.
-			foreach ( $this->client->saveObjects( $this->name, $records ) as $response ) {
-				$this->wait_for_task( $response );
-			}
+			$this->client->saveObjects( $this->name, $records );
 
 			return true;
 		} catch ( \Throwable $e ) {
@@ -101,12 +96,18 @@ final class Index {
 	 * @see https://www.algolia.com/doc/rest-api/search/delete-by
 	 *
 	 * @param array<string,mixed> $params The delete by params, e.g. `filters`.
+	 * @param bool                $wait   Whether to wait until Algolia has applied the delete.
 	 *
 	 * @return true|\WP_Error
 	 */
-	public function delete_by( array $params ): bool|\WP_Error {
+	public function delete_by( array $params, bool $wait = false ): bool|\WP_Error {
 		try {
-			$this->wait_for_task( $this->client->deleteBy( $this->name, $params ) );
+			$response = $this->client->deleteBy( $this->name, $params );
+
+			if ( $wait ) {
+				$this->wait_for_task( $response );
+			}
+
 			return true;
 		} catch ( \Throwable $e ) {
 			return new \WP_Error(
@@ -147,7 +148,7 @@ final class Index {
 	 */
 	public function set_settings( array $settings ): bool|\WP_Error {
 		try {
-			$this->wait_for_task( $this->client->setSettings( $this->name, $settings ) );
+			$this->client->setSettings( $this->name, $settings );
 			return true;
 		} catch ( \Throwable $e ) {
 			return new \WP_Error(
