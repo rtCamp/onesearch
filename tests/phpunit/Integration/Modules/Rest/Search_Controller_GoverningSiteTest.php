@@ -72,25 +72,9 @@ class Search_Controller_GoverningSiteTest extends TestCase {
 	}
 
 	/**
-	 * GET /algolia-credentials returns empty strings when no credentials are stored.
+	 * The stored write key can't be read back, even by an admin.
 	 */
-	public function test_get_algolia_credentials_returns_empty_when_unset(): void {
-		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
-
-		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/algolia-credentials' );
-		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
-
-		$this->assertSame( 200, $response->get_status() );
-		$this->assertTrue( $data['success'] );
-		$this->assertSame( '', $data['app_id'] );
-		$this->assertSame( '', $data['write_key'] );
-	}
-
-	/**
-	 * GET /algolia-credentials returns the stored values.
-	 */
-	public function test_get_algolia_credentials_returns_stored_values(): void {
+	public function test_algolia_credentials_cannot_be_read(): void {
 		Search_Settings::set_algolia_credentials(
 			[
 				'app_id'    => 'TEST_APP_ID',
@@ -98,14 +82,9 @@ class Search_Controller_GoverningSiteTest extends TestCase {
 			]
 		);
 
-		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/algolia-credentials' );
-		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
+		$response = $this->server->dispatch( new WP_REST_Request( 'GET', '/onesearch/v1/algolia-credentials' ) );
 
-		$this->assertSame( 200, $response->get_status() );
-		$this->assertTrue( $data['success'] );
-		$this->assertSame( 'TEST_APP_ID', $data['app_id'] );
-		$this->assertSame( 'TEST_WRITE_KEY', $data['write_key'] );
+		$this->assertSame( 404, $response->get_status() );
 	}
 
 	/**

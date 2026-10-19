@@ -69,6 +69,7 @@ final class Assets implements Registrable {
 		if ( empty( self::$localized_data ) ) {
 			self::$localized_data = [
 				'currentSiteUrl'        => Utils::get_current_site_url(),
+				'algoliaAppId'          => $algolia_creds['app_id'] ?? '',
 				'hasAlgoliaCredentials' => ! empty( $algolia_creds['app_id'] ) && ! empty( $algolia_creds['write_key'] ),
 				'nonce'                 => wp_create_nonce( 'wp_rest' ),
 				'api_key'               => Settings::get_api_key(),

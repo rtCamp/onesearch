@@ -72,6 +72,7 @@ final class AssetsTest extends TestCase {
 		$data = Assets::get_localized_data();
 
 		$this->assertArrayHasKey( 'currentSiteUrl', $data );
+		$this->assertArrayHasKey( 'algoliaAppId', $data );
 		$this->assertArrayHasKey( 'nonce', $data );
 		$this->assertArrayHasKey( 'api_key', $data );
 		$this->assertArrayHasKey( 'restNamespace', $data );

@@ -13,7 +13,6 @@ use OneSearch\Modules\Search\Indexer;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Utils;
-use WP_REST_Response;
 use WP_REST_Server;
 
 /**
@@ -26,16 +25,11 @@ class Search_Controller extends Abstract_REST_Controller {
 	public function register_routes(): void {
 		if ( Settings::is_governing_site() ) {
 
-			// Algolia credentials: get / set.
+			// Set only, so the write key never leaves the server.
 			register_rest_route(
 				self::NAMESPACE,
 				'/algolia-credentials',
 				[
-					[
-						'methods'             => WP_REST_Server::READABLE,
-						'callback'            => [ $this, 'get_algolia_credentials' ],
-						'permission_callback' => static fn () => current_user_can( 'manage_options' ),
-					],
 					[
 						'methods'             => WP_REST_Server::CREATABLE,
 						'args'                => [
@@ -65,21 +59,6 @@ class Search_Controller extends Abstract_REST_Controller {
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => [ $this, 'reindex' ],
 				'permission_callback' => fn ( $request ) => current_user_can( 'manage_options' ) || $this->is_governing_request( $request ),
-			]
-		);
-	}
-
-	/**
-	 * Get Algolia credentials from governing site.
-	 */
-	public function get_algolia_credentials(): WP_REST_Response {
-		$creds = Search_Settings::get_algolia_credentials();
-
-		return new \WP_REST_Response(
-			[
-				'success'   => true,
-				'app_id'    => $creds['app_id'] ?? '',
-				'write_key' => $creds['write_key'] ?? '',
 			]
 		);
 	}
