@@ -78,7 +78,7 @@ describe( 'SiteModal', () => {
 		).toHaveLength( 2 );
 	} );
 
-	it( 'prevents duplicate site urls after a successful health check', async () => {
+	it( 'prevents duplicate site urls after a successful connect', async () => {
 		const onSubmit = jest.fn().mockResolvedValue( true );
 		global.fetch = jest.fn().mockResolvedValue( {
 			json: jest.fn().mockResolvedValue( { success: true } ),
@@ -108,7 +108,7 @@ describe( 'SiteModal', () => {
 		expect( onSubmit ).not.toHaveBeenCalled();
 	} );
 
-	it( 'shows a health check error when the remote site rejects the credentials', async () => {
+	it( 'shows a connect error when the remote site rejects the credentials', async () => {
 		const onSubmit = jest.fn().mockResolvedValue( true );
 		global.fetch = jest.fn().mockResolvedValue( {
 			json: jest.fn().mockResolvedValue( { success: false } ),
@@ -121,7 +121,7 @@ describe( 'SiteModal', () => {
 		// WordPress renders notices in both accessibility region and visible content
 		expect(
 			await screen.findAllByText(
-				"Health check failed, please verify API key and make sure there's no governing site connected."
+				"Couldn't connect to the brand site. Please verify the API key and make sure it isn't connected to another governing site."
 			)
 		).toHaveLength( 2 );
 		expect( onSubmit ).not.toHaveBeenCalled();
@@ -163,7 +163,7 @@ describe( 'SiteModal', () => {
 		).toHaveLength( 2 );
 	} );
 
-	it( 'submits after a successful health check', async () => {
+	it( 'submits after a successful connect', async () => {
 		const onSubmit = jest.fn().mockResolvedValue( true );
 		global.fetch = jest.fn().mockResolvedValue( {
 			json: jest.fn().mockResolvedValue( { success: true } ),
@@ -175,9 +175,9 @@ describe( 'SiteModal', () => {
 
 		await waitFor( () => {
 			expect( global.fetch ).toHaveBeenCalledWith(
-				'https://brand.example.com/wp-json/onesearch/v1/health-check',
+				'https://brand.example.com/wp-json/onesearch/v1/governing-site',
 				expect.objectContaining( {
-					method: 'GET',
+					method: 'POST',
 					headers: expect.objectContaining( {
 						'X-OneSearch-Token': 'secret-key',
 					} ),

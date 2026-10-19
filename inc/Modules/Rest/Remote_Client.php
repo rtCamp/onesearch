@@ -72,7 +72,7 @@ class Remote_Client {
 			);
 		}
 
-		$response = self::request( $parent_url, 'brand-config', $our_public_key );
+		$response = self::request( $parent_url, 'brand-site/config', $our_public_key );
 
 		if ( is_wp_error( $response ) ) {
 			return $response;
@@ -409,7 +409,7 @@ class Remote_Client {
 			// Clear cache on each shared site.
 			self::request(
 				$site_data['url'],
-				'brand-config',
+				'governing-site/config',
 				$site_data['api_key'],
 				[
 					'method'   => \WP_REST_Server::DELETABLE,

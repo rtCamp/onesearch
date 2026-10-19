@@ -64,7 +64,7 @@ const disconnectRemovedBrandSite = async (
 
 	try {
 		const response = await fetch(
-			`${ siteUrl }wp-json/${ REST_NAMESPACE }/brand-site`,
+			`${ siteUrl }wp-json/${ REST_NAMESPACE }/governing-site`,
 			{
 				method: 'DELETE',
 				headers: {

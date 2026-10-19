@@ -93,13 +93,11 @@ Code contributions, bug reports, and feature requests are welcome! The following
 │   │   ├── Core/
 │   │   │   ├── Assets.php  # JS/CSS asset loader.
 │   │   │   └── Rest.php
-│   │   ├── Rest/ # One controller per route path.
+│   │   ├── Rest/ # One controller per route prefix.
 │   │   │   ├── Abstract_REST_Controller.php
 │   │   │   ├── Algolia_Credentials_Controller.php
-│   │   │   ├── Brand_Config_Controller.php
 │   │   │   ├── Brand_Site_Controller.php
 │   │   │   ├── Governing_Site_Controller.php
-│   │   │   ├── Health_Check_Controller.php
 │   │   │   ├── Post_Types_Controller.php
 │   │   │   ├── Reindex_Controller.php
 │   │   │   ├── Remote_Client.php # Sends the requests between the governing and brand sites.

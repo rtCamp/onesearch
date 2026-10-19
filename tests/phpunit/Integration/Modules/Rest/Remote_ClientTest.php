@@ -258,7 +258,7 @@ class Remote_ClientTest extends TestCase {
 	}
 
 	/**
-	 * Successful brand-config fetch returns sanitized payload and caches it.
+	 * Successful brand-site/config fetch returns sanitized payload and caches it.
 	 */
 	public function test_get_brand_config_returns_payload_on_success(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
@@ -281,7 +281,7 @@ class Remote_ClientTest extends TestCase {
 
 		$sent_site_url = null;
 		$filter        = static function ( $preempt, $args, $url ) use ( $payload, &$sent_site_url ) {
-			if ( false === strpos( $url, '/brand-config' ) ) {
+			if ( false === strpos( $url, '/brand-site/config' ) ) {
 				return $preempt;
 			}
 			$sent_site_url = $args['headers']['X-OneSearch-Site-URL'] ?? null;
@@ -321,7 +321,7 @@ class Remote_ClientTest extends TestCase {
 		Settings::regenerate_api_key();
 
 		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-			if ( false === strpos( $url, '/brand-config' ) ) {
+			if ( false === strpos( $url, '/brand-site/config' ) ) {
 				return $preempt;
 			}
 			return [
@@ -354,7 +354,7 @@ class Remote_ClientTest extends TestCase {
 		Settings::regenerate_api_key();
 
 		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-			if ( false === strpos( $url, '/brand-config' ) ) {
+			if ( false === strpos( $url, '/brand-site/config' ) ) {
 				return $preempt;
 			}
 			return [
@@ -387,7 +387,7 @@ class Remote_ClientTest extends TestCase {
 		Settings::regenerate_api_key();
 
 		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-			if ( false === strpos( $url, '/brand-config' ) ) {
+			if ( false === strpos( $url, '/brand-site/config' ) ) {
 				return $preempt;
 			}
 			return new \WP_Error( 'http_request_failed', 'cURL error 7' );

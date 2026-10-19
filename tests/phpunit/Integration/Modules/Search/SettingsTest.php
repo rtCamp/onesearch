@@ -457,7 +457,7 @@ final class SettingsTest extends TestCase {
 
 		$purges = [];
 		$filter = static function ( $preempt, $args, $url ) use ( &$purges ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-			if ( str_contains( $url, '/brand-config' ) && 'DELETE' === $args['method'] ) {
+			if ( str_contains( $url, '/governing-site/config' ) && 'DELETE' === $args['method'] ) {
 				$purges[] = $url;
 			}
 
@@ -477,7 +477,7 @@ final class SettingsTest extends TestCase {
 
 		remove_filter( 'pre_http_request', $filter );
 
-		$this->assertSame( [ 'https://brand.example.com/wp-json/onesearch/v1/brand-config' ], $purges );
+		$this->assertSame( [ 'https://brand.example.com/wp-json/onesearch/v1/governing-site/config' ], $purges );
 	}
 
 	/**

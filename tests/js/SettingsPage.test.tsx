@@ -308,7 +308,7 @@ describe( 'SettingsPage', () => {
 
 		await waitFor( () => {
 			expect( global.fetch ).toHaveBeenCalledWith(
-				'https://brand.example.com/wp-json/onesearch/v1/brand-site',
+				'https://brand.example.com/wp-json/onesearch/v1/governing-site',
 				expect.objectContaining( {
 					method: 'DELETE',
 					headers: expect.objectContaining( {

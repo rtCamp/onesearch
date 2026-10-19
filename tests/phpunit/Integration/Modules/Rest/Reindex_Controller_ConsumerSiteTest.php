@@ -83,7 +83,7 @@ class Reindex_Controller_ConsumerSiteTest extends TestCase {
 	}
 
 	/**
-	 * Consumer reindex reports failure when the parent's brand-config request fails.
+	 * Consumer reindex reports failure when the parent's brand-site/config request fails.
 	 */
 	public function test_reindex_fails_when_brand_config_fails(): void {
 		Settings::set_parent_site_url( 'https://governing.example.com' );
@@ -91,7 +91,7 @@ class Reindex_Controller_ConsumerSiteTest extends TestCase {
 		Settings::regenerate_api_key();
 
 		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-			if ( false === strpos( $url, '/brand-config' ) ) {
+			if ( false === strpos( $url, '/brand-site/config' ) ) {
 				return $preempt;
 			}
 			return [
@@ -118,8 +118,8 @@ class Reindex_Controller_ConsumerSiteTest extends TestCase {
 
 	/**
 	 * Consumer reindex reaches the indexing step when the parent returns a valid
-	 * brand-config payload; without Algolia credentials, indexing reports failure
-	 * but the brand-config fetch path is fully traversed.
+	 * brand-site/config payload; without Algolia credentials, indexing reports failure
+	 * but the brand-site/config fetch path is fully traversed.
 	 */
 	public function test_reindex_proceeds_when_parent_returns_valid_brand_config(): void {
 		Settings::set_parent_site_url( 'https://governing.example.com' );
@@ -140,7 +140,7 @@ class Reindex_Controller_ConsumerSiteTest extends TestCase {
 		];
 
 		$filter = static function ( $preempt, $args, $url ) use ( $payload ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-			if ( false === strpos( $url, '/brand-config' ) ) {
+			if ( false === strpos( $url, '/brand-site/config' ) ) {
 				return $preempt;
 			}
 			return [
