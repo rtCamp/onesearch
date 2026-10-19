@@ -31,7 +31,7 @@ function SiteModalHarness( {
 	editing?: boolean;
 	sites?: Array< typeof defaultBrandSite >;
 	originalData?: typeof defaultBrandSite;
-	onSubmit?: jest.Mock< Promise< boolean >, [] >;
+	onSubmit?: jest.Mock< Promise< boolean | string >, [] >;
 } ) {
 	const [ formData, setFormData ] = useState( initialData );
 
@@ -188,5 +188,18 @@ describe( 'SiteModal', () => {
 			screen.getByRole( 'button', { name: 'Update Site' } )
 		).toBeDisabled();
 		expect( screen.getByText( 'API Key*' ) ).toBeInTheDocument();
+	} );
+
+	it( 'shows the server message when saving fails', async () => {
+		const onSubmit = jest.fn().mockResolvedValue( 'Invalid site data.' );
+
+		render( <SiteModalHarness onSubmit={ onSubmit } /> );
+
+		fireEvent.click( screen.getByRole( 'button', { name: 'Add Site' } ) );
+
+		// WordPress renders notices in both accessibility region and visible content
+		expect(
+			await screen.findAllByText( 'Invalid site data.' )
+		).toHaveLength( 2 );
 	} );
 } );

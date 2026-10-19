@@ -29,20 +29,19 @@ const API_KEY = window.OneSearchSettings.api_key;
 
 const SiteSettings = () => {
 	const [ apiKey, setApiKey ] = useState( API_KEY );
-	const [ isLoading, setIsLoading ] = useState( false );
+	const [ isLoading, setIsLoading ] = useState( true );
 	const [ notice, setNotice ] = useState< NoticeType | null >( null );
 	const [ governingSite, setGoverningSite ] = useState( '' );
 	const [ showDisconnectionModal, setShowDisconnectionModal ] =
 		useState( false );
 
-	// regenerate api key using REST endpoint.
+	// The admin nonce authenticates these same-site requests.
 	const regenerateApiKey = useCallback( async () => {
 		try {
 			const response = await fetch( API_NAMESPACE + '/secret-key', {
 				method: 'POST',
 				headers: {
 					'X-WP-Nonce': NONCE,
-					'X-OneSearch-Token': API_KEY,
 				},
 			} );
 			if ( ! response.ok ) {
@@ -79,7 +78,6 @@ const SiteSettings = () => {
 	}, [] );
 
 	const fetchCurrentGoverningSite = useCallback( async () => {
-		setIsLoading( true );
 		try {
 			const response = await fetch(
 				`${ window.OneSearchSettings.restUrl }wp/v2/settings`,
@@ -88,7 +86,6 @@ const SiteSettings = () => {
 					headers: {
 						'Content-Type': 'application/json',
 						'X-WP-Nonce': NONCE,
-						'X-OneSearch-Token': apiKey,
 					},
 				}
 			);
@@ -105,10 +102,8 @@ const SiteSettings = () => {
 					'onesearch'
 				),
 			} );
-		} finally {
-			setIsLoading( false );
 		}
-	}, [ apiKey ] );
+	}, [] );
 
 	const deleteGoverningSiteConnection = useCallback( async () => {
 		try {
@@ -117,7 +112,6 @@ const SiteSettings = () => {
 				headers: {
 					'Content-Type': 'application/json',
 					'X-WP-Nonce': NONCE,
-					'X-OneSearch-Token': apiKey,
 				},
 			} );
 			if ( ! response.ok ) {
@@ -150,14 +144,15 @@ const SiteSettings = () => {
 		} finally {
 			setShowDisconnectionModal( false );
 		}
-	}, [ apiKey ] );
+	}, [] );
 
 	const handleDisconnectGoverningSite = useCallback( async () => {
 		setShowDisconnectionModal( true );
 	}, [] );
 
+	// Load once on mount.
 	useEffect( () => {
-		fetchCurrentGoverningSite();
+		fetchCurrentGoverningSite().finally( () => setIsLoading( false ) );
 	}, [ fetchCurrentGoverningSite ] );
 
 	if ( isLoading ) {
@@ -225,7 +220,8 @@ const SiteSettings = () => {
 					<div>
 						<TextareaControl
 							value={ apiKey }
-							disabled
+							// Not disabled, so the key can still be selected and copied by hand.
+							readOnly
 							help={ __(
 								'This key is used for secure communication with the Governing site.',
 								'onesearch'

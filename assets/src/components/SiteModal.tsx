@@ -18,7 +18,7 @@ import { useMemo, useState } from 'react';
  * Internal dependencies
  */
 import type { defaultBrandSite } from '@/admin/settings/page';
-import { isValidUrl } from '../js/utils';
+import { isValidUrl, withTrailingSlash } from '../js/utils';
 interface ErrorsType {
 	name: string;
 	url: string;
@@ -37,7 +37,8 @@ const SiteModal = ( {
 }: {
 	formData: typeof defaultBrandSite;
 	setFormData: ( data: typeof defaultBrandSite ) => void;
-	onSubmit: () => Promise< boolean >;
+	// Resolves true on success, or false or the server's error message on failure.
+	onSubmit: () => Promise< boolean | string >;
 	onClose: () => void;
 	editing: boolean;
 	sites: ( typeof defaultBrandSite )[];
@@ -109,52 +110,46 @@ const SiteModal = ( {
 			return;
 		}
 
+		const formUrl = withTrailingSlash( formData.url );
+		const isAlreadyExists = sites.some(
+			( site ) =>
+				withTrailingSlash( site.url ) === formUrl &&
+				// Allow keeping the original url in editing mode.
+				! (
+					editing &&
+					withTrailingSlash( originalData?.url ?? '' ) === formUrl
+				)
+		);
+
+		if ( isAlreadyExists ) {
+			setErrors( {
+				...newErrors,
+				message: __(
+					'Site URL already exists. Please use a different URL.',
+					'onesearch'
+				),
+			} );
+			setShowNotice( true );
+			return;
+		}
+
 		// Start processing
 		setIsProcessing( true );
 		setShowNotice( false );
 
 		try {
-			// check if same url is already added or not.
-			let isAlreadyExists = false;
-			sites.forEach( ( site ) => {
-				const trimmedSiteUrl = site.url.endsWith( '/' )
-					? site.url
-					: `${ site.url }/`;
-				const trimmedFormUrl = formData.url.endsWith( '/' )
-					? formData.url
-					: `${ formData.url }/`;
-				if ( trimmedSiteUrl === trimmedFormUrl ) {
-					if ( editing && originalData?.url === formData.url ) {
-						// allow if url is same as original url in editing mode
-						return;
-					}
-					isAlreadyExists = true;
-				}
-			} );
-
-			if ( isAlreadyExists ) {
-				setErrors( {
-					...newErrors,
-					message: __(
-						'Site URL already exists. Please use a different URL.',
-						'onesearch'
-					),
-				} );
-				setShowNotice( true );
-				setIsProcessing( false );
-				return;
-			}
-
-			setShowNotice( false );
 			const submitResponse = await onSubmit();
 
-			if ( ! submitResponse ) {
+			if ( submitResponse !== true ) {
 				setErrors( {
 					...newErrors,
-					message: __(
-						'An error occurred while saving the site. Please try again.',
-						'onesearch'
-					),
+					message:
+						typeof submitResponse === 'string' && submitResponse
+							? submitResponse
+							: __(
+									'An error occurred while saving the site. Please try again.',
+									'onesearch'
+							  ),
 				} );
 				setShowNotice( true );
 			}
@@ -167,8 +162,6 @@ const SiteModal = ( {
 				),
 			} );
 			setShowNotice( true );
-			setIsProcessing( false );
-			return;
 		} finally {
 			setIsProcessing( false );
 		}
