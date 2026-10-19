@@ -29,15 +29,13 @@ OneSearch solves this by enabling a federated search layer that bridges multiple
 * **Unified Search Layer:** Execute a single search query across multiple connected sites
 * **Brand Awareness:** Show source brand site and redirect users to the respective site
 * **Governance & Control:** Control visibility and indexing scope at the site or post-type level
-* **Developer Extensibility:** Easily register post types, taxonomies, and metadata for indexing
-* **Performance Optimized:** Lightweight REST architecture with cache-friendly responses
+* **Developer Extensibility:** Filters let you adjust the indexed record data, index settings and search parameters
 * **Modular Design:** Extend and customize indexing and search behavior without core overrides
 
 **Core Features:**
 
 * **Cross-Site (Federated) Search:** Aggregate search results across multisite or standalone installations
-* **Configurable Indexing:** Register which post types, taxonomies, or meta fields are searchable on a per-site basis
-* **Custom Blocks:** Gutenberg-ready blocks for search interfaces
+* **Configurable Indexing:** Choose which post types are searchable on a per-site basis
 * **Bring Your Own Key:** Connect with your Algolia instance for improved data sovereignty and reduced vendor lock-in
 * **Automatic Indexing:** Posts are automatically indexed on publish and removed on deletion
 * **Local Content Boost:** Search results prioritize content from the current site while including network-wide results
@@ -55,18 +53,19 @@ OneSearch solves this by enabling a federated search layer that bridges multiple
 1. Download the latest OneSearch plugin from the GitHub releases and install it on your WordPress sites
 2. Activate the plugin through the 'Plugins' screen in WordPress
    * For multisite installations, make sure to Network Activate the plugin
+   * Stored API keys are encrypted with a key derived from your WordPress salts, so rotating the salts empties them. Define `ONEPRESS_ENCRYPTION_KEY` and `ONEPRESS_ENCRYPTION_SALT` in wp-config.php to keep them when you rotate salts. Define them before you add any keys, or enter the keys again after you do
 3. **Choose Site Type (One-time selection):**
    * **Governing Site:** Central site that manages the brand network and search configurations (one per network)
    * **Brand Site:** Individual sites connected to the governing site for cross-site search
-4. **For Brand Sites:** Navigate to Dashboard → OneSearch → Settings to get the API key
-5. **For Governing Site:** Go to Dashboard → OneSearch → Settings and add Brand Sites by entering Site name, URL, and the API Key obtained from each Brand Site
+4. **For Brand Sites:** Navigate to OneSearch → Settings to get the API key
+5. **For Governing Site:** Go to OneSearch → Settings and add Brand Sites by entering Site name, URL, and the API Key obtained from each Brand Site
 
 **Setting up Algolia:**
 
 1. Visit Algolia (https://www.algolia.com/) and create an account if you don't have one
 2. Go to your API Keys dashboard in Algolia
-3. Copy the Application ID and Write API Key
-4. Paste both keys into Dashboard → OneSearch → Settings under the 'Algolia Credentials' section
+3. Copy the Application ID and the Write API Key, or create a key restricted to the `onesearch_*` indices with the search, addObject, deleteIndex, settings and editSettings permissions
+4. Paste both keys into OneSearch → Settings under the 'Algolia Credentials' section
 
 **Configuring Indices and Search Scope:**
 
@@ -75,6 +74,12 @@ OneSearch solves this by enabling a federated search layer that bridges multiple
 3. Click 'Save' to save settings and index the data
 4. In the 'Site Search Configuration' section, enable OneSearch on desired sites
 5. Configure which sites can be searched from each enabled site
+
+== External services ==
+
+OneSearch uses Algolia to index and search your content, so it needs an Algolia account to work. When a post of a type you chose to index is published, updated or deleted, and when you re-index, OneSearch sends the post's title, content, excerpt, URL, dates, taxonomy terms, featured image, author name, avatar and archive link, and the site's name and URL to your Algolia application. Every front-end search sends the visitor's search terms to Algolia. Algolia's terms of service are at https://www.algolia.com/policies/terms and its privacy policy is at https://www.algolia.com/policies/privacy.
+
+Brand sites receive the Algolia Write API Key, so only connect sites you trust with the shared index, and use a key restricted to the `onesearch_*` indices.
 
 == Frequently Asked Questions ==
 
@@ -102,13 +107,9 @@ Yes. OneSearch uses a "Bring Your Own Key" approach, connecting to your Algolia 
 
 Yes. From the Governing Site, you can configure the search scope for each brand site, controlling which sites' content appears in search results.
 
-== Screenshots ==
-
-@todo - Screenshots need to be captured and added before release.
-
 == Changelog ==
 
-See <a href="https://github.com/rtCamp/OneSearch/blob/main/CHANGELOG.md" target="_blank">CHANGELOG.md</a> for detailed changelog.
+See [CHANGELOG.md](https://github.com/rtCamp/OneSearch/blob/main/CHANGELOG.md) for the detailed changelog.
 
 == Support ==
 
