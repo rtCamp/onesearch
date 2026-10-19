@@ -84,10 +84,10 @@ class Governing_Data_Handler {
 			$endpoint,
 			[
 				'headers' => [
-					'Accept'            => 'application/json',
-					'Content-Type'      => 'application/json',
-					'Origin'            => untrailingslashit( Utils::get_current_site_url() ),
-					'X-OneSearch-Token' => $our_public_key,
+					'Accept'               => 'application/json',
+					'Content-Type'         => 'application/json',
+					'X-OneSearch-Token'    => $our_public_key,
+					'X-OneSearch-Site-URL' => Utils::get_current_site_url(),
 				],
 			]
 		);
@@ -198,10 +198,10 @@ class Governing_Data_Handler {
 			[
 				'method'  => \WP_REST_Server::DELETABLE,
 				'headers' => [
-					'Accept'            => 'application/json',
-					'Content-Type'      => 'application/json',
-					'Origin'            => untrailingslashit( Utils::get_current_site_url() ),
-					'X-OneSearch-Token' => $our_public_key,
+					'Accept'               => 'application/json',
+					'Content-Type'         => 'application/json',
+					'X-OneSearch-Token'    => $our_public_key,
+					'X-OneSearch-Site-URL' => Utils::get_current_site_url(),
 				],
 				'timeout' => 15, // phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout -- The governing site purges this site's Algolia records before responding.
 			]
@@ -285,10 +285,10 @@ class Governing_Data_Handler {
 				$endpoint,
 				[
 					'headers' => [
-						'Accept'            => 'application/json',
-						'Content-Type'      => 'application/json',
-						'Origin'            => untrailingslashit( Utils::get_current_site_url() ),
-						'X-OneSearch-Token' => $site_data['api_key'],
+						'Accept'               => 'application/json',
+						'Content-Type'         => 'application/json',
+						'X-OneSearch-Token'    => $site_data['api_key'],
+						'X-OneSearch-Site-URL' => Utils::get_current_site_url(),
 					],
 				]
 			);
@@ -383,10 +383,10 @@ class Governing_Data_Handler {
 				[
 					'method'   => \WP_REST_Server::DELETABLE,
 					'headers'  => [
-						'Accept'            => 'application/json',
-						'Content-Type'      => 'application/json',
-						'Origin'            => untrailingslashit( Utils::get_current_site_url() ),
-						'X-OneSearch-Token' => $site_data['api_key'],
+						'Accept'               => 'application/json',
+						'Content-Type'         => 'application/json',
+						'X-OneSearch-Token'    => $site_data['api_key'],
+						'X-OneSearch-Site-URL' => Utils::get_current_site_url(),
 					],
 					// Don't wait to see if the cache flush was successful.
 					'blocking' => false,

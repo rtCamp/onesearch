@@ -31,7 +31,7 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 				[
 					'methods'             => WP_REST_Server::READABLE,
 					'callback'            => [ $this, 'get_brand_config' ],
-					'permission_callback' => [ $this, 'check_api_permissions' ],
+					'permission_callback' => [ $this, 'is_brand_request' ],
 				]
 			);
 
@@ -42,7 +42,7 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 				[
 					'methods'             => WP_REST_Server::DELETABLE,
 					'callback'            => [ $this, 'remove_current_brand_site' ],
-					'permission_callback' => [ $this, 'check_api_permissions' ],
+					'permission_callback' => [ $this, 'is_brand_request' ],
 				]
 			);
 		}
@@ -56,7 +56,7 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 				[
 					'methods'             => WP_REST_Server::DELETABLE,
 					'callback'            => [ $this, 'delete_brand_config_cache' ],
-					'permission_callback' => [ $this, 'check_api_permissions' ],
+					'permission_callback' => [ $this, 'is_governing_request' ],
 				]
 			);
 
@@ -67,7 +67,7 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 				[
 					'methods'             => WP_REST_Server::DELETABLE,
 					'callback'            => [ $this, 'remove_governing_site_from_brand' ],
-					'permission_callback' => [ $this, 'check_api_permissions' ],
+					'permission_callback' => [ $this, 'is_governing_request' ],
 				]
 			);
 		}
@@ -79,7 +79,7 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 			[
 				'methods'             => WP_REST_Server::READABLE,
 				'callback'            => [ $this, 'get_all_post_types' ],
-				'permission_callback' => [ $this, 'check_api_permissions' ],
+				'permission_callback' => fn ( $request ) => current_user_can( 'manage_options' ) || $this->is_governing_request( $request ),
 			]
 		);
 	}
@@ -90,16 +90,8 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
 	 */
 	public function get_brand_config( $request ): WP_REST_Response|\WP_Error {
-		// Get the origin from the request headers and confirm it's a known site.
-		$site_url = $this->get_request_site_url( $request );
-
-		if ( empty( $site_url ) || ! $this->is_allowed_site( $site_url ) ) {
-			return new \WP_Error(
-				'onesearch_unauthorized_site',
-				__( 'The requesting site is not a shared brand site.', 'onesearch' ),
-				[ 'status' => 403 ]
-			);
-		}
+		// A shared brand site, checked by ::is_brand_request.
+		$site_url = $this->get_requesting_site_url( $request );
 
 		// Get Algolia credentials.
 		$creds = Search_Settings::get_algolia_credentials();
@@ -147,17 +139,9 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
 	 */
 	public function remove_current_brand_site( $request ): WP_REST_Response|\WP_Error {
-		$site_url = $this->get_request_site_url( $request );
+		$site_url = $this->get_requesting_site_url( $request );
 
-		if ( empty( $site_url ) || ! $this->is_allowed_site( $site_url ) ) {
-			return new \WP_Error(
-				'onesearch_unauthorized_site',
-				__( 'The requesting site is not a shared brand site.', 'onesearch' ),
-				[ 'status' => 403 ]
-			);
-		}
-
-		if ( ! Settings::remove_shared_site( $site_url ) ) {
+		if ( empty( $site_url ) || ! Settings::remove_shared_site( $site_url ) ) {
 			return new \WP_Error(
 				'onesearch_remove_site_failed',
 				__( 'The brand site could not be removed.', 'onesearch' ),
@@ -240,29 +224,6 @@ class Governing_Data_Controller extends Abstract_REST_Controller {
 				'errors'  => $errors,
 			]
 		);
-	}
-
-	/**
-	 * Get the normalized URL of the site making the request, from its Origin header.
-	 *
-	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
-	 */
-	private function get_request_site_url( $request ): string {
-		$origin = $request->get_header( 'origin' );
-		$origin = ! empty( $origin ) ? esc_url_raw( wp_unslash( $origin ) ) : '';
-
-		return Utils::normalize_url( $origin );
-	}
-
-	/**
-	 * Check whether the request is from a known brand site.
-	 *
-	 * @param string $origin The origin URL.
-	 */
-	private function is_allowed_site( string $origin ): bool {
-		$shared_sites = Settings::get_shared_sites();
-
-		return isset( $shared_sites[ $origin ] );
 	}
 
 	/**

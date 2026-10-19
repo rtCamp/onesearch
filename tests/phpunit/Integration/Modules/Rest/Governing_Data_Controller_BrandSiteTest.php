@@ -72,13 +72,12 @@ class Governing_Data_Controller_BrandSiteTest extends TestCase {
 	}
 
 	/**
-	 * DELETE /brand-config clears the cached brand config transient.
+	 * DELETE /brand-config from the governing site clears the cached brand config transient.
 	 */
 	public function test_delete_brand_config_cache_clears_transient(): void {
 		set_transient( Governing_Data_Handler::TRANSIENT_KEY, [ 'cached' => true ], 3600 );
 
-		$request  = new WP_REST_Request( 'DELETE', '/onesearch/v1/brand-config' );
-		$response = $this->server->dispatch( $request );
+		$response = $this->server->dispatch( $this->governing_request( 'DELETE', '/onesearch/v1/brand-config' ) );
 		$data     = $response->get_data();
 
 		$this->assertSame( 200, $response->get_status() );
@@ -92,8 +91,7 @@ class Governing_Data_Controller_BrandSiteTest extends TestCase {
 	public function test_delete_brand_config_cache_succeeds_when_no_cache(): void {
 		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
 
-		$request  = new WP_REST_Request( 'DELETE', '/onesearch/v1/brand-config' );
-		$response = $this->server->dispatch( $request );
+		$response = $this->server->dispatch( $this->governing_request( 'DELETE', '/onesearch/v1/brand-config' ) );
 		$data     = $response->get_data();
 
 		$this->assertSame( 200, $response->get_status() );
@@ -101,21 +99,27 @@ class Governing_Data_Controller_BrandSiteTest extends TestCase {
 	}
 
 	/**
+	 * Only the governing site clears the cached brand config, so a logged-in admin (from set_up) is refused.
+	 */
+	public function test_delete_brand_config_cache_refuses_an_admin(): void {
+		set_transient( Governing_Data_Handler::TRANSIENT_KEY, [ 'cached' => true ], 3600 );
+
+		$response = $this->server->dispatch( new WP_REST_Request( 'DELETE', '/onesearch/v1/brand-config' ) );
+
+		$this->assertSame( 403, $response->get_status() );
+		$this->assertSame( [ 'cached' => true ], get_transient( Governing_Data_Handler::TRANSIENT_KEY ) );
+	}
+
+	/**
 	 * The governing site, presenting this site's token, clears the pairing and the cached
 	 * brand configuration with its Algolia credentials.
 	 */
 	public function test_remove_governing_site_clears_pairing_and_cached_config(): void {
-		Settings::set_parent_site_url( 'https://governing.example.com' );
 		set_transient( Governing_Data_Handler::TRANSIENT_KEY, [ 'algolia_credentials' => [ 'write_key' => 'cached' ] ], 3600 );
 
-		// Logged out, so success comes from the token rather than the manage_options fallback.
 		wp_set_current_user( 0 );
 
-		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/brand-site' );
-		$request->set_header( 'origin', 'https://governing.example.com' );
-		$request->set_header( 'X-OneSearch-Token', Settings::get_api_key() );
-
-		$response = $this->server->dispatch( $request );
+		$response = $this->server->dispatch( $this->governing_request( 'DELETE', '/onesearch/v1/brand-site' ) );
 
 		$this->assertSame( 200, $response->get_status() );
 		$this->assertTrue( $response->get_data()['success'] );
@@ -132,7 +136,7 @@ class Governing_Data_Controller_BrandSiteTest extends TestCase {
 		wp_set_current_user( 0 );
 
 		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/brand-site' );
-		$request->set_header( 'origin', 'https://other.example.com' );
+		$request->set_header( 'X-OneSearch-Site-URL', 'https://other.example.com' );
 		$request->set_header( 'X-OneSearch-Token', Settings::get_api_key() );
 
 		$response = $this->server->dispatch( $request );
@@ -150,12 +154,30 @@ class Governing_Data_Controller_BrandSiteTest extends TestCase {
 		wp_set_current_user( 0 );
 
 		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/brand-site' );
-		$request->set_header( 'origin', 'https://governing.example.com' );
+		$request->set_header( 'X-OneSearch-Site-URL', 'https://governing.example.com' );
 		$request->set_header( 'X-OneSearch-Token', 'wrong-key' );
 
 		$response = $this->server->dispatch( $request );
 
 		$this->assertSame( 401, $response->get_status() );
 		$this->assertSame( 'https://governing.example.com', Settings::get_parent_site_url() );
+	}
+
+	/**
+	 * Builds a request from the governing site this brand site is connected to.
+	 *
+	 * @param string $method HTTP method.
+	 * @param string $route  REST route.
+	 *
+	 * @return \WP_REST_Request<array<string,mixed>>
+	 */
+	private function governing_request( string $method, string $route ): WP_REST_Request {
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+
+		$request = new WP_REST_Request( $method, $route );
+		$request->set_header( 'X-OneSearch-Site-URL', 'https://governing.example.com' );
+		$request->set_header( 'X-OneSearch-Token', Settings::get_api_key() );
+
+		return $request;
 	}
 }

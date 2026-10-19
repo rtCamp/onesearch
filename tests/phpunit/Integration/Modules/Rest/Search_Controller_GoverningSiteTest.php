@@ -169,6 +169,40 @@ class Search_Controller_GoverningSiteTest extends TestCase {
 	}
 
 	/**
+	 * A brand site's token can't replace the governing site's Algolia credentials.
+	 */
+	public function test_update_algolia_credentials_refuses_brand_token(): void {
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Brand',
+					'url'     => 'https://brand.example.com',
+					'api_key' => 'brand-key',
+				],
+			]
+		);
+		wp_set_current_user( 0 );
+
+		$request = new WP_REST_Request( 'POST', '/onesearch/v1/algolia-credentials' );
+		$request->set_header( 'X-OneSearch-Site-URL', 'https://brand.example.com' );
+		$request->set_header( 'X-OneSearch-Token', 'brand-key' );
+		$request->set_header( 'Content-Type', 'application/json' );
+		$request->set_body(
+			wp_json_encode(
+				[
+					'app_id'    => 'OTHER_APP',
+					'write_key' => 'other-key',
+				]
+			)
+		);
+
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 401, $response->get_status() );
+		$this->assertSame( 'rest_forbidden', $response->get_data()['code'] );
+	}
+
+	/**
 	 * GET /indexable-entities returns the stored map.
 	 */
 	public function test_get_indexable_entities_returns_stored_data(): void {

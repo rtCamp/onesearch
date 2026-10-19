@@ -34,7 +34,7 @@ class Search_Controller extends Abstract_REST_Controller {
 					[
 						'methods'             => WP_REST_Server::READABLE,
 						'callback'            => [ $this, 'get_algolia_credentials' ],
-						'permission_callback' => [ $this, 'check_api_permissions' ],
+						'permission_callback' => static fn () => current_user_can( 'manage_options' ),
 					],
 					[
 						'methods'             => WP_REST_Server::CREATABLE,
@@ -51,7 +51,7 @@ class Search_Controller extends Abstract_REST_Controller {
 							],
 						],
 						'callback'            => [ $this, 'update_algolia_credentials' ],
-						'permission_callback' => [ $this, 'check_api_permissions' ],
+						'permission_callback' => static fn () => current_user_can( 'manage_options' ),
 					],
 				]
 			);
@@ -64,14 +64,12 @@ class Search_Controller extends Abstract_REST_Controller {
 					[
 						'methods'             => WP_REST_Server::READABLE,
 						'callback'            => [ $this, 'get_indexable_entities' ],
-						'permission_callback' => [ $this, 'check_api_permissions' ],
+						'permission_callback' => static fn () => current_user_can( 'manage_options' ),
 					],
 					[
 						'methods'             => WP_REST_Server::CREATABLE,
 						'callback'            => [ $this, 'set_indexable_entities' ],
-						'permission_callback' => static function () {
-							return current_user_can( 'manage_options' );
-						},
+						'permission_callback' => static fn () => current_user_can( 'manage_options' ),
 						'args'                => [
 							'entities' => [
 								'required'          => true,
@@ -93,7 +91,7 @@ class Search_Controller extends Abstract_REST_Controller {
 			[
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => [ $this, 'reindex' ],
-				'permission_callback' => [ $this, 'check_api_permissions' ],
+				'permission_callback' => fn ( $request ) => current_user_can( 'manage_options' ) || $this->is_governing_request( $request ),
 			]
 		);
 	}
@@ -270,10 +268,10 @@ class Search_Controller extends Abstract_REST_Controller {
 				$endpoint,
 				[
 					'headers' => [
-						'Accept'            => 'application/json',
-						'Content-Type'      => 'application/json',
-						'Origin'            => untrailingslashit( Utils::get_current_site_url() ),
-						'X-OneSearch-Token' => $site_data['api_key'],
+						'Accept'               => 'application/json',
+						'Content-Type'         => 'application/json',
+						'X-OneSearch-Token'    => $site_data['api_key'],
+						'X-OneSearch-Site-URL' => Utils::get_current_site_url(),
 					],
 					'timeout' => 45, // phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout -- Allow longer timeout for reindexing.
 				]

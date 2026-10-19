@@ -12,6 +12,7 @@ namespace OneSearch\Tests\Integration\Modules\Rest;
 use OneSearch\Modules\Rest\Governing_Data_Handler;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
+use OneSearch\Utils;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
@@ -280,10 +281,12 @@ class Governing_Data_HandlerTest extends TestCase {
 			'available_sites'     => [ 'https://a.example.com/' ],
 		];
 
-		$filter = static function ( $preempt, $args, $url ) use ( $payload ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+		$sent_site_url = null;
+		$filter        = static function ( $preempt, $args, $url ) use ( $payload, &$sent_site_url ) {
 			if ( false === strpos( $url, '/brand-config' ) ) {
 				return $preempt;
 			}
+			$sent_site_url = $args['headers']['X-OneSearch-Site-URL'] ?? null;
 			return [
 				'response' => [
 					'code'    => 200,
@@ -300,6 +303,7 @@ class Governing_Data_HandlerTest extends TestCase {
 
 		remove_filter( 'pre_http_request', $filter );
 
+		$this->assertSame( Utils::get_current_site_url(), $sent_site_url );
 		$this->assertIsArray( $result );
 		$this->assertSame( 'REMOTE_APP', $result['algolia_credentials']['app_id'] );
 		$this->assertSame( 'REMOTE_KEY', $result['algolia_credentials']['write_key'] );
@@ -446,7 +450,8 @@ class Governing_Data_HandlerTest extends TestCase {
 		$this->assertSame( 'https://governing.example.com/wp-json/onesearch/v1/brand-site', $captured['url'] );
 		$this->assertSame( 'DELETE', $captured['args']['method'] );
 		$this->assertSame( $api_key, $captured['args']['headers']['X-OneSearch-Token'] );
-		$this->assertSame( get_site_url(), $captured['args']['headers']['Origin'] );
+		$this->assertSame( Utils::get_current_site_url(), $captured['args']['headers']['X-OneSearch-Site-URL'] );
+		$this->assertArrayNotHasKey( 'Origin', $captured['args']['headers'] );
 		$this->assertSame( 15, $captured['args']['timeout'] );
 	}
 
