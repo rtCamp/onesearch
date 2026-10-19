@@ -8,13 +8,7 @@ import { __, sprintf } from '@wordpress/i18n';
 /**
  * External dependencies
  */
-import {
-	useState,
-	useRef,
-	useEffect,
-	type MouseEvent,
-	type KeyboardEvent,
-} from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 interface MultiSelectChipsProps {
 	label?: string;
@@ -114,85 +108,54 @@ function MultiSelectChips( {
 		// @todo Semantic classname.
 		<div className="msc" aria-disabled={ disabled } ref={ anchorRef }>
 			{ label && <span className="msc-label">{ label }</span> }
-			<div
-				role="button"
-				tabIndex={ disabled ? -1 : 0 }
+			<button
+				type="button"
 				className="msc-control"
 				onClick={ handleToggleOpen }
-				onKeyDown={ ( e: KeyboardEvent< HTMLDivElement > ) => {
-					if ( disabled ) {
-						return;
-					}
-					if ( e.key === 'Enter' || e.key === ' ' ) {
-						e.preventDefault();
-						handleToggleOpen();
-					}
-				} }
-				aria-haspopup="listbox"
+				disabled={ disabled }
 				aria-expanded={ open }
 			>
+				<span className="msc-placeholder">{ placeholder }</span>
+				<Icon icon={ chevronDown } />
+			</button>
+
+			{ /* Outside the toggle, so the remove buttons aren't nested in another button. */ }
+			{ selected.length > 0 && (
 				<div
 					className={ `msc-chips ${
 						disabled ? 'msc--disabled' : ''
 					}` }
 				>
-					{ selected.length === 0 ? (
-						<span className="msc-placeholder">{ placeholder }</span>
-					) : (
-						selected.map( ( item ) => {
-							const itemValue = getVal( item );
-							const itemLabel = getLabel( item );
+					{ selected.map( ( item ) => {
+						const itemValue = getVal( item );
+						const itemLabel = getLabel( item );
 
-							const handleRemove = (
-								e: MouseEvent< HTMLButtonElement >
-							) => {
-								e.stopPropagation();
-								removeValue( itemValue );
-							};
-
-							const handleKeyDown = (
-								e: KeyboardEvent< HTMLButtonElement >
-							) => {
-								if ( disabled ) {
-									return;
-								}
-								if ( e.key === 'Enter' || e.key === ' ' ) {
-									e.preventDefault();
-									e.stopPropagation();
-									removeValue( itemValue );
-								}
-							};
-
-							return (
-								<span key={ itemValue } className="msc-chip">
-									<span className="msc-chip-label">
-										{ itemLabel }
-									</span>
-									<button
-										type="button"
-										tabIndex={ disabled ? -1 : 0 }
-										className="msc-chip-close"
-										onClick={ handleRemove }
-										onKeyDown={ handleKeyDown }
-										aria-label={ sprintf(
-											/* translators: %s: item label */
-											__( 'Remove %s', 'onesearch' ),
-											itemLabel
-										) }
-										disabled={ disabled }
-									>
-										<Icon
-											icon={ closeSmall }
-											aria-hidden={ false }
-										/>
-									</button>
+						return (
+							<span key={ itemValue } className="msc-chip">
+								<span className="msc-chip-label">
+									{ itemLabel }
 								</span>
-							);
-						} )
-					) }
+								<button
+									type="button"
+									className="msc-chip-close"
+									onClick={ () => removeValue( itemValue ) }
+									aria-label={ sprintf(
+										/* translators: %s: item label */
+										__( 'Remove %s', 'onesearch' ),
+										itemLabel
+									) }
+									disabled={ disabled }
+								>
+									<Icon
+										icon={ closeSmall }
+										aria-hidden={ false }
+									/>
+								</button>
+							</span>
+						);
+					} ) }
 				</div>
-				<Icon icon={ chevronDown } />
-			</div>
+			) }
 
 			{ open && (
 				<Popover
@@ -201,7 +164,6 @@ function MultiSelectChips( {
 				>
 					<div
 						className="msc-menu"
-						role="listbox"
 						style={ {
 							minWidth: anchorRef.current?.offsetWidth,
 						} }
@@ -215,12 +177,7 @@ function MultiSelectChips( {
 								) }`;
 								const checked = valueSet.has( val );
 								return (
-									<li
-										key={ val }
-										className="msc-row"
-										role="option"
-										aria-selected={ checked }
-									>
+									<li key={ val } className="msc-row">
 										<label
 											htmlFor={ id }
 											className="msc-row-label"

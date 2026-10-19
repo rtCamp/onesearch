@@ -36,6 +36,7 @@
 .msc {
 	max-width: 70%;
 	display: grid;
+	gap: 8px;
 }
 
 .msc-label {
@@ -53,6 +54,8 @@
 	background: #fff;
 	border: 1px solid #c3c4c7;
 	border-radius: 4px;
+	color: inherit;
+	font: inherit;
 	cursor: pointer;
 	text-align: left;
 	gap: 8px;
@@ -207,6 +210,12 @@
 
 .onesearch-current-site {
 	border-color: #007cba;
+}
+
+.onesearch-searchable-label,
+.onesearch-searchable-name,
+.onesearch-searchable-url {
+	display: block;
 }
 
 .onesearch-searchable-name {

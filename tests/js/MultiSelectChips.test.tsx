@@ -69,30 +69,35 @@ describe( 'MultiSelectChips', () => {
 		expect( onChange ).toHaveBeenCalledWith( [ 'page' ] );
 	} );
 
-	it( 'supports keyboard removal for selected chips', async () => {
-		const onChange = jest.fn();
-
+	it( 'uses a native button to open the menu, with the chips outside it', async () => {
 		render(
 			<MultiSelectChips
 				label="Entities"
 				options={ options }
-				value={ [ 'page' ] }
-				onChange={ onChange }
+				value={ [ 'post' ] }
 				valueField="slug"
 				labelField="label"
 			/>
 		);
 
+		const control = screen.getByRole( 'button', { name: 'Select…' } );
+		expect( control.tagName ).toBe( 'BUTTON' );
+		expect(
+			control.contains(
+				screen.getByRole( 'button', { name: 'Remove Posts' } )
+			)
+		).toBe( false );
+
 		await act( async () => {
-			fireEvent.keyDown(
-				screen.getByRole( 'button', { name: 'Remove Pages' } ),
-				{
-					key: 'Enter',
-				}
-			);
+			fireEvent.click( control );
 		} );
 
-		expect( onChange ).toHaveBeenCalledWith( [] );
+		expect( control ).toHaveAttribute( 'aria-expanded', 'true' );
+		expect(
+			screen.getByRole( 'checkbox', { name: 'Posts' } )
+		).toBeChecked();
+		expect( screen.queryByRole( 'listbox' ) ).not.toBeInTheDocument();
+		expect( screen.queryByRole( 'option' ) ).not.toBeInTheDocument();
 	} );
 
 	it( 'closes the menu and blocks changes when disabled', async () => {
@@ -112,7 +117,9 @@ describe( 'MultiSelectChips', () => {
 				screen.getByRole( 'button', { name: 'Select…' } )
 			);
 		} );
-		expect( screen.getByRole( 'listbox' ) ).toBeInTheDocument();
+		expect(
+			screen.getByRole( 'checkbox', { name: 'Posts' } )
+		).toBeInTheDocument();
 
 		rerender(
 			<MultiSelectChips
@@ -125,13 +132,17 @@ describe( 'MultiSelectChips', () => {
 			/>
 		);
 
-		expect( screen.queryByRole( 'listbox' ) ).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole( 'checkbox', { name: 'Posts' } )
+		).not.toBeInTheDocument();
 		await act( async () => {
 			fireEvent.click(
 				screen.getByRole( 'button', { name: 'Select…' } )
 			);
 		} );
-		expect( screen.queryByRole( 'listbox' ) ).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole( 'checkbox', { name: 'Posts' } )
+		).not.toBeInTheDocument();
 		expect( onChange ).not.toHaveBeenCalled();
 	} );
 } );

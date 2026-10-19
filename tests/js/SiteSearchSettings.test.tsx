@@ -178,6 +178,72 @@ describe( 'SiteSearchSettings', () => {
 		} );
 	} );
 
+	it( 'does not save over unsaved edits when entities are removed', async () => {
+		const setNotice = jest.fn();
+
+		mockedApiFetch.mockResolvedValueOnce( {
+			onesearch_sites_search_settings: {
+				[ currentSiteUrl ]: {
+					algolia_enabled: true,
+					searchable_sites: [ currentSiteUrl ],
+				},
+				[ brandSiteUrl ]: {
+					algolia_enabled: false,
+					searchable_sites: [],
+				},
+			},
+		} );
+
+		const { rerender } = render(
+			<SiteSearchSettings
+				indexableEntities={ defaultEntities }
+				allPostTypes={ defaultPostTypes }
+				setNotice={ setNotice }
+				isIndexableEntitiesSaving={ false }
+			/>
+		);
+
+		await screen.findByText( 'Site Search Configuration' );
+
+		// An unsaved edit.
+		fireEvent.click(
+			screen.getByRole( 'checkbox', {
+				name: 'Enable Algolia search for Brand Site',
+			} )
+		);
+
+		rerender(
+			<SiteSearchSettings
+				indexableEntities={ {
+					[ currentSiteUrl ]: [],
+					[ brandSiteUrl ]: [ 'page' ],
+				} }
+				allPostTypes={ defaultPostTypes }
+				setNotice={ setNotice }
+				isIndexableEntitiesSaving={ false }
+			/>
+		);
+
+		expect(
+			await screen.findAllByText(
+				'Sites without indexable entities have been disabled. Save your settings to apply this.'
+			)
+		).not.toHaveLength( 0 );
+		// Only the initial load, nothing was saved.
+		expect( mockedApiFetch ).toHaveBeenCalledTimes( 1 );
+		expect(
+			screen.getByRole( 'checkbox', {
+				name: 'Enable Algolia search for Brand Site',
+			} )
+		).toBeChecked();
+		expect(
+			screen.getByRole( 'checkbox', {
+				name: 'Enable Algolia search for Governing Site',
+			} )
+		).not.toBeChecked();
+		expect( setNotice ).not.toHaveBeenCalled();
+	} );
+
 	it( 'shows error when settings fail to load', async () => {
 		const setNotice = jest.fn();
 		mockedApiFetch.mockRejectedValueOnce( new Error( 'load failed' ) );

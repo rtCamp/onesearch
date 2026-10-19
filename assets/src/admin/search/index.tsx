@@ -9,13 +9,8 @@ import apiFetch from '@wordpress/api-fetch';
 /**
  * External dependencies
  */
-import type {
-	BrandSite,
-	defaultBrandSite,
-	NoticeType,
-} from '@/admin/settings/page';
+import type { NoticeType } from '@/admin/settings/page';
 import SiteIndexableEntities from '@/components/SiteIndexableEntities';
-import SiteModal from '@/components/SiteModal';
 import SiteSearchSettings, {
 	type PostTypeOption,
 } from '@/components/SiteSearchSettings';
@@ -27,8 +22,6 @@ import {
 } from '@/js/utils';
 import type { SiteType } from '@/types/global';
 
-type BrandSiteFormData = typeof defaultBrandSite;
-
 interface AllPostTypesMap {
 	[ siteUrl: string ]: PostTypeOption[];
 }
@@ -37,7 +30,15 @@ interface IndexableEntitiesMap {
 	[ siteUrl: string ]: string[];
 }
 
+interface PostTypesError {
+	site_url: string;
+	message: string;
+}
+
+const SETUP_TITLE_ID = 'onesearch-setup-title';
+
 interface FetchAllPostTypesResponse {
+	errors?: PostTypesError[];
 	sites: {
 		[ url: string ]: {
 			post_types?: Array< {
@@ -56,20 +57,14 @@ const OneSearchSettingsPage = () => {
 	const hasPrerequisites = sharedSites.length > 0 && hasAlgoliaCreds;
 
 	const siteType: SiteType = window.OneSearchSettings.siteType || '';
-	const [ showModal, setShowModal ] = useState( false );
-	const [ editingIndex, setEditingIndex ] = useState< number | null >( null );
-	const [ sites, setSites ] = useState< BrandSite[] >(
-		sharedSites as BrandSite[]
-	);
-	const [ formData, setFormData ] = useState< BrandSiteFormData >( {
-		name: '',
-		url: '',
-		api_key: '',
-	} );
 	const [ notice, setNotice ] = useState< NoticeType | null >( null );
 	const [ allPostTypes, setAllPostTypes ] = useState< AllPostTypesMap >( {} );
 	const [ indexableEntities, setIndexableEntities ] =
 		useState< IndexableEntitiesMap >( {} );
+	const [ entitiesLoadFailed, setEntitiesLoadFailed ] = useState( false );
+	const [ postTypeErrors, setPostTypeErrors ] = useState< PostTypesError[] >(
+		[]
+	);
 	const [ saving, setSaving ] = useState( false );
 
 	const fetchEntities = async () => {
@@ -82,7 +77,10 @@ const OneSearchSettingsPage = () => {
 			setIndexableEntities(
 				settings?.onesearch_indexable_entities?.entities || {}
 			);
+			setEntitiesLoadFailed( false );
 		} catch {
+			// Saving now would overwrite the selections of every site.
+			setEntitiesLoadFailed( true );
 			setNotice( {
 				type: 'error',
 				message: __(
@@ -150,6 +148,9 @@ const OneSearchSettingsPage = () => {
 				const data: FetchAllPostTypesResponse = await res.json();
 				const mapped = toEntitiesMap( data );
 				setAllPostTypes( mapped );
+				setPostTypeErrors(
+					Array.isArray( data?.errors ) ? data.errors : []
+				);
 			} catch {
 				setNotice( {
 					type: 'error',
@@ -164,61 +165,6 @@ const OneSearchSettingsPage = () => {
 		fetchAllPostTypes();
 	}, [] );
 
-	const handleFormSubmit = async (): Promise< boolean > => {
-		const updated: BrandSite[] =
-			editingIndex !== null
-				? sites.map( ( item, i ) =>
-						i === editingIndex ? formData : item
-				  )
-				: [ ...sites, formData ];
-
-		const token = NONCE;
-		try {
-			const response = await fetch( `${ API_NAMESPACE }/shared-sites`, {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					'X-WP-NONCE': token,
-				},
-				body: JSON.stringify( { sites_data: updated } ),
-			} );
-			if ( ! response.ok ) {
-				/* eslint-disable-next-line no-console */
-				console.error(
-					'Error saving Brand site:',
-					response.statusText
-				);
-				return false;
-			}
-
-			if ( sites.length === 0 ) {
-				window.location.reload();
-				return true;
-			}
-
-			setSites( updated );
-			setNotice( {
-				type: 'success',
-				message: __( 'Brand Site saved successfully.', 'onesearch' ),
-			} );
-
-			setFormData( { name: '', url: '', api_key: '' } );
-			setShowModal( false );
-			setEditingIndex( null );
-			window.location.reload();
-			return true;
-		} catch {
-			setNotice( {
-				type: 'error',
-				message: __(
-					'Error saving Brand site. Please try again later.',
-					'onesearch'
-				),
-			} );
-			return false;
-		}
-	};
-
 	// Get status for Notice - map our types to Notice's expected types
 	const getNoticeStatus = (
 		type: NoticeType[ 'type' ] | undefined
@@ -232,8 +178,11 @@ const OneSearchSettingsPage = () => {
 	return (
 		<>
 			<>
-				{ notice?.message?.length && (
+				{ !! notice?.message && (
 					<Snackbar
+						// A new message remounts the Snackbar, which restarts its timer.
+						key={ notice.message }
+						onRemove={ () => setNotice( null ) }
 						className={
 							getNoticeStatus( notice.type ) === 'error'
 								? 'onesearch-error-notice'
@@ -249,13 +198,16 @@ const OneSearchSettingsPage = () => {
 				<>
 					<div className="onesearch-search-content">
 						<SiteIndexableEntities
-							sites={ sites }
+							sites={ sharedSites }
 							allPostTypes={ allPostTypes }
 							currentSiteUrl={ withTrailingSlash(
 								CURRENT_SITE_URL
 							) }
 							setNotice={ setNotice }
+							indexableEntities={ indexableEntities }
 							onEntitiesSaved={ handleEntitiesSaved }
+							loadFailed={ entitiesLoadFailed }
+							postTypeErrors={ postTypeErrors }
 							saving={ saving }
 							setSaving={ setSaving }
 						/>
@@ -268,41 +220,20 @@ const OneSearchSettingsPage = () => {
 						/>
 					</div>
 
-					{ showModal && (
-						<SiteModal
-							formData={ formData }
-							setFormData={ setFormData }
-							onSubmit={ handleFormSubmit }
-							onClose={ () => {
-								setShowModal( false );
-								setEditingIndex( null );
-								setFormData( {
-									name: '',
-									url: '',
-									api_key: '',
-								} );
-							} }
-							editing={ editingIndex !== null }
-							sites={ sites }
-							originalData={
-								editingIndex !== null
-									? sites[ editingIndex ]
-									: undefined
-							}
-						/>
-					) }
-
 					{ ! hasPrerequisites && (
 						<Modal
 							className="onesearch-setup-modal"
 							overlayClassName="onesearch-setup-overlay"
+							aria={ { labelledby: SETUP_TITLE_ID } }
 							onRequestClose={ () => {} }
 							shouldCloseOnEsc={ false }
 							shouldCloseOnClickOutside={ false }
 							size="medium"
 							__experimentalHideHeader
 						>
-							<h2>{ __( 'Setup Required', 'onesearch' ) }</h2>
+							<h2 id={ SETUP_TITLE_ID }>
+								{ __( 'Setup Required', 'onesearch' ) }
+							</h2>
 							<p>
 								{ __(
 									'You need to add at least one Brand Site and configure your Algolia credentials before you can set up indices and search.',
