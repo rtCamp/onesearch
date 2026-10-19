@@ -12,6 +12,7 @@ namespace OneSearch\Tests\Integration\Modules\Rest;
 use OneSearch\Modules\Rest\Abstract_REST_Controller;
 use OneSearch\Modules\Rest\Reindex_Controller;
 use OneSearch\Modules\Rest\Remote_Client;
+use OneSearch\Modules\Search\Indexer;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -78,8 +79,8 @@ class Reindex_Controller_ConsumerSiteTest extends TestCase {
 		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
-		$this->assertSame( 200, $response->get_status() );
-		$this->assertFalse( $data['success'] );
+		$this->assertSame( 500, $response->get_status() );
+		$this->assertSame( 'onesearch_no_parent', $data['code'] );
 	}
 
 	/**
@@ -112,8 +113,8 @@ class Reindex_Controller_ConsumerSiteTest extends TestCase {
 
 		remove_filter( 'pre_http_request', $filter );
 
-		$this->assertSame( 200, $response->get_status() );
-		$this->assertFalse( $data['success'] );
+		$this->assertSame( 500, $response->get_status() );
+		$this->assertSame( 'onesearch_rest_failed_to_connect', $data['code'] );
 	}
 
 	/**
@@ -161,8 +162,7 @@ class Reindex_Controller_ConsumerSiteTest extends TestCase {
 
 		remove_filter( 'pre_http_request', $filter );
 
-		$this->assertSame( 200, $response->get_status() );
-		$this->assertArrayHasKey( 'success', $data );
-		$this->assertArrayHasKey( 'message', $data );
+		$this->assertSame( 500, $response->get_status() );
+		$this->assertSame( Indexer::ERROR_NOT_CONFIGURED, $data['code'] );
 	}
 }

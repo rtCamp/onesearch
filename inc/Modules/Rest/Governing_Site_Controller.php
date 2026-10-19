@@ -98,7 +98,6 @@ class Governing_Site_Controller extends Abstract_REST_Controller {
 
 		return rest_ensure_response(
 			[
-				'success' => true,
 				'message' => __( 'Connected to the governing site.', 'onesearch' ),
 			]
 		);
@@ -136,7 +135,6 @@ class Governing_Site_Controller extends Abstract_REST_Controller {
 
 			return rest_ensure_response(
 				[
-					'success'                 => true,
 					'governing_site_notified' => false,
 					'message'                 => $message,
 				]
@@ -145,7 +143,6 @@ class Governing_Site_Controller extends Abstract_REST_Controller {
 
 		return rest_ensure_response(
 			[
-				'success'                 => true,
 				'governing_site_notified' => true,
 				'message'                 => __( 'Governing site removed successfully.', 'onesearch' ),
 			]
@@ -160,7 +157,6 @@ class Governing_Site_Controller extends Abstract_REST_Controller {
 
 		return rest_ensure_response(
 			[
-				'success' => true,
 				'message' => __( 'Brand configuration cache cleared successfully.', 'onesearch' ),
 			]
 		);

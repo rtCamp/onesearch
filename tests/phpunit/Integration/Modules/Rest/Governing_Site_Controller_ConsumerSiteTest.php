@@ -65,9 +65,8 @@ class Governing_Site_Controller_ConsumerSiteTest extends TestCase {
 
 		$request  = new WP_REST_Request( 'DELETE', '/onesearch/v1/governing-site' );
 		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
 
-		$this->assertTrue( $data['success'] );
+		$this->assertSame( 200, $response->get_status() );
 	}
 
 	/**
@@ -84,7 +83,7 @@ class Governing_Site_Controller_ConsumerSiteTest extends TestCase {
 					'code'    => 200,
 					'message' => 'OK',
 				],
-				'body'     => '{"success":true}',
+				'body'     => '',
 				'headers'  => [],
 				'cookies'  => [],
 			];
@@ -97,7 +96,6 @@ class Governing_Site_Controller_ConsumerSiteTest extends TestCase {
 
 		remove_filter( 'pre_http_request', $filter );
 
-		$this->assertTrue( $data['success'] );
 		$this->assertTrue( $data['governing_site_notified'] );
 		$this->assertSame( [ 'https://governing.example.com/wp-json/onesearch/v1/brand-site' ], $requested_urls );
 		$this->assertNull( Settings::get_parent_site_url() );
@@ -118,7 +116,6 @@ class Governing_Site_Controller_ConsumerSiteTest extends TestCase {
 
 		remove_filter( 'pre_http_request', $filter );
 
-		$this->assertTrue( $data['success'] );
 		$this->assertFalse( $data['governing_site_notified'] );
 		$this->assertStringContainsString( 'https://governing.example.com', $data['message'] );
 		$this->assertStringContainsString( 'could not be notified', $data['message'] );
@@ -148,7 +145,6 @@ class Governing_Site_Controller_ConsumerSiteTest extends TestCase {
 
 		remove_filter( 'pre_http_request', $filter );
 
-		$this->assertTrue( $data['success'] );
 		$this->assertFalse( $data['governing_site_notified'] );
 		$this->assertStringContainsString( 'did not recognize', $data['message'] );
 		$this->assertNull( Settings::get_parent_site_url() );
@@ -185,7 +181,7 @@ class Governing_Site_Controller_ConsumerSiteTest extends TestCase {
 
 		$response = $this->server->dispatch( $request );
 
-		$this->assertTrue( $response->get_data()['success'] );
+		$this->assertSame( 200, $response->get_status() );
 		$this->assertSame( 'https://governing.example.com', Settings::get_parent_site_url() );
 	}
 
@@ -259,7 +255,6 @@ class Governing_Site_Controller_ConsumerSiteTest extends TestCase {
 
 		$this->assertSame( [], $requested_urls );
 		$this->assertSame( 200, $response->get_status() );
-		$this->assertTrue( $response->get_data()['success'] );
 		$this->assertNull( Settings::get_parent_site_url() );
 		$this->assertFalse( get_transient( Remote_Client::TRANSIENT_KEY ) );
 	}
@@ -307,10 +302,8 @@ class Governing_Site_Controller_ConsumerSiteTest extends TestCase {
 		set_transient( Remote_Client::TRANSIENT_KEY, [ 'cached' => true ], 3600 );
 
 		$response = $this->server->dispatch( $this->governing_request( 'DELETE', '/onesearch/v1/governing-site/config' ) );
-		$data     = $response->get_data();
 
 		$this->assertSame( 200, $response->get_status() );
-		$this->assertTrue( $data['success'] );
 		$this->assertFalse( get_transient( Remote_Client::TRANSIENT_KEY ) );
 	}
 
@@ -321,10 +314,8 @@ class Governing_Site_Controller_ConsumerSiteTest extends TestCase {
 		delete_transient( Remote_Client::TRANSIENT_KEY );
 
 		$response = $this->server->dispatch( $this->governing_request( 'DELETE', '/onesearch/v1/governing-site/config' ) );
-		$data     = $response->get_data();
 
 		$this->assertSame( 200, $response->get_status() );
-		$this->assertTrue( $data['success'] );
 	}
 
 	/**

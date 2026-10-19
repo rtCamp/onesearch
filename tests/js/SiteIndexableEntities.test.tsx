@@ -99,8 +99,8 @@ describe( 'SiteIndexableEntities', () => {
 			.mockResolvedValueOnce( {} );
 		global.fetch = jest.fn().mockResolvedValueOnce(
 			okJson( {
-				success: true,
 				message: 'Reindex complete.',
+				errors: [],
 			} )
 		) as typeof fetch;
 
@@ -262,8 +262,8 @@ describe( 'SiteIndexableEntities', () => {
 
 		global.fetch = jest.fn().mockResolvedValueOnce(
 			okJson( {
-				success: false,
 				message: 'failed',
+				errors: [ { site_url: currentSiteUrl, message: 'timed out' } ],
 			} )
 		) as typeof fetch;
 

@@ -47,8 +47,8 @@ interface IndexableEntitiesSettings {
 }
 
 interface ReIndexResponse {
-	success: boolean;
 	message?: string;
+	errors?: Array< { site_url: string; message: string } >;
 	data?: {
 		status?: number;
 	};
@@ -180,7 +180,7 @@ const SiteIndexableEntities = ( {
 			} );
 
 			const data: ReIndexResponse = await response.json();
-			if ( data.success ) {
+			if ( response.ok && ! data.errors?.length ) {
 				setNotice( {
 					message:
 						data.message ||

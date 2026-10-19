@@ -64,9 +64,8 @@ class Post_Types_Controller extends Abstract_REST_Controller {
 
 		return rest_ensure_response(
 			[
-				'success' => empty( $errors ),
-				'sites'   => $all_sites,
-				'errors'  => $errors,
+				'sites'  => $all_sites,
+				'errors' => $errors,
 			]
 		);
 	}

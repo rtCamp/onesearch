@@ -65,7 +65,6 @@ class Secret_Key_ControllerTest extends TestCase {
 		$response    = $this->server->dispatch( $put_request );
 		$data        = $response->get_data();
 
-		$this->assertTrue( $data['success'] );
 		$this->assertNotEmpty( $data['secret_key'] );
 		$this->assertNotSame( $old_key, $data['secret_key'] );
 	}

@@ -81,7 +81,7 @@ describe( 'SiteModal', () => {
 	it( 'prevents duplicate site urls after a successful connect', async () => {
 		const onSubmit = jest.fn().mockResolvedValue( true );
 		global.fetch = jest.fn().mockResolvedValue( {
-			json: jest.fn().mockResolvedValue( { success: true } ),
+			ok: true,
 		} ) as typeof fetch;
 
 		render(
@@ -111,7 +111,7 @@ describe( 'SiteModal', () => {
 	it( 'shows a connect error when the remote site rejects the credentials', async () => {
 		const onSubmit = jest.fn().mockResolvedValue( true );
 		global.fetch = jest.fn().mockResolvedValue( {
-			json: jest.fn().mockResolvedValue( { success: false } ),
+			ok: false,
 		} ) as typeof fetch;
 
 		render( <SiteModalHarness onSubmit={ onSubmit } /> );
@@ -130,7 +130,7 @@ describe( 'SiteModal', () => {
 	it( 'shows an error when saving the site fails', async () => {
 		const onSubmit = jest.fn().mockResolvedValue( false );
 		global.fetch = jest.fn().mockResolvedValue( {
-			json: jest.fn().mockResolvedValue( { success: true } ),
+			ok: true,
 		} ) as typeof fetch;
 
 		render( <SiteModalHarness onSubmit={ onSubmit } /> );
@@ -166,7 +166,7 @@ describe( 'SiteModal', () => {
 	it( 'submits after a successful connect', async () => {
 		const onSubmit = jest.fn().mockResolvedValue( true );
 		global.fetch = jest.fn().mockResolvedValue( {
-			json: jest.fn().mockResolvedValue( { success: true } ),
+			ok: true,
 		} ) as typeof fetch;
 
 		render( <SiteModalHarness onSubmit={ onSubmit } /> );

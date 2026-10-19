@@ -433,7 +433,7 @@ class Remote_ClientTest extends TestCase {
 					'code'    => 200,
 					'message' => 'OK',
 				],
-				'body'     => '{"success":true}',
+				'body'     => '',
 				'headers'  => [],
 				'cookies'  => [],
 			];

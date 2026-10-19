@@ -343,33 +343,14 @@ class Remote_Client {
 			}
 
 			$code = wp_remote_retrieve_response_code( $response );
-			$body = wp_remote_retrieve_body( $response );
 
 			if ( 200 !== $code ) {
+				$site_error = json_decode( wp_remote_retrieve_body( $response ), true );
+
 				$errors[] = [
 					'site_url' => $site_data['url'],
 					// translators: %s is the error code.
-					'message'  => sprintf( esc_html__( 'Failed to connect to the child site. Error code %s', 'onesearch' ), esc_html( (string) $code ) ),
-				];
-				continue;
-			}
-
-			$response_data = json_decode( $body, true );
-			if ( null === $response_data || ! is_array( $response_data ) ) {
-				$errors[] = [
-					'site_url' => $site_data['url'],
-					// translators: %s is the error message.
-					'message'  => __( 'The site returned an invalid response.', 'onesearch' ),
-				];
-				continue;
-			}
-
-			if ( empty( $response_data['success'] ) ) {
-				$site_messages = is_array( $response_data['errors'] ?? null ) ? array_filter( array_column( $response_data['errors'], 'message' ), 'is_string' ) : [];
-
-				$errors[] = [
-					'site_url' => $site_data['url'],
-					'message'  => $site_messages ? implode( ' ', $site_messages ) : __( 'The site failed to re-index.', 'onesearch' ),
+					'message'  => is_string( $site_error['message'] ?? null ) ? $site_error['message'] : sprintf( esc_html__( 'Failed to connect to the child site. Error code %s', 'onesearch' ), esc_html( (string) $code ) ),
 				];
 			}
 		}

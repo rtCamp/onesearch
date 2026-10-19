@@ -51,7 +51,6 @@ const siteSettingsFetch = ( handlers: {
 				ok: handlers.deleteOk ?? true,
 				json: jest.fn().mockResolvedValue(
 					handlers.disconnectResponse ?? {
-						success: true,
 						governing_site_notified: true,
 					}
 				),
@@ -153,7 +152,6 @@ describe( 'SiteSettings', () => {
 		global.fetch = siteSettingsFetch( {
 			governingSiteUrl: 'https://governing.example.com/',
 			disconnectResponse: {
-				success: true,
 				governing_site_notified: false,
 				message: 'The governing site could not be notified.',
 			},

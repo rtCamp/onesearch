@@ -114,7 +114,6 @@ class Shared_Sites_ControllerTest extends TestCase {
 		$data     = $response->get_data();
 
 		$this->assertSame( 200, $response->get_status() );
-		$this->assertTrue( $data['success'] );
 		$this->assertCount( 2, $data['shared_sites'] );
 
 		// Verify data was actually persisted to the database.

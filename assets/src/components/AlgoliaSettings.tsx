@@ -55,16 +55,12 @@ const AlgoliaSettings = ( {
 
 	const onSave = async () => {
 		setSaving( true );
-		apiFetch< { success: boolean } >( {
+		apiFetch( {
 			path: CREDENTIALS_ENDPOINT,
 			method: 'POST',
 			data: algoliaCreds,
 		} )
-			.then( ( data ) => {
-				if ( ! data.success ) {
-					// Will be handled by the catch block
-					throw new Error( 'Invalid response data' );
-				}
+			.then( () => {
 				setInitial( algoliaCreds );
 
 				setNotice( {

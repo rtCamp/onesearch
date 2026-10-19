@@ -123,8 +123,7 @@ const SiteModal = ( {
 				}
 			);
 
-			const connectData = await connectResponse.json();
-			if ( ! connectData.success ) {
+			if ( ! connectResponse.ok ) {
 				setErrors( {
 					...newErrors,
 					message: __(

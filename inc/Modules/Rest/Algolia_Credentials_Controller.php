@@ -95,7 +95,6 @@ class Algolia_Credentials_Controller extends Abstract_REST_Controller {
 
 		return new \WP_REST_Response(
 			[
-				'success' => true,
 				'message' => __( 'Algolia credentials updated successfully.', 'onesearch' ),
 			]
 		);

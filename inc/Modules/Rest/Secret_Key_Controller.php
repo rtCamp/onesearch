@@ -34,8 +34,6 @@ class Secret_Key_Controller extends Abstract_REST_Controller {
 
 						return new \WP_REST_Response(
 							[
-								'success'    => true,
-								'message'    => __( 'Secret key regenerated successfully.', 'onesearch' ),
 								'secret_key' => $api_key,
 							]
 						);

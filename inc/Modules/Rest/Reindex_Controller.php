@@ -55,6 +55,12 @@ class Reindex_Controller extends Abstract_REST_Controller {
 		$indexed = ( new Indexer() )->reindex();
 
 		if ( is_wp_error( $indexed ) ) {
+			// A brand site fails with the error.
+			if ( ! Settings::is_governing_site() ) {
+				return $indexed;
+			}
+
+			// Governing sites report the list of errors.
 			$errors[] = [
 				'site_url' => Utils::get_current_site_url(),
 				'message'  => $indexed->get_error_message() ?: __( 'Re-index failed.', 'onesearch' ),
@@ -63,7 +69,6 @@ class Reindex_Controller extends Abstract_REST_Controller {
 
 		return rest_ensure_response(
 			[
-				'success' => empty( $errors ),
 				'message' => empty( $errors )
 					? __( 'Re-indexing scheduled successfully.', 'onesearch' )
 					: __( 'Re-indexing was unsuccessful. Please try again later.', 'onesearch' ),

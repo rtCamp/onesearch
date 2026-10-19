@@ -67,7 +67,6 @@ class Brand_Site_Controller extends Abstract_REST_Controller {
 
 		return rest_ensure_response(
 			[
-				'success' => true,
 				'message' => __( 'Brand site removed successfully.', 'onesearch' ),
 			]
 		);
@@ -107,7 +106,6 @@ class Brand_Site_Controller extends Abstract_REST_Controller {
 
 		return rest_ensure_response(
 			[
-				'success'             => true,
 				'algolia_credentials' => [
 					'app_id'    => $creds['app_id'] ?? '',
 					'write_key' => $creds['write_key'] ?? '',

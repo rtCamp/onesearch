@@ -78,7 +78,6 @@ class Post_Types_Controller_StandaloneSiteTest extends TestCase {
 		$data     = $response->get_data();
 
 		$this->assertSame( 200, $response->get_status() );
-		$this->assertTrue( $data['success'] );
 
 		$site_url = trailingslashit( get_site_url() );
 		$this->assertArrayHasKey( $site_url, $data['sites'] );

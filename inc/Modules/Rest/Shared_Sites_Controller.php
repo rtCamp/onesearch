@@ -71,11 +71,10 @@ class Shared_Sites_Controller extends Abstract_REST_Controller {
 			$urls[] = $site['url'] ?? '';
 		}
 
-		$success = Settings::set_shared_sites( $sites_data );
+		Settings::set_shared_sites( $sites_data );
 
 		return rest_ensure_response(
 			[
-				'success'      => $success,
 				'shared_sites' => array_values( $sites_data ),
 			]
 		);

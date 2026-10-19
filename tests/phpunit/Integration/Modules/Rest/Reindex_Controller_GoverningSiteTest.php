@@ -79,7 +79,7 @@ class Reindex_Controller_GoverningSiteTest extends TestCase {
 		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
-		$this->assertFalse( $data['success'] );
+		$this->assertNotEmpty( $data['errors'] );
 		$this->assertArrayHasKey( 'message', $data );
 	}
 
@@ -114,7 +114,7 @@ class Reindex_Controller_GoverningSiteTest extends TestCase {
 					'code'    => 200,
 					'message' => 'OK',
 				],
-				'body'     => wp_json_encode( [ 'success' => true ] ),
+				'body'     => wp_json_encode( [ 'errors' => [] ] ),
 				'headers'  => [],
 				'cookies'  => [],
 			];
@@ -132,7 +132,7 @@ class Reindex_Controller_GoverningSiteTest extends TestCase {
 	}
 
 	/**
-	 * Non-200 from a child site flips `success` to false on the governing response.
+	 * Non-200 from a child site is listed in the governing response's errors.
 	 */
 	public function test_reindex_records_child_non_200_as_failure(): void {
 		delete_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );
@@ -174,11 +174,11 @@ class Reindex_Controller_GoverningSiteTest extends TestCase {
 
 		remove_filter( 'pre_http_request', $filter );
 
-		$this->assertFalse( $data['success'] );
+		$this->assertNotEmpty( $data['errors'] );
 	}
 
 	/**
-	 * A WP_Error from a child site flips `success` to false on the governing response.
+	 * A WP_Error from a child site is listed in the governing response's errors.
 	 */
 	public function test_reindex_records_child_wp_error_as_failure(): void {
 		delete_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );
@@ -212,11 +212,11 @@ class Reindex_Controller_GoverningSiteTest extends TestCase {
 
 		remove_filter( 'pre_http_request', $filter );
 
-		$this->assertFalse( $data['success'] );
+		$this->assertNotEmpty( $data['errors'] );
 	}
 
 	/**
-	 * A child site that responds but reports `success: false` flips `success` to false on the governing response.
+	 * A child site that fails to re-index returns its error, and the governing response lists its message.
 	 */
 	public function test_reindex_records_child_unsuccessful_response_as_failure(): void {
 		delete_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );
@@ -240,29 +240,45 @@ class Reindex_Controller_GoverningSiteTest extends TestCase {
 		$recorded_paths = [];
 		$this->mock_algolia_http_client( $recorded_paths );
 
-		$succeeded = $this->reindex_with_child_response( [ 'success' => true ] );
-		$failed    = $this->reindex_with_child_response( [ 'success' => false ] );
+		$succeeded = $this->reindex_with_child_response( 200, [ 'errors' => [] ] );
+		$failed    = $this->reindex_with_child_response(
+			500,
+			[
+				'code'    => 'onesearch_algolia_not_configured',
+				'message' => 'Algolia admin credentials missing.',
+				'data'    => [ 'status' => 500 ],
+			]
+		);
 
-		$this->assertTrue( $succeeded['success'] );
-		$this->assertFalse( $failed['success'] );
+		$this->assertSame( [], $succeeded['errors'] );
+		$this->assertSame(
+			[
+				[
+					'site_url' => 'https://site-a.example.com/',
+					'message'  => 'Algolia admin credentials missing.',
+				],
+			],
+			$failed['errors']
+		);
 	}
 
 	/**
-	 * Reindexes with every child site responding with the given body.
+	 * Reindexes with every child site responding with the given status and body.
 	 *
+	 * @param int                  $child_code The child response status.
 	 * @param array<string, mixed> $child_body The child response body.
 	 *
 	 * @return array<string, mixed> The governing site's response data.
 	 */
-	private function reindex_with_child_response( array $child_body ): array {
-		$filter = static function ( $preempt, $args, $url ) use ( $child_body ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+	private function reindex_with_child_response( int $child_code, array $child_body ): array {
+		$filter = static function ( $preempt, $args, $url ) use ( $child_code, $child_body ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
 			if ( false === strpos( $url, '/re-index' ) ) {
 				return $preempt;
 			}
 			return [
 				'response' => [
-					'code'    => 200,
-					'message' => 'OK',
+					'code'    => $child_code,
+					'message' => '',
 				],
 				'body'     => wp_json_encode( $child_body ),
 				'headers'  => [],

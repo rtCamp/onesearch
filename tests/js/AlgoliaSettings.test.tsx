@@ -60,7 +60,9 @@ describe( 'AlgoliaSettings', () => {
 				typeof params === 'object' &&
 				( params as Record< string, unknown > )[ 'method' ] === 'POST'
 			) {
-				return Promise.resolve( { success: true } );
+				return Promise.resolve( {
+					message: 'Algolia credentials updated successfully.',
+				} );
 			}
 			return Promise.resolve( {} );
 		} );

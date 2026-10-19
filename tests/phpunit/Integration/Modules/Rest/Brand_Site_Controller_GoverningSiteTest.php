@@ -126,7 +126,6 @@ class Brand_Site_Controller_GoverningSiteTest extends TestCase {
 		remove_filter( 'pre_http_request', $block_http );
 
 		$this->assertSame( 200, $response->get_status() );
-		$this->assertTrue( $response->get_data()['success'] );
 		$this->assertSame( [ 'https://brand-two.example.com/' ], array_keys( Settings::get_shared_sites() ) );
 
 		$this->assertSame(
@@ -269,7 +268,6 @@ class Brand_Site_Controller_GoverningSiteTest extends TestCase {
 		$data     = $response->get_data();
 
 		$this->assertSame( 200, $response->get_status() );
-		$this->assertTrue( $data['success'] );
 		$this->assertArrayHasKey( 'algolia_credentials', $data );
 		$this->assertSame( 'TEST_APP', $data['algolia_credentials']['app_id'] );
 		$this->assertArrayHasKey( 'search_settings', $data );
