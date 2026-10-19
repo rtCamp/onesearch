@@ -329,9 +329,9 @@ final class SettingsTest extends TestCase {
 	}
 
 	/**
-	 * Keeps indexable entities unchanged when site removal delete fails.
+	 * Removed sites are cleaned out of the settings even when their records could not be deleted from Algolia.
 	 */
-	public function test_on_shared_sites_change_keeps_entities_when_delete_fails(): void {
+	public function test_on_shared_sites_change_cleans_entities_even_when_delete_fails(): void {
 		$settings = new Search_Settings();
 
 		$initial_entities = [
@@ -354,7 +354,49 @@ final class SettingsTest extends TestCase {
 
 		$settings->on_shared_sites_change( $old_sites, $new_sites );
 
-		$this->assertSame( $initial_entities, get_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES ) );
+		$this->assertSame(
+			[ 'entities' => [ 'https://child-b.example.com/' => [ 'post' ] ] ],
+			get_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES )
+		);
+	}
+
+	/**
+	 * A removed site's search settings go, and so does every mention of it as a searchable site.
+	 */
+	public function test_on_shared_sites_change_cleans_search_settings(): void {
+		$settings = new Search_Settings();
+		$settings->register_settings();
+		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
+
+		update_option(
+			Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS,
+			[
+				'https://child-a.example.com/' => [
+					'algolia_enabled'  => true,
+					'searchable_sites' => [ 'https://child-b.example.com/' ],
+				],
+				'https://child-b.example.com/' => [
+					'algolia_enabled'  => true,
+					// Stored without the trailing slash, so it only matches once normalized.
+					'searchable_sites' => [ 'https://child-a.example.com', 'https://child-b.example.com/' ],
+				],
+			]
+		);
+
+		$settings->on_shared_sites_change(
+			[ [ 'url' => 'https://child-a.example.com/' ], [ 'url' => 'https://child-b.example.com/' ] ],
+			[ [ 'url' => 'https://child-b.example.com/' ] ]
+		);
+
+		$this->assertSame(
+			[
+				'https://child-b.example.com/' => [
+					'algolia_enabled'  => true,
+					'searchable_sites' => [ 'https://child-b.example.com/' ],
+				],
+			],
+			get_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS )
+		);
 	}
 
 	/**

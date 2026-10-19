@@ -205,7 +205,7 @@ final class Settings implements Registrable {
 	}
 
 	/**
-	 * Deletes algolia entries when a site is removed from the list of shared sites.
+	 * Deletes algolia entries when a site is removed from the list of shared sites, and cleans it out of the search settings.
 	 *
 	 * @param mixed $old_value The old value.
 	 * @param mixed $new_value The new value.
@@ -234,23 +234,44 @@ final class Settings implements Registrable {
 			return;
 		}
 
-		$success = ( new Indexer() )->delete_site_records( array_values( $removed_sites ) );
+		$removed_sites = array_values( $removed_sites );
 
-		if ( is_wp_error( $success ) ) {
-			return;
+		$is_deleted = ( new Indexer() )->delete_site_records( $removed_sites );
+
+		if ( is_wp_error( $is_deleted ) ) {
+			Utils::log( sprintf( 'Failed to delete the records of removed sites: %s', $is_deleted->get_error_message() ) );
 		}
 
-		// Then remove from indexable entities.
+		// Remove from indexable entities.
 		$indexable_entities = self::get_indexable_entities();
 		$entities_map       = $indexable_entities['entities'] ?? [];
 		$updated_map        = array_diff_key( $entities_map, array_flip( $removed_sites ) );
 
-		if ( $updated_map === $entities_map ) {
-			return;
+		if ( $updated_map !== $entities_map ) {
+			$indexable_entities['entities'] = $updated_map;
+			update_option( self::OPTION_GOVERNING_INDEXABLE_SITES, $indexable_entities );
 		}
 
-		$indexable_entities['entities'] = $updated_map;
-		update_option( self::OPTION_GOVERNING_INDEXABLE_SITES, $indexable_entities );
+		// Remove their search settings, and from the sites that could search them.
+		$search_settings = self::get_search_settings();
+		$updated_search  = array_diff_key( $search_settings, array_flip( $removed_sites ) );
+
+		foreach ( $updated_search as $site_url => $settings ) {
+			if ( ! is_array( $settings ) || ! is_array( $settings['searchable_sites'] ?? null ) ) {
+				continue;
+			}
+
+			$updated_search[ $site_url ]['searchable_sites'] = array_values(
+				array_filter(
+					$settings['searchable_sites'],
+					static fn ( $url ): bool => ! in_array( Utils::normalize_url( (string) $url ), $removed_sites, true )
+				)
+			);
+		}
+
+		if ( $updated_search !== $search_settings ) {
+			update_option( self::OPTION_GOVERNING_SEARCH_SETTINGS, $updated_search );
+		}
 	}
 
 	/**
