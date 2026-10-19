@@ -365,6 +365,28 @@ final class WatcherTest extends TestCase {
 	}
 
 	/**
+	 * Emptying the trash doesn't delete the records again, since trashing the posts already did.
+	 */
+	public function test_deleting_a_trashed_post_skips_the_index(): void {
+		$this->set_up_governing_site();
+
+		$paths    = [];
+		$requests = [];
+		$this->mock_algolia_http_client( $paths, null, null, $requests );
+
+		( new Watcher() )->register_hooks();
+
+		$post_id = self::factory()->post->create( [ 'post_status' => 'publish' ] );
+		wp_trash_post( $post_id );
+		$this->assertNotEmpty( $this->get_delete_filters( $requests ) );
+
+		$requests = [];
+		wp_delete_post( $post_id, true );
+
+		$this->assertSame( [], $this->get_delete_filters( $requests ) );
+	}
+
+	/**
 	 * Terms and a featured image saved after the post itself, as the REST API does, are in the record.
 	 */
 	public function test_indexes_terms_and_featured_image_saved_during_the_request(): void {

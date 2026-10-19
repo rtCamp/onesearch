@@ -167,8 +167,8 @@ final class Watcher implements Registrable {
 			}
 		}
 
-		// The post is gone, so its type can only come from the passed object.
-		if ( ! $post instanceof \WP_Post || ! in_array( $post->post_type, $post_types, true ) ) {
+		// Bail early if there's nothing left that's indexable (e.g. a draft or trashed post).
+		if ( ! $post instanceof \WP_Post || ! $this->is_indexable( $post, $post_types ) ) {
 			return;
 		}
 
