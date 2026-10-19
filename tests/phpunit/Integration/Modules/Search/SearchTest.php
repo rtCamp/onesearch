@@ -154,6 +154,144 @@ final class SearchTest extends TestCase {
 	}
 
 	/**
+	 * Pagination comes from Algolia's totals.
+	 */
+	public function test_get_algolia_results_sets_found_posts_and_max_num_pages(): void {
+		$search = new Search();
+		$this->run_search(
+			$search,
+			[
+				'hits'    => [ self::get_remote_hit() ],
+				'nbHits'  => 12,
+				'nbPages' => 4,
+			]
+		);
+
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Reading query prepared by helper.
+		global $wp_query;
+
+		$this->assertSame( 12, $wp_query->found_posts );
+		$this->assertSame( 4, $wp_query->max_num_pages );
+	}
+
+	/**
+	 * Without `nbPages`, the number of pages is derived from the total and the page size.
+	 */
+	public function test_get_algolia_results_derives_max_num_pages(): void {
+		update_option( 'posts_per_page', 10 );
+
+		$search = new Search();
+		$this->run_search(
+			$search,
+			[
+				'hits'   => [ self::get_remote_hit() ],
+				'nbHits' => 12,
+			]
+		);
+
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Reading query prepared by helper.
+		global $wp_query;
+
+		$this->assertSame( 12, $wp_query->found_posts );
+		$this->assertSame( 2, $wp_query->max_num_pages );
+	}
+
+	/**
+	 * WordPress runs its native search when Algolia can't answer.
+	 */
+	public function test_get_algolia_results_falls_back_when_algolia_errors(): void {
+		$this->enable_search_with_credentials();
+
+		$recorded_paths = [];
+		$this->mock_algolia_http_client( $recorded_paths, null, '/query' );
+
+		// The plugin's own instance is hooked at boot, and would run the search while the query is primed.
+		remove_all_filters( 'posts_pre_query' );
+
+		$this->prime_main_search_query( 'remote test' );
+
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Reading query prepared by helper.
+		global $wp_query;
+
+		$result = ( new Search() )->get_algolia_results( null, $wp_query );
+
+		$this->assertNull( $result );
+		$this->assertFalse( (bool) ( $wp_query->is_algolia_search ?? false ) );
+	}
+
+	/**
+	 * Algolia's order is kept, and ranking info isn't requested.
+	 */
+	public function test_get_algolia_results_keeps_algolia_order_and_sends_expected_params(): void {
+		update_option( 'posts_per_page', 7 );
+
+		$requests = [];
+		$search   = new Search();
+		$result   = $this->run_search(
+			$search,
+			[
+				'hits' => [
+					self::get_remote_hit(
+						[
+							'post_id'      => 20,
+							'post_title'   => 'First',
+							'_rankingInfo' => [ 'rankingScore' => 0.1 ],
+						]
+					),
+					self::get_remote_hit(
+						[
+							'post_id'      => 30,
+							'post_title'   => 'Second',
+							'_rankingInfo' => [ 'rankingScore' => 0.9 ],
+						]
+					),
+				],
+			],
+			$requests
+		);
+
+		$this->assertSame( [ 'First', 'Second' ], wp_list_pluck( $result, 'post_title' ) );
+
+		$params = json_decode( $requests[0]['body'], true );
+
+		$this->assertIsArray( $params );
+		$this->assertArrayNotHasKey( 'getRankingInfo', $params );
+		$this->assertSame( 7, $params['hitsPerPage'] );
+		// Local results are boosted when this site is searched.
+		$this->assertSame( [ 'site_url:' . Utils::get_current_site_url() ], $params['optionalFilters'] );
+	}
+
+	/**
+	 * `posts_per_page` is clamped for Algolia.
+	 */
+	public function test_get_algolia_results_clamps_hits_per_page(): void {
+		update_option( 'posts_per_page', 12 );
+
+		$this->enable_search_with_credentials();
+
+		foreach ( [
+			-1   => 12,
+			0    => 12,
+			5000 => 1000,
+		] as $posts_per_page => $expected ) {
+			$requests = [];
+			$this->mock_search_response( [ 'hits' => [] ], $requests );
+			$this->prime_main_search_query( 'remote test' );
+
+			// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Reading query prepared by helper.
+			global $wp_query;
+
+			$wp_query->set( 'posts_per_page', $posts_per_page );
+			( new Search() )->get_algolia_results( null, $wp_query );
+
+			$params = json_decode( $requests[0]['body'], true );
+
+			$this->assertIsArray( $params );
+			$this->assertSame( $expected, $params['hitsPerPage'], "posts_per_page={$posts_per_page}" );
+		}
+	}
+
+	/**
 	 * A remote post split into chunks gets its full content, and keeps the highlights of the chunk that matched.
 	 */
 	public function test_get_algolia_results_joins_chunked_remote_posts(): void {
@@ -231,98 +369,6 @@ final class SearchTest extends TestCase {
 
 		$this->assertCount( 1, $posts );
 		$this->assertSame( '… middle', $posts[0]->post_content );
-	}
-
-	/**
-	 * Sorts hits by Algolia ranking score (descending) without raising notices.
-	 */
-	public function test_get_algolia_results_sorts_hits_by_ranking_score(): void {
-		$this->enable_search_for_governing_site();
-		Search_Settings::set_algolia_credentials(
-			[
-				'app_id'    => 'TEST_APP',
-				'write_key' => 'TEST_KEY',
-			]
-		);
-
-		$recorded_paths = [];
-		$this->mock_algolia_http_client(
-			$recorded_paths,
-			static function ( string $path ): string {
-				if ( str_contains( $path, '/query' ) ) {
-					return wp_json_encode(
-						[
-							'hits'        => [
-								[
-									'objectID'          => '20',
-									'site_post_id'      => '20',
-									'post_id'           => 20,
-									'post_title'        => 'Middle Score',
-									'post_type'         => 'post',
-									'permalink'         => 'https://remote.example.com/posts/20/',
-									'site_url'          => 'https://remote.example.com/',
-									'site_name'         => 'Remote',
-									'total_chunks'      => 1,
-									'post_date_gmt'     => 1710000000,
-									'post_modified_gmt' => 1710000000,
-									'_rankingInfo'      => [ 'rankingScore' => 0.5 ],
-								],
-								[
-									'objectID'          => '30',
-									'site_post_id'      => '30',
-									'post_id'           => 30,
-									'post_title'        => 'Lowest Score',
-									'post_type'         => 'post',
-									'permalink'         => 'https://remote.example.com/posts/30/',
-									'site_url'          => 'https://remote.example.com/',
-									'site_name'         => 'Remote',
-									'total_chunks'      => 1,
-									'post_date_gmt'     => 1710000000,
-									'post_modified_gmt' => 1710000000,
-									'_rankingInfo'      => [ 'rankingScore' => 0.1 ],
-								],
-								[
-									'objectID'          => '40',
-									'site_post_id'      => '40',
-									'post_id'           => 40,
-									'post_title'        => 'Highest Score',
-									'post_type'         => 'post',
-									'permalink'         => 'https://remote.example.com/posts/40/',
-									'site_url'          => 'https://remote.example.com/',
-									'site_name'         => 'Remote',
-									'total_chunks'      => 1,
-									'post_date_gmt'     => 1710000000,
-									'post_modified_gmt' => 1710000000,
-									'_rankingInfo'      => [ 'rankingScore' => 0.9 ],
-								],
-							],
-							'nbHits'      => 3,
-							'page'        => 0,
-							'hitsPerPage' => 10,
-						]
-					) ?: '{}';
-				}
-
-				if ( str_contains( $path, '/task/' ) ) {
-					return '{"status":"published","pendingTask":false}';
-				}
-
-				return '{"taskID":1,"updatedAt":"2024-01-01T00:00:00.000Z"}';
-			}
-		);
-
-		$this->prime_main_search_query( 'remote test' );
-
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Reading query prepared by helper.
-		global $wp_query;
-
-		$search = new Search();
-		$result = $search->get_algolia_results( [], $wp_query );
-
-		$this->assertCount( 3, $result );
-		$this->assertSame( 'Highest Score', $result[0]->post_title );
-		$this->assertSame( 'Middle Score', $result[1]->post_title );
-		$this->assertSame( 'Lowest Score', $result[2]->post_title );
 	}
 
 	/**
@@ -1157,6 +1203,75 @@ final class SearchTest extends TestCase {
 		global $wp_query;
 
 		return ( new Search() )->get_algolia_results( [], $wp_query ) ?? [];
+	}
+
+	/**
+	 * Mocks the Algolia search response.
+	 *
+	 * @param array<string, mixed>                          $response The response body.
+	 * @param array<int, array{path: string, body: string}> $requests Collects the requests.
+	 */
+	private function mock_search_response( array $response, array &$requests = [] ): void {
+		$recorded_paths = [];
+
+		$this->mock_algolia_http_client(
+			$recorded_paths,
+			static fn (): string => (string) wp_json_encode( $response ),
+			null,
+			$requests
+		);
+	}
+
+	/**
+	 * Runs a main search query through Algolia with the given response, then registers the hooks like WordPress would.
+	 *
+	 * @param \OneSearch\Modules\Search\Search              $search   The Search instance.
+	 * @param array<string, mixed>                          $response The Algolia response.
+	 * @param array<int, array{path: string, body: string}> $requests Collects the requests.
+	 *
+	 * @return \WP_Post[]|null The results.
+	 */
+	private function run_search( Search $search, array $response, array &$requests = [] ): ?array {
+		$this->enable_search_with_credentials();
+		$this->mock_search_response( $response, $requests );
+		$this->prime_main_search_query( 'remote test' );
+
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Reading query prepared by helper.
+		global $wp_query;
+
+		$posts = $search->get_algolia_results( null, $wp_query );
+
+		$search->register_hooks();
+
+		return $posts;
+	}
+
+	/**
+	 * Gets a search hit of a remote post.
+	 *
+	 * @param array<string, mixed> $overrides Fields to override.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private static function get_remote_hit( array $overrides = [] ): array {
+		return array_merge(
+			[
+				'objectID'          => 'remote_17_0',
+				'site_post_id'      => 'remote_17',
+				'post_id'           => 17,
+				'post_title'        => 'Remote Post',
+				'post_type'         => 'post',
+				'permalink'         => 'https://remote.example.com/posts/17/',
+				'site_url'          => 'https://remote.example.com/',
+				'site_name'         => 'Remote',
+				'content'           => 'Remote content',
+				'chunk_index'       => 0,
+				'total_chunks'      => 1,
+				'post_date_gmt'     => 1710000000,
+				'post_modified_gmt' => 1710000000,
+			],
+			$overrides
+		);
 	}
 
 	/**

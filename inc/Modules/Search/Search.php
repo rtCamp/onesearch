@@ -102,13 +102,19 @@ final class Search implements Registrable {
 	 * @return ?\WP_Post[] Modified posts.
 	 */
 	public function get_algolia_results( $posts, $query ) {
-		if ( ! $this->is_search_enabled() || ! $query instanceof \WP_Query || ! $this->should_filter_query( $query ) ) {
+		if ( ! $query instanceof \WP_Query || ! $this->should_filter_query( $query ) || ! $this->is_search_enabled() ) {
 			return $posts;
 		}
 
 		$results = $this->execute_algolia_search( $query );
+
+		// Algolia didn't answer, so let WordPress run its native search.
+		if ( null === $results ) {
+			return $posts;
+		}
+
 		/** @var PostRecord[] $records */
-		$records = $results['hits'] ?? [];
+		$records = is_array( $results['hits'] ?? null ) ? $results['hits'] : [];
 
 		/**
 		 * Filters whether the entire post should be reconstructed from Algolia.
@@ -123,8 +129,11 @@ final class Search implements Registrable {
 		$this->register_remote_posts( $posts_to_return );
 
 		$query->post_count        = count( $posts_to_return );
-		$query->found_posts       = isset( $results['nbHits'] ) ? (int) $results['nbHits'] : $query->post_count;
 		$query->is_algolia_search = true;
+		$query->found_posts       = isset( $results['nbHits'] ) ? (int) $results['nbHits'] : $query->post_count;
+		$query->max_num_pages     = isset( $results['nbPages'] )
+			? (int) $results['nbPages']
+			: (int) ceil( $query->found_posts / $this->get_hits_per_page( $query ) );
 
 		return $posts_to_return;
 	}
@@ -782,38 +791,45 @@ final class Search implements Registrable {
 	}
 
 	/**
-	 * Execute Algolia search and return the sorted hits.
+	 * Execute Algolia search and return the results.
 	 *
 	 * @param \WP_Query $query The WP_Query instance.
-	 * @return array<string,mixed> Algolia search results.
+	 *
+	 * @return array<string,mixed>|null Algolia search results, or null when Algolia couldn't answer.
 	 */
-	private function execute_algolia_search( \WP_Query $query ): array {
+	private function execute_algolia_search( \WP_Query $query ): ?array {
 		$site_urls = $this->get_searchable_site_urls();
 		if ( empty( $site_urls ) ) {
-			return [];
+			Utils::log( 'No searchable sites for the front-end search, falling back to the native search.' );
+			return null;
 		}
 
 		$params = $this->prepare_search_params( $query, $site_urls );
 
 		$results = $this->get_indexer()->search( $query->get( 's' ), $params );
 
-		if ( is_wp_error( $results ) || empty( $results['hits'] ) || ! is_array( $results['hits'] ) ) {
-			return [];
+		if ( is_wp_error( $results ) ) {
+			Utils::log( 'Algolia search failed, falling back to the native search: ' . $results->get_error_message() );
+			return null;
 		}
 
-		$hits = $results['hits'];
-
-		// Sort hits by Algolia ranking score descending.
-		usort(
-			$hits,
-			function ( $a, $b ) {
-				return $this->compute_algolia_score( $b ) <=> $this->compute_algolia_score( $a );
-			}
-		);
-
-		$results['hits'] = $hits;
-
 		return $results;
+	}
+
+	/**
+	 * Gets the number of results per page to ask Algolia for.
+	 *
+	 * @param \WP_Query $query The WP_Query instance.
+	 */
+	private function get_hits_per_page( \WP_Query $query ): int {
+		$per_page = (int) $query->get( 'posts_per_page' );
+
+		// -1 (and 0) mean "no limit" to WP_Query, which Algolia can't do.
+		if ( $per_page <= 0 ) {
+			$per_page = (int) get_option( 'posts_per_page' );
+		}
+
+		return min( 1000, $per_page > 0 ? $per_page : 10 );
 	}
 
 	/**
@@ -830,7 +846,7 @@ final class Search implements Registrable {
 			$this->get_default_search_params(),
 			[
 				'page'        => $current_page - 1,
-				'hitsPerPage' => (int) $query->get( 'posts_per_page', get_option( 'posts_per_page' ) ),
+				'hitsPerPage' => $this->get_hits_per_page( $query ),
 			]
 		);
 
@@ -842,11 +858,19 @@ final class Search implements Registrable {
 		}
 
 		// Add Site URL filters.
-		$site_url_filters_str = Indexer::filter_any_of( 'site_url', array_map( [ Utils::class, 'normalize_url' ], $searchable_sites ) );
+		$site_urls            = array_map( [ Utils::class, 'normalize_url' ], $searchable_sites );
+		$site_url_filters_str = Indexer::filter_any_of( 'site_url', $site_urls );
 
 		$default_params['filters'] = isset( $default_params['filters'] )
 			? '(' . $default_params['filters'] . ') AND (' . $site_url_filters_str . ')'
 			: $site_url_filters_str;
+
+		// Boost the results of this site, when it's one of the searched ones.
+		$current_site_url = Utils::get_current_site_url();
+		if ( in_array( $current_site_url, $site_urls, true ) ) {
+			// Unlike `filters`, optional filters match a quoted value literally.
+			$default_params['optionalFilters'] = [ 'site_url:' . $current_site_url ];
+		}
 
 		/**
 		 * Filter Algolia search parameters (facets, filters, etc.).
@@ -868,7 +892,6 @@ final class Search implements Registrable {
 			'distinct'              => true,
 			'highlightPreTag'       => '<span class="algolia-highlight">',
 			'highlightPostTag'      => '</span>',
-			'getRankingInfo'        => true,
 			'typoTolerance'         => 'min',
 			'minWordSizefor1Typo'   => 3,
 			'minWordSizefor2Typos'  => 6,
@@ -896,36 +919,6 @@ final class Search implements Registrable {
 		$brand_config = Governing_Data_Handler::get_brand_config();
 
 		return is_array( $brand_config ) && ! empty( $brand_config['search_settings']['searchable_sites'] ) ? $brand_config['search_settings']['searchable_sites'] : [];
-	}
-
-	/**
-	 * Build a comparable score from Algolia _rankingInfo.
-	 *
-	 * @param array<string,mixed> $hit Algolia hit.
-	 *
-	 * @return float ranking score
-	 */
-	private function compute_algolia_score( array $hit ): float {
-		$r = $hit['_rankingInfo'] ?? [];
-
-		// If Algolia provides rankingScore, prefer it.
-		if ( isset( $r['rankingScore'] ) ) {
-			return (float) $r['rankingScore'];
-		}
-
-		// Otherwise, derive a reasonable composite. Tune weights to your ranking.
-		$nb_typos           = (int) ( $r['nbTypos'] ?? 0 );
-		$words              = (int) ( $r['words'] ?? 0 );
-		$proximity_distance = (int) ( $r['proximityDistance'] ?? 0 );
-		$user_score         = (int) ( $r['userScore'] ?? 0 );
-		$geo_distance       = (int) ( $r['geoDistance'] ?? 0 );
-
-		// Higher is better. Penalize typos/proximity/geo distance.
-		return ( $user_score * 1_000_000 )
-		+ ( $words * 1_000 )
-		- ( $nb_typos * 10_000 )
-		- $proximity_distance
-		- ( $geo_distance / 1000.0 );
 	}
 
 	/**
