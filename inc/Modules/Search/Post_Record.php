@@ -563,7 +563,7 @@ final class Post_Record {
 	/**
 	 * Split content into chunks.
 	 *
-	 * Splits the content into parts, each not exceeding the max size.
+	 * Splits the content into parts, each not exceeding the max size in bytes.
 	 * Cuts at word boundaries where possible, adding ellipsis for continuation.
 	 *
 	 * @param string $content The content to split.
@@ -571,37 +571,43 @@ final class Post_Record {
 	 * @return string[] The chunks.
 	 */
 	private function split_content_into_chunks( string $content, int $max_size ): array {
-		// If max size is zero or negative, return empty array.
+		// Bail if there's no (more) room for content.
 		if ( $max_size <= 0 ) {
 			return [];
 		}
 
 		$content = trim( $content );
+
 		// If content fits within max size, return as single chunk.
-		if ( mb_strlen( $content, 'UTF-8' ) <= $max_size ) {
+		if ( strlen( $content ) <= $max_size ) {
 			return [ $content ];
 		}
 
 		$chunks              = [];
 		$continuation_prefix = '';
-		$content_length      = mb_strlen( $content, 'UTF-8' );
+		$content_length      = strlen( $content );
 
 		while ( $content_length > $max_size ) {
-			// Find the last space within the allowed size.
-			$search_start = $content_length - $max_size;
-			$cut_position = mb_strrpos( $content, ' ', -$search_start, 'UTF-8' );
+			// Cut within the allowed bytes without splitting a character.
+			$chunk = mb_strcut( $content, 0, $max_size, 'UTF-8' );
 
-			// If no space found, cut at max_size (may split words). A leading space would make an empty chunk, so it's skipped too.
-			if ( ! $cut_position ) {
-				$cut_position = $max_size;
+			// Back off to the last space. If there's none, the cut may split a word. A leading space would make an empty chunk, so it's skipped too.
+			$cut_position = strrpos( $chunk, ' ' );
+			if ( $cut_position ) {
+				$chunk = substr( $chunk, 0, $cut_position );
+			}
+
+			// A max size smaller than the first character still has to move on.
+			if ( '' === $chunk ) {
+				$chunk = mb_substr( $content, 0, 1, 'UTF-8' );
 			}
 
 			// Add the chunk with prefix.
-			$chunks[] = $continuation_prefix . mb_substr( $content, 0, $cut_position, 'UTF-8' );
+			$chunks[] = $continuation_prefix . $chunk;
 
 			// Keep the whitespace at the cut in the next chunk, so joining the chunks restores it exactly.
-			$content        = mb_substr( $content, $cut_position, null, 'UTF-8' );
-			$content_length = mb_strlen( $content, 'UTF-8' );
+			$content        = substr( $content, strlen( $chunk ) );
+			$content_length = strlen( $content );
 
 			$continuation_prefix = self::CONTINUATION_PREFIX;
 		}

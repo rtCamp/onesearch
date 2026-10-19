@@ -220,6 +220,24 @@ final class PostRecordTest extends TestCase {
 	}
 
 	/**
+	 * Chunks are measured in bytes, so multibyte content stays under Algolia's 10KB record limit and still joins back together.
+	 */
+	public function test_to_records_chunks_multibyte_content_by_bytes(): void {
+		$content = trim( str_repeat( '日本語のテキストです。検索のために分割されます。 ', 800 ) );
+		$post    = self::factory()->post->create_and_get( [ 'post_content' => $content ] );
+
+		$records = ( new Post_Record() )->to_records( $post );
+
+		$this->assertGreaterThan( 1, count( $records ) );
+		foreach ( $records as $record ) {
+			$this->assertLessThan( 10000, strlen( (string) wp_json_encode( $record, JSON_UNESCAPED_UNICODE ) ) );
+		}
+
+		// `the_content` wraps it in a paragraph.
+		$this->assertSame( "<p>{$content}</p>", Post_Record::join_content( $records ) );
+	}
+
+	/**
 	 * Joining the chunks restores the content they were split from, whatever order they're in.
 	 */
 	public function test_join_content_reverses_chunking(): void {

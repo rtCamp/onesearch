@@ -249,6 +249,21 @@ final class IndexerTest extends TestCase {
 	}
 
 	/**
+	 * A post whose shared data leaves no room for content can't be saved, and its existing records are left alone.
+	 */
+	public function test_save_post_keeps_the_records_of_a_post_too_big_to_index(): void {
+		$this->set_up_governing_site();
+		$this->mock_algolia_http_client( $this->paths, null, null, $this->requests );
+		add_filter( 'onesearch_algolia_record_size_limit', static fn (): int => 10 );
+
+		$result = ( new Indexer() )->save_post( self::factory()->post->create_and_get() );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'onesearch_post_too_big', $result->get_error_code() );
+		$this->assertSame( [], $this->get_delete_filters() );
+	}
+
+	/**
 	 * Writes wait for tasks that aren't published on the first check.
 	 */
 	public function test_waits_for_pending_tasks(): void {
