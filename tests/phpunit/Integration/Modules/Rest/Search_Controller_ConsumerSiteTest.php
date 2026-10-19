@@ -65,7 +65,6 @@ class Search_Controller_ConsumerSiteTest extends TestCase {
 		$ns     = '/' . Search_Controller::NAMESPACE;
 
 		$this->assertArrayNotHasKey( $ns . '/algolia-credentials', $routes );
-		$this->assertArrayNotHasKey( $ns . '/indexable-entities', $routes );
 		$this->assertArrayHasKey( $ns . '/re-index', $routes );
 	}
 

@@ -28,41 +28,12 @@ const NONCE = window.OneSearchSettings.nonce as string;
 const API_KEY = window.OneSearchSettings.api_key;
 
 const SiteSettings = () => {
-	const [ apiKey, setApiKey ] = useState( '' );
+	const [ apiKey, setApiKey ] = useState( API_KEY );
 	const [ isLoading, setIsLoading ] = useState( false );
 	const [ notice, setNotice ] = useState< NoticeType | null >( null );
 	const [ governingSite, setGoverningSite ] = useState( '' );
 	const [ showDisconnectionModal, setShowDisconnectionModal ] =
 		useState( false );
-
-	const fetchApiKey = useCallback( async () => {
-		setIsLoading( true );
-		try {
-			const response = await fetch( API_NAMESPACE + '/secret-key', {
-				method: 'GET',
-				headers: {
-					'Content-Type': 'application/json',
-					'X-WP-Nonce': NONCE,
-					'X-OneSearch-Token': API_KEY,
-				},
-			} );
-			if ( ! response.ok ) {
-				throw new Error( 'Network response was not ok' );
-			}
-			const data = await response.json();
-			setApiKey( data?.secret_key || '' );
-		} catch {
-			setNotice( {
-				type: 'error',
-				message: __(
-					'Failed to fetch API key. Please try again later.',
-					'onesearch'
-				),
-			} );
-		} finally {
-			setIsLoading( false );
-		}
-	}, [] );
 
 	// regenerate api key using REST endpoint.
 	const regenerateApiKey = useCallback( async () => {
@@ -111,7 +82,7 @@ const SiteSettings = () => {
 		setIsLoading( true );
 		try {
 			const response = await fetch(
-				`${ API_NAMESPACE }/governing-site?${ new Date().getTime() }`,
+				`${ window.OneSearchSettings.restUrl }wp/v2/settings`,
 				{
 					method: 'GET',
 					headers: {
@@ -125,7 +96,7 @@ const SiteSettings = () => {
 				throw new Error( 'Network response was not ok' );
 			}
 			const data = await response.json();
-			setGoverningSite( data?.governing_site_url || '' );
+			setGoverningSite( data?.onesearch_parent_site_url || '' );
 		} catch {
 			setNotice( {
 				type: 'error',
@@ -186,9 +157,8 @@ const SiteSettings = () => {
 	}, [] );
 
 	useEffect( () => {
-		fetchApiKey();
 		fetchCurrentGoverningSite();
-	}, [ fetchApiKey, fetchCurrentGoverningSite ] );
+	}, [ fetchCurrentGoverningSite ] );
 
 	if ( isLoading ) {
 		return <Spinner />;

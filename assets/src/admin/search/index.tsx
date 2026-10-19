@@ -4,6 +4,7 @@
 import { Button, Modal, Snackbar } from '@wordpress/components';
 import { createRoot, useEffect, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
+import apiFetch from '@wordpress/api-fetch';
 
 /**
  * External dependencies
@@ -54,10 +55,12 @@ const OneSearchSettingsPage = () => {
 		window.OneSearchSettings.hasAlgoliaCredentials ?? false;
 	const hasPrerequisites = sharedSites.length > 0 && hasAlgoliaCreds;
 
-	const [ siteType, setSiteType ] = useState< SiteType >( '' );
+	const siteType: SiteType = window.OneSearchSettings.siteType || '';
 	const [ showModal, setShowModal ] = useState( false );
 	const [ editingIndex, setEditingIndex ] = useState< number | null >( null );
-	const [ sites, setSites ] = useState< BrandSite[] >( [] );
+	const [ sites, setSites ] = useState< BrandSite[] >(
+		sharedSites as BrandSite[]
+	);
 	const [ formData, setFormData ] = useState< BrandSiteFormData >( {
 		name: '',
 		url: '',
@@ -71,14 +74,14 @@ const OneSearchSettingsPage = () => {
 
 	const fetchEntities = async () => {
 		try {
-			const res = await fetch( `${ API_NAMESPACE }/indexable-entities`, {
-				headers: { 'X-WP-Nonce': NONCE },
-			} );
-			if ( ! res.ok ) {
-				throw new Error( `HTTP ${ res.status }` );
-			}
-			const data = await res.json();
-			setIndexableEntities( data.indexableEntities?.entities || {} );
+			const settings = await apiFetch< {
+				onesearch_indexable_entities?: {
+					entities?: IndexableEntitiesMap;
+				};
+			} >( { path: '/wp/v2/settings' } );
+			setIndexableEntities(
+				settings?.onesearch_indexable_entities?.entities || {}
+			);
 		} catch {
 			setNotice( {
 				type: 'error',
@@ -159,51 +162,6 @@ const OneSearchSettingsPage = () => {
 		};
 
 		fetchAllPostTypes();
-	}, [] );
-
-	useEffect( () => {
-		const token = NONCE;
-
-		const fetchData = async () => {
-			try {
-				const [ siteTypeRes, sitesRes ] = await Promise.all( [
-					fetch( `${ API_NAMESPACE }/site-type`, {
-						headers: {
-							'Content-Type': 'application/json',
-							'X-WP-NONCE': token,
-						},
-					} ),
-					fetch( `${ API_NAMESPACE }/shared-sites`, {
-						headers: {
-							'Content-Type': 'application/json',
-							'X-WP-NONCE': token,
-						},
-					} ),
-				] );
-
-				const siteTypeData: { site_type?: SiteType } =
-					await siteTypeRes.json();
-				const sitesData: { shared_sites?: BrandSite[] } =
-					await sitesRes.json();
-
-				if ( siteTypeData?.site_type ) {
-					setSiteType( siteTypeData.site_type );
-				}
-				if ( Array.isArray( sitesData?.shared_sites ) ) {
-					setSites( sitesData.shared_sites );
-				}
-			} catch {
-				setNotice( {
-					type: 'error',
-					message: __(
-						'Error fetching site type or Brand sites.',
-						'onesearch'
-					),
-				} );
-			}
-		};
-
-		fetchData();
 	}, [] );
 
 	const handleFormSubmit = async (): Promise< boolean > => {

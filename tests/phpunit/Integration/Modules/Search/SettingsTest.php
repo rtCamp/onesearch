@@ -121,6 +121,31 @@ final class SettingsTest extends TestCase {
 	}
 
 	/**
+	 * The indexable entities are read and saved through /wp/v2/settings, which doesn't expose the encrypted credentials.
+	 */
+	public function test_indexable_entities_round_trip_through_the_rest_settings(): void {
+		( new Search_Settings() )->register_settings();
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
+
+		$entities = [
+			'entities' => [
+				'https://site-a.example.com/' => [ 'post', 'page' ],
+			],
+		];
+
+		$request = new \WP_REST_Request( 'POST', '/wp/v2/settings' );
+		$request->set_body_params( [ Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES => $entities ] );
+		$saved = rest_do_request( $request );
+
+		$read = rest_do_request( new \WP_REST_Request( 'GET', '/wp/v2/settings' ) )->get_data();
+
+		$this->assertSame( 200, $saved->get_status() );
+		$this->assertSame( $entities, get_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES ) );
+		$this->assertSame( $entities, $read[ Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES ] );
+		$this->assertArrayNotHasKey( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS, $read );
+	}
+
+	/**
 	 * Returns null values when no credentials are stored.
 	 */
 	public function test_get_algolia_credentials_returns_nulls_when_empty(): void {

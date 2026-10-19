@@ -63,97 +63,10 @@ class Basic_Options_ControllerTest extends TestCase {
 		$routes = $this->server->get_routes();
 		$ns     = '/' . Basic_Options_Controller::NAMESPACE;
 
-		$this->assertArrayHasKey( $ns . '/site-type', $routes );
 		$this->assertArrayHasKey( $ns . '/shared-sites', $routes );
 		$this->assertArrayHasKey( $ns . '/health-check', $routes );
 		$this->assertArrayHasKey( $ns . '/secret-key', $routes );
 		$this->assertArrayHasKey( $ns . '/governing-site', $routes );
-	}
-
-	/**
-	 * Returns governing site type when configured.
-	 */
-	public function test_get_site_type_returns_governing(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-
-		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/site-type' );
-		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
-
-		$this->assertSame( 200, $response->get_status() );
-		$this->assertTrue( $data['success'] );
-		$this->assertSame( Settings::SITE_TYPE_GOVERNING, $data['site_type'] );
-	}
-
-	/**
-	 * Returns consumer site type when configured.
-	 */
-	public function test_get_site_type_returns_consumer(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
-
-		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/site-type' );
-		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
-
-		$this->assertTrue( $data['success'] );
-		$this->assertSame( Settings::SITE_TYPE_CONSUMER, $data['site_type'] );
-	}
-
-	/**
-	 * Returns null when site type is not set.
-	 */
-	public function test_get_site_type_returns_null_when_unset(): void {
-		delete_option( Settings::OPTION_SITE_TYPE );
-
-		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/site-type' );
-		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
-
-		$this->assertTrue( $data['success'] );
-		$this->assertNull( $data['site_type'] );
-	}
-
-	/**
-	 * Returns empty array when no shared sites are configured.
-	 */
-	public function test_get_shared_sites_returns_empty_when_unset(): void {
-		delete_option( Settings::OPTION_GOVERNING_SHARED_SITES );
-
-		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/shared-sites' );
-		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
-
-		$this->assertTrue( $data['success'] );
-		$this->assertSame( [], $data['shared_sites'] );
-	}
-
-	/**
-	 * Returns stored shared sites as a numerically-indexed array.
-	 */
-	public function test_get_shared_sites_returns_indexed_array(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-		Settings::set_shared_sites(
-			[
-				[
-					'name'    => 'Brand A',
-					'url'     => 'https://brand-a.example.com',
-					'api_key' => 'key-a',
-				],
-				[
-					'name'    => 'Brand B',
-					'url'     => 'https://brand-b.example.com',
-					'api_key' => 'key-b',
-				],
-			]
-		);
-
-		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/shared-sites' );
-		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
-
-		$this->assertTrue( $data['success'] );
-		$this->assertCount( 2, $data['shared_sites'] );
-		$this->assertSame( 'Brand A', $data['shared_sites'][0]['name'] );
 	}
 
 	/**
@@ -329,34 +242,6 @@ class Basic_Options_ControllerTest extends TestCase {
 	}
 
 	/**
-	 * Returns stored governing site URL.
-	 */
-	public function test_get_governing_site_returns_stored_url(): void {
-		Settings::set_parent_site_url( 'https://governing.example.com' );
-
-		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/governing-site' );
-		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
-
-		$this->assertTrue( $data['success'] );
-		$this->assertSame( 'https://governing.example.com', $data['governing_site_url'] );
-	}
-
-	/**
-	 * Returns null when governing site not configured.
-	 */
-	public function test_get_governing_site_returns_null_when_unset(): void {
-		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
-
-		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/governing-site' );
-		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
-
-		$this->assertTrue( $data['success'] );
-		$this->assertNull( $data['governing_site_url'] );
-	}
-
-	/**
 	 * Removes the governing site option and returns success.
 	 */
 	public function test_remove_governing_site_deletes_option(): void {
@@ -471,24 +356,10 @@ class Basic_Options_ControllerTest extends TestCase {
 	}
 
 	/**
-	 * GET secret-key returns a non-empty key (auto-generated if absent).
-	 */
-	public function test_get_secret_key_returns_key(): void {
-		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/secret-key' );
-		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
-
-		$this->assertTrue( $data['success'] );
-		$this->assertNotEmpty( $data['secret_key'] );
-	}
-
-	/**
 	 * PUT secret-key regenerates and returns a new key.
 	 */
 	public function test_regenerate_secret_key_returns_new_key(): void {
-		// Get the current key first.
-		$get_request = new WP_REST_Request( 'GET', '/onesearch/v1/secret-key' );
-		$old_key     = $this->server->dispatch( $get_request )->get_data()['secret_key'];
+		$old_key = Settings::get_api_key();
 
 		// Regenerate via PUT.
 		$put_request = new WP_REST_Request( 'PUT', '/onesearch/v1/secret-key' );

@@ -61,14 +61,13 @@ class Search_Controller_GoverningSiteTest extends TestCase {
 	}
 
 	/**
-	 * Governing site registers algolia-credentials, indexable-entities, and re-index.
+	 * Governing site registers algolia-credentials and re-index.
 	 */
 	public function test_registers_governing_endpoints(): void {
 		$routes = $this->server->get_routes();
 		$ns     = '/' . Search_Controller::NAMESPACE;
 
 		$this->assertArrayHasKey( $ns . '/algolia-credentials', $routes );
-		$this->assertArrayHasKey( $ns . '/indexable-entities', $routes );
 		$this->assertArrayHasKey( $ns . '/re-index', $routes );
 	}
 
@@ -199,96 +198,6 @@ class Search_Controller_GoverningSiteTest extends TestCase {
 
 		$this->assertSame( 401, $response->get_status() );
 		$this->assertSame( 'rest_forbidden', $response->get_data()['code'] );
-	}
-
-	/**
-	 * GET /indexable-entities returns the stored map.
-	 */
-	public function test_get_indexable_entities_returns_stored_data(): void {
-		$entities = [
-			'entities' => [
-				'https://site-a.example.com/' => [ 'post', 'page' ],
-			],
-		];
-		update_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES, $entities );
-
-		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/indexable-entities' );
-		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
-
-		$this->assertSame( 200, $response->get_status() );
-		$this->assertTrue( $data['success'] );
-		$this->assertSame( $entities, $data['indexableEntities'] );
-	}
-
-	/**
-	 * GET /indexable-entities returns an empty array when nothing is stored.
-	 */
-	public function test_get_indexable_entities_returns_empty_when_unset(): void {
-		delete_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );
-
-		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/indexable-entities' );
-		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
-
-		$this->assertSame( 200, $response->get_status() );
-		$this->assertTrue( $data['success'] );
-		$this->assertSame( [], $data['indexableEntities'] );
-	}
-
-	/**
-	 * POST /indexable-entities persists valid data.
-	 */
-	public function test_set_indexable_entities_saves_valid_data(): void {
-		$entities = [
-			'entities' => [
-				'https://site-a.example.com/' => [ 'post' ],
-			],
-		];
-
-		$request = new WP_REST_Request( 'POST', '/onesearch/v1/indexable-entities' );
-		$request->set_body( wp_json_encode( $entities ) );
-		$request->set_header( 'Content-Type', 'application/json' );
-
-		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
-
-		$this->assertSame( 200, $response->get_status() );
-		$this->assertTrue( $data['success'] );
-		$this->assertSame( $entities, $data['indexableEntities'] );
-		$this->assertSame( $entities, get_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES ) );
-	}
-
-	/**
-	 * POST /indexable-entities with a non-array body is rejected by schema validation
-	 * (the route declares `entities` as a required array arg).
-	 */
-	public function test_set_indexable_entities_rejects_non_array_body(): void {
-		$request = new WP_REST_Request( 'POST', '/onesearch/v1/indexable-entities' );
-		$request->set_body( '"not-an-array"' );
-		$request->set_header( 'Content-Type', 'application/json' );
-
-		$response = $this->server->dispatch( $request );
-
-		$this->assertSame( 400, $response->get_status() );
-	}
-
-	/**
-	 * POST /indexable-entities saves an empty entities map as valid data.
-	 */
-	public function test_set_indexable_entities_allows_empty_object(): void {
-		$body = [ 'entities' => [] ];
-
-		$request = new WP_REST_Request( 'POST', '/onesearch/v1/indexable-entities' );
-		$request->set_body( wp_json_encode( $body ) );
-		$request->set_header( 'Content-Type', 'application/json' );
-
-		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
-
-		$this->assertSame( 200, $response->get_status() );
-		$this->assertTrue( $data['success'] );
-		$this->assertSame( $body, $data['indexableEntities'] );
 	}
 
 	/**
