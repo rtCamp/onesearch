@@ -36,10 +36,7 @@ use OneSearch\Utils;
  *  }|array{},
  *  post_author_data?: array{
  *    author_display_name: string,
- *    author_first_name: string,
  *    author_id: int,
- *    author_last_name: string,
- *    author_login: string,
  *    author_posts_url: string,
  *    author_avatar: string,
  *  },
@@ -80,10 +77,7 @@ use OneSearch\Utils;
  *  }|array{},
  *  post_author_data?: array{
  *    author_display_name: string,
- *    author_first_name: string,
  *    author_id: int,
- *    author_last_name: string,
- *    author_login: string,
  *    author_posts_url: string,
  *    author_avatar: string,
  *  },
@@ -218,6 +212,28 @@ final class Post_Record {
 		 * @param string[] $post_types Post types.
 		 */
 		return apply_filters( 'onesearch_indexable_post_statuses', $default_statuses, $post_types );
+	}
+
+	/**
+	 * Whether a post's content has to stay on its own site.
+	 *
+	 * That's the case for password-protected posts, and for media attached to a post that has a password or a status that isn't public.
+	 *
+	 * @param \WP_Post $post The post.
+	 */
+	public static function is_protected( \WP_Post $post ): bool {
+		if ( '' !== $post->post_password ) {
+			return true;
+		}
+
+		if ( 'attachment' !== $post->post_type || ! $post->post_parent ) {
+			return false;
+		}
+
+		$parent = get_post( $post->post_parent );
+
+		// Only the parent's status counts, since media of a post type without front-end pages can still show up on the site.
+		return ! $parent instanceof \WP_Post || '' !== $parent->post_password || ! is_post_status_viewable( (string) get_post_status( $parent ) );
 	}
 
 	/**
@@ -419,10 +435,7 @@ final class Post_Record {
 		if ( ! empty( $post->post_author ) ) {
 			$base_record['post_author_data'] = [
 				'author_display_name' => get_the_author_meta( 'display_name', (int) $post->post_author ),
-				'author_first_name'   => get_the_author_meta( 'first_name', (int) $post->post_author ),
 				'author_id'           => (int) $post->post_author,
-				'author_last_name'    => get_the_author_meta( 'last_name', (int) $post->post_author ),
-				'author_login'        => get_the_author_meta( 'user_login', (int) $post->post_author ),
 				'author_posts_url'    => get_author_posts_url( (int) $post->post_author ),
 				'author_avatar'       => get_avatar_url( $post->post_author ) ?: '',
 			];

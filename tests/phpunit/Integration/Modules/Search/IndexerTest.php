@@ -416,6 +416,31 @@ final class IndexerTest extends TestCase {
 	}
 
 	/**
+	 * Reindexing leaves out password-protected posts, and media attached to a post that isn't public.
+	 */
+	public function test_reindex_leaves_out_protected_posts_and_their_media(): void {
+		$this->set_up_governing_site( [ 'post', 'attachment' ] );
+		$public    = self::factory()->post->create();
+		$protected = self::factory()->post->create( [ 'post_password' => 'secret' ] );
+		$draft     = self::factory()->post->create( [ 'post_status' => 'draft' ] );
+
+		$public_media    = self::factory()->attachment->create( [ 'post_parent' => $public ] );
+		$unattached      = self::factory()->attachment->create( [ 'post_parent' => 0 ] );
+		$protected_media = self::factory()->attachment->create( [ 'post_parent' => $protected ] );
+		$draft_media     = self::factory()->attachment->create( [ 'post_parent' => $draft ] );
+
+		$this->mock_algolia_http_client( $this->paths, null, null, $this->requests );
+
+		$this->assertTrue( ( new Indexer() )->reindex() );
+
+		$saved = $this->get_saved_site_post_ids();
+		$ids   = static fn ( int ...$post_ids ): array => array_map( [ new Post_Record(), 'get_site_post_id' ], $post_ids );
+
+		$this->assertEqualsCanonicalizing( $ids( $public, $public_media, $unattached ), $saved );
+		$this->assertSame( [], array_intersect( $ids( $protected, $protected_media, $draft_media ), $saved ) );
+	}
+
+	/**
 	 * Reindexing reports batches that failed to save.
 	 */
 	public function test_reindex_returns_error_when_a_batch_fails(): void {

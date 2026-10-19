@@ -456,6 +456,11 @@ final class Indexer {
 
 			$records = [];
 			foreach ( $posts as $post ) {
+				// Password-protected posts, and media attached to a post that isn't public.
+				if ( Post_Record::is_protected( $post ) ) {
+					continue;
+				}
+
 				$records = array_merge( $records, ( new Post_Record() )->to_records( $post ) );
 			}
 			yield $records;

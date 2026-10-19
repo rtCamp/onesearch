@@ -45,8 +45,8 @@ final class Watcher implements Registrable {
 
 		$allowed_statuses = Post_Record::get_allowed_statuses( [ $post->post_type ] );
 
-		// Check if the new status is allowed before reindexing.
-		if ( ! in_array( $new_status, $allowed_statuses, true ) ) {
+		// Check if the new status is allowed, and that the post isn't password-protected, before reindexing.
+		if ( ! in_array( $new_status, $allowed_statuses, true ) || Post_Record::is_protected( $post ) ) {
 			// Only clean up if the post was indexed under its previous status.
 			if ( in_array( $old_status, $allowed_statuses, true ) ) {
 				$this->log_error( (int) $post->ID, $this->get_indexer()->delete_post( (int) $post->ID ) );

@@ -94,6 +94,27 @@ final class PostRecordTest extends TestCase {
 	}
 
 	/**
+	 * Media follows the status of its parent, but not its post type, since a post type without front-end pages can still show its media on the site.
+	 */
+	public function test_is_protected_checks_the_status_of_a_media_parent(): void {
+		register_post_type( 'onesearch_hidden', [ 'public' => false ] );
+
+		$hidden  = self::factory()->post->create( [ 'post_type' => 'onesearch_hidden' ] );
+		$trashed = self::factory()->post->create();
+		wp_trash_post( $trashed );
+
+		$hidden_media  = get_post( self::factory()->attachment->create( [ 'post_parent' => $hidden ] ) );
+		$trashed_media = get_post( self::factory()->attachment->create( [ 'post_parent' => $trashed ] ) );
+
+		unregister_post_type( 'onesearch_hidden' );
+
+		$this->assertInstanceOf( \WP_Post::class, $hidden_media );
+		$this->assertInstanceOf( \WP_Post::class, $trashed_media );
+		$this->assertFalse( Post_Record::is_protected( $hidden_media ) );
+		$this->assertTrue( Post_Record::is_protected( $trashed_media ) );
+	}
+
+	/**
 	 * Ensures get_indexable_posts returns an array.
 	 */
 	public function test_get_indexable_posts_returns_array(): void {
@@ -268,9 +289,6 @@ final class PostRecordTest extends TestCase {
 		$user_id = self::factory()->user->create(
 			[
 				'display_name' => 'Record Author',
-				'first_name'   => 'Record',
-				'last_name'    => 'Author',
-				'user_login'   => 'record-author',
 			]
 		);
 
@@ -287,9 +305,6 @@ final class PostRecordTest extends TestCase {
 		$author_data = $records[0]['post_author_data'];
 
 		$this->assertSame( 'Record Author', $author_data['author_display_name'] );
-		$this->assertSame( 'Record', $author_data['author_first_name'] );
-		$this->assertSame( 'Author', $author_data['author_last_name'] );
-		$this->assertSame( 'record-author', $author_data['author_login'] );
 		$this->assertSame( $user_id, $author_data['author_id'] );
 		$this->assertSame( get_author_posts_url( $user_id ), $author_data['author_posts_url'] );
 		$this->assertSame( get_avatar_url( $user_id ) ?: '', $author_data['author_avatar'] );
