@@ -55,9 +55,14 @@ final class Settings implements Registrable {
 		add_action( 'update_option_' . Admin_Settings::OPTION_GOVERNING_SHARED_SITES, [ $this, 'on_shared_sites_change' ], 10, 2 );
 
 		// Purge algolia caches when search settings change.
-		add_action( 'update_option_' . self::OPTION_GOVERNING_ALGOLIA_CREDENTIALS, [ $this, 'purge_cache_on_update' ], 10, 3 );
-		add_action( 'update_option_' . self::OPTION_GOVERNING_INDEXABLE_SITES, [ $this, 'purge_cache_on_update' ], 10, 3 );
-		add_action( 'update_option_' . self::OPTION_GOVERNING_SEARCH_SETTINGS, [ $this, 'purge_cache_on_update' ], 10, 3 );
+		foreach ( [
+			self::OPTION_GOVERNING_ALGOLIA_CREDENTIALS,
+			self::OPTION_GOVERNING_INDEXABLE_SITES,
+			self::OPTION_GOVERNING_SEARCH_SETTINGS,
+		] as $option ) {
+			add_action( 'add_option_' . $option, static fn () => Governing_Data_Handler::clear_brand_config_cache() );
+			add_action( 'update_option_' . $option, static fn () => Governing_Data_Handler::clear_brand_config_cache() );
+		}
 	}
 
 	/**
@@ -242,24 +247,6 @@ final class Settings implements Registrable {
 
 		$indexable_entities['entities'] = $updated_map;
 		update_option( self::OPTION_GOVERNING_INDEXABLE_SITES, $indexable_entities );
-	}
-
-	/**
-	 * Purges the Governing_Data_Handler cache when a setting update triggers.
-	 *
-	 * @internal Hook callback
-	 *
-	 * @param mixed  $old_value The old value.
-	 * @param mixed  $new_value The new value.
-	 * @param string $option    The option name.
-	 */
-	public function purge_cache_on_update( $old_value, $new_value, $option ): void { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-		match ( $option ) {
-			self::OPTION_GOVERNING_ALGOLIA_CREDENTIALS,
-			self::OPTION_GOVERNING_SEARCH_SETTINGS,
-			self::OPTION_GOVERNING_INDEXABLE_SITES => Governing_Data_Handler::clear_brand_config_cache(),
-			default => null,
-		};
 	}
 
 	/**
