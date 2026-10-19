@@ -22,9 +22,12 @@ use OneSearch\Utils;
  */
 final class Search implements Registrable {
 	/**
-	 * Option key storing the ID of the shared "proxy" attachment.
+	 * First synthetic ID handed to remote results.
+	 *
+	 * Core treats IDs <= 0 as "no post" and absint()s meta lookups, so remote results get unique positive IDs from a range far above any real post ID.
+	 * It stays below 2^53, so the IDs survive being passed to JavaScript.
 	 */
-	private const PROXY_ATTACHMENT_OPTION = 'onesearch_proxy_attachment_id';
+	private const REMOTE_ID_BASE = ( 2 ** 53 ) - 1_000_000;
 
 	/**
 	 * The indexer, once instantiated.
@@ -39,22 +42,37 @@ final class Search implements Registrable {
 	private ?bool $is_search_enabled = null;
 
 	/**
-	 * Cached ID of the proxy attachment, or null if not yet resolved.
+	 * The next synthetic ID to hand out.
 	 */
-	private ?int $proxy_attachment_id = null;
+	private int $next_remote_id = self::REMOTE_ID_BASE;
 
 	/**
-	 * Map of remote (negative) post IDs to their mocked WP_Post objects, used by
-	 * the attachment hooks to resolve the remote post for the current request.
+	 * The next synthetic author ID to hand out.
+	 *
+	 * Negative, so it can never match a real user.
+	 */
+	private int $next_remote_author_id = -1000;
+
+	/**
+	 * Map of synthetic author IDs to the author data of the remote post they were handed to, for the current request.
+	 *
+	 * @var array<int, array{display_name: string, link: string, avatar: string}>
+	 */
+	private array $remote_authors_map = [];
+
+	/**
+	 * Map of synthetic post IDs to their mocked WP_Post objects, for the current request.
 	 *
 	 * @var array<int, \WP_Post>
 	 */
 	private array $remote_posts_map = [];
 
 	/**
-	 * The remote post whose `_thumbnail_id` was most recently requested.
+	 * Map of the synthetic IDs of the companion attachments (featured images of remote posts) to the remote post they belong to.
+	 *
+	 * @var array<int, \WP_Post>
 	 */
-	private ?\WP_Post $current_remote_post = null;
+	private array $remote_attachments_map = [];
 
 	/**
 	 * {@inheritDoc}
@@ -71,30 +89,25 @@ final class Search implements Registrable {
 		add_filter( 'attachment_link', [ $this, 'get_post_type_permalink' ], 10, 2 );
 
 		// Author data.
-		add_filter( 'get_the_author_display_name', [ $this, 'get_post_author' ], 10 );
-		add_filter( 'author_link', [ $this, 'get_post_author_link' ], 10 );
-		add_filter( 'get_avatar_url', [ $this, 'get_post_author_avatar' ], 10 );
+		add_filter( 'get_the_author_display_name', [ $this, 'get_post_author' ], 10, 2 );
+		add_filter( 'author_link', [ $this, 'get_post_author_link' ], 10, 2 );
+		add_filter( 'get_avatar_url', [ $this, 'get_post_author_avatar' ], 10, 2 );
+		add_action( 'the_post', [ $this, 'set_remote_authordata' ], 10, 1 );
 
 		// Term and taxonomy link handling for remote objects.
 		add_filter( 'term_link', [ $this, 'get_term_link' ], 10, 3 );
 		add_filter( 'category_link', [ $this, 'get_category_link' ], 10, 2 );
 		add_filter( 'tag_link', [ $this, 'get_tag_link' ], 10, 2 );
 		add_filter( 'get_the_terms', [ $this, 'get_post_terms' ], 10, 3 );
-		add_filter( 'wp_get_post_terms', [ $this, 'get_post_terms' ], 10, 3 );
-		add_filter( 'get_post_metadata', [ $this, 'get_remote_thumbnail_id' ], 10, 4 );
+
+		// Featured images and attachments of remote posts.
 		add_filter( 'wp_get_attachment_image_src', [ $this, 'get_remote_attachment_image_src' ], 10, 4 );
 		add_filter( 'wp_get_attachment_image_attributes', [ $this, 'filter_remote_attachment_image_attributes' ], 10, 3 );
 		add_filter( 'wp_get_attachment_url', [ $this, 'get_remote_attachment_url' ], 10, 2 );
-
-		// Keep the proxy attachment hidden from attachment queries.
-		add_action( 'pre_get_posts', [ $this, 'exclude_proxy_from_attachment_queries' ] );
-
-		// Block-theme compatibility: fix remote permalinks/excerpts in rendered blocks.
-		add_filter( 'render_block', [ $this, 'filter_render_block' ], 10, 2 );
 	}
 
 	/**
-	 * Hooks onto 'pre_get_posts' to modify the search query to use Algolia results.
+	 * Hooks onto 'posts_pre_query' to replace the search query's results with Algolia's.
 	 *
 	 * @param ?\WP_Post[] $posts Current posts.
 	 * @param \WP_Query   $query Current query.
@@ -130,8 +143,12 @@ final class Search implements Registrable {
 
 		$query->post_count        = count( $posts_to_return );
 		$query->is_algolia_search = true;
-		$query->found_posts       = isset( $results['nbHits'] ) ? (int) $results['nbHits'] : $query->post_count;
-		$query->max_num_pages     = isset( $results['nbPages'] )
+
+		// WordPress reads this after `posts_pre_query`. Otherwise it caches the synthetic IDs in `post-queries`, where a native search (with Algolia off or failing) would read them back.
+		$query->set( 'cache_results', false );
+
+		$query->found_posts   = isset( $results['nbHits'] ) ? (int) $results['nbHits'] : $query->post_count;
+		$query->max_num_pages = isset( $results['nbPages'] )
 			? (int) $results['nbPages']
 			: (int) ceil( $query->found_posts / $this->get_hits_per_page( $query ) );
 
@@ -141,8 +158,7 @@ final class Search implements Registrable {
 	/**
 	 * Return the correct permalink for local or remote posts.
 	 *
-	 * For remote posts we store a negative ID and the original ID separately.
-	 * This method locates the remote item and returns its GUID.
+	 * Remote results are mocked posts with synthetic IDs. This method locates the remote item and returns its GUID.
 	 *
 	 * @param string       $permalink Default permalink.
 	 * @param int|\WP_Post $post      Post object or ID.
@@ -150,9 +166,7 @@ final class Search implements Registrable {
 	 * @return string
 	 */
 	public function get_post_type_permalink( $permalink, $post ) {
-		global $wp_query;
-
-		if ( ! $this->is_search_enabled() || ! $wp_query instanceof \WP_Query || ! $this->should_filter_query( $wp_query ) ) {
+		if ( ! $this->is_filtering_main_search() ) {
 			return $permalink;
 		}
 
@@ -168,100 +182,112 @@ final class Search implements Registrable {
 	/**
 	 * Author display name mapping for remote posts.
 	 *
-	 * @param string $author_name Default display name.
+	 * Only substitutes for the synthetic author of a remote post.
+	 *
+	 * @param string    $author_name Default display name.
+	 * @param int|false $user_id     The user ID the name is for.
 	 *
 	 * @return string
 	 */
-	public function get_post_author( $author_name ) {
-		global $wp_query, $post;
+	public function get_post_author( $author_name, $user_id = 0 ) {
+		$author = $this->resolve_remote_author( $user_id );
 
-		if ( ! $this->is_search_enabled() || ! $wp_query instanceof \WP_Query || ! $this->should_filter_query( $wp_query ) ) {
-			return $author_name;
-		}
-
-		if ( ! $this->is_remote_post( $post ) ) {
-			return $author_name;
-		}
-
-		return $post->onesearch_remote_post_author_display_name ?? $author_name;
+		return null !== $author ? $author['display_name'] : $author_name;
 	}
 
 	/**
 	 * Author link mapping for remote posts.
 	 *
-	 * @param string $author_link      Default author link.
+	 * @param string $author_link Default author link.
+	 * @param int    $author_id   The author ID.
 	 *
 	 * @return string
 	 */
-	public function get_post_author_link( $author_link ) {
-		global $wp_query, $post;
+	public function get_post_author_link( $author_link, $author_id = 0 ) {
+		$author = $this->resolve_remote_author( $author_id );
 
-		if ( ! $this->is_search_enabled() || ! $wp_query instanceof \WP_Query || ! $this->should_filter_query( $wp_query ) ) {
-			return $author_link;
-		}
-
-		if ( ! $this->is_remote_post( $post ) ) {
-			return $author_link;
-		}
-
-		return $post->onesearch_remote_post_author_link ?? $author_link;
+		return null !== $author ? $author['link'] : $author_link;
 	}
 
 	/**
 	 * Author avatar URL mapping for remote posts.
 	 *
-	 * @param string $avatar_url Default avatar URL.
+	 * @param string $avatar_url  Default avatar URL.
+	 * @param mixed  $id_or_email The avatar to retrieve: a user ID, email, WP_User, WP_Post or WP_Comment.
 	 *
 	 * @return string
 	 */
-	public function get_post_author_avatar( $avatar_url ) {
-		global $wp_query, $post;
-
-		if ( ! $this->is_search_enabled() || ! $wp_query instanceof \WP_Query || ! $this->should_filter_query( $wp_query ) ) {
-			return $avatar_url;
+	public function get_post_author_avatar( $avatar_url, $id_or_email = null ) {
+		if ( $id_or_email instanceof \WP_Post ) {
+			// Only the posts we mocked, since a local post's author is a real user.
+			$author = $this->is_remote_post( $id_or_email ) ? $this->resolve_remote_author( $id_or_email->post_author ) : null;
+		} else {
+			$author = $this->resolve_remote_author( $id_or_email );
 		}
 
-		if ( ! $this->is_remote_post( $post ) ) {
-			return $avatar_url;
+		return null !== $author && '' !== $author['avatar'] ? $author['avatar'] : $avatar_url;
+	}
+
+	/**
+	 * Gives the template tags that read the global `$authordata` (e.g. `get_the_author()` and `get_the_author_posts_link()`) an author for remote posts.
+	 *
+	 * @param mixed $post The post that was set up.
+	 */
+	public function set_remote_authordata( $post ): void {
+		if ( ! $post instanceof \WP_Post || ! $this->is_remote_post( $post ) ) {
+			return;
 		}
 
-		return $post->onesearch_remote_post_author_gravatar ?? $avatar_url;
+		$author = $this->resolve_remote_author( $post->post_author );
+
+		if ( null === $author ) {
+			return;
+		}
+
+		$nicename = sanitize_title( $author['display_name'] );
+
+		// WP_User reads its fields from `->data`, so the stand-in is built from one.
+		$data                = new \stdClass();
+		$data->ID            = (int) $post->post_author;
+		$data->display_name  = $author['display_name'];
+		$data->user_nicename = $nicename;
+
+		$user       = new \WP_User();
+		$user->data = $data;
+		$user->ID   = $data->ID;
+
+		$GLOBALS['authordata'] = $user; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Core's own mechanism for the current author.
 	}
 
 	/**
 	 * Resolve term link for remote posts using stored taxonomy metadata.
 	 *
-	 * @param string     $term_link Default term link.
-	 * @param int|string $term Term ID or slug (as provided by WP).
-	 * @param string     $taxonomy  Taxonomy name.
+	 * @param string              $term_link Default term link.
+	 * @param int|string|\WP_Term $term      Term ID or slug.
+	 * @param string              $taxonomy  Taxonomy name.
 	 *
 	 * @return string
 	 */
 	public function get_term_link( $term_link, $term, $taxonomy ) {
-		global $wp_query, $post;
+		global $post;
 
-		if ( ! $this->is_search_enabled() || ! $wp_query instanceof \WP_Query || ! $this->should_filter_query( $wp_query ) ) {
+		// Outside the loop the global post is still the first result, so a local term with the same ID would get its link.
+		if ( ! in_the_loop() || ! $this->is_remote_post( $post ) || ! isset( $post->onesearch_remote_taxonomies ) || ! $this->is_filtering_main_search() ) {
 			return $term_link;
 		}
 
-		if ( ! $this->is_remote_post( $post ) || ! isset( $post->onesearch_remote_taxonomies ) ) {
-			return $term_link;
-		}
-
-		foreach ( $post->onesearch_remote_taxonomies as $tax_data ) {
-			if ( ! isset( $tax_data['taxonomy'], $tax_data['term_id'], $tax_data['slug'], $tax_data['term_link'] ) ) {
+		foreach ( $post->onesearch_remote_taxonomies as $tax_name => $terms ) {
+			if ( $tax_name !== $taxonomy || ! is_array( $terms ) ) {
 				continue;
 			}
 
-			if ( $tax_data['taxonomy'] !== $taxonomy ) {
-				continue;
-			}
+			foreach ( $terms as $tax_term ) {
+				if ( empty( $tax_term['term_link'] ) || ! $this->is_same_term( $tax_term, $term ) ) {
+					continue;
+				}
 
-			if ( $tax_data['term_id'] !== (int) $term && $tax_data['slug'] !== $term ) {
-				continue;
+				return esc_url_raw( $tax_term['term_link'] );
 			}
-
-			return esc_url_raw( $tax_data['term_link'] );
 		}
 
 		return $term_link;
@@ -295,94 +321,51 @@ final class Search implements Registrable {
 	 * Populate terms for remote posts from stored taxonomy metadata.
 	 *
 	 * @param array|\WP_Term[]|false $terms    Default terms.
-	 * @param int                    $post_id  Post ID (negative for remote).
+	 * @param int                    $post_id  Post ID (synthetic for remote posts).
 	 * @param string                 $taxonomy Taxonomy.
 	 *
 	 * @return array|\WP_Term[]|false
 	 */
 	public function get_post_terms( $terms, $post_id, $taxonomy ) {
-		global $wp_query;
+		$post = $this->remote_posts_map[ (int) $post_id ] ?? null;
 
-		if ( ! $this->is_search_enabled() || ! $wp_query instanceof \WP_Query || ! $this->should_filter_query( $wp_query ) ) {
-			return $terms;
-		}
-
-		$post = get_post( $post_id );
-
-		if ( ! $post || ! isset( $post->onesearch_remote_taxonomies ) ) {
+		if ( ! $post instanceof \WP_Post || ! isset( $post->onesearch_remote_taxonomies ) || ! $this->is_filtering_main_search() ) {
 			return $terms;
 		}
 
 		$filtered_terms = [];
 
-		foreach ( $post->onesearch_remote_taxonomies as $tax_data ) {
-			if ( $tax_data['taxonomy'] !== $taxonomy ) {
+		foreach ( $post->onesearch_remote_taxonomies as $tax_name => $tax_terms ) {
+			if ( $tax_name !== $taxonomy || ! is_array( $tax_terms ) ) {
 				continue;
 			}
 
-			$fake_term                   = new \WP_Term( new \stdClass() );
-			$fake_term->count            = $tax_data['count'];
-			$fake_term->description      = $tax_data['description'];
-			$fake_term->name             = sanitize_text_field( $tax_data['name'] );
-			$fake_term->parent           = $tax_data['parent'];
-			$fake_term->slug             = $tax_data['slug'];
-			$fake_term->taxonomy         = $tax_data['taxonomy'];
-			$fake_term->term_id          = $tax_data['term_id'];
-			$fake_term->term_taxonomy_id = $tax_data['term_id'];
-			$fake_term->term_group       = 0;
+			foreach ( $tax_terms as $tax_data ) {
+				$term_id = (int) ( $tax_data['term_id'] ?? 0 );
 
-			$filtered_terms[] = $fake_term;
+				$fake_term                   = new \WP_Term( new \stdClass() );
+				$fake_term->count            = (int) ( $tax_data['count'] ?? 0 );
+				$fake_term->description      = (string) ( $tax_data['description'] ?? '' );
+				$fake_term->name             = sanitize_text_field( (string) ( $tax_data['name'] ?? '' ) );
+				$fake_term->parent           = (int) ( $tax_data['parent'] ?? 0 );
+				$fake_term->slug             = (string) ( $tax_data['slug'] ?? '' );
+				$fake_term->taxonomy         = $tax_name;
+				$fake_term->term_id          = $term_id;
+				$fake_term->term_taxonomy_id = $term_id;
+				$fake_term->term_group       = 0;
+
+				$filtered_terms[] = $fake_term;
+			}
 		}
 
 		return ! empty( $filtered_terms ) ? $filtered_terms : $terms;
 	}
 
 	/**
-	 * Adjust block output for remote posts (block themes).
-	 *
-	 * Ensures that for remote posts (negative IDs) the post title block
-	 * links to the remote permalink, and the excerpt block shows the
-	 * Algolia-provided excerpt.
-	 *
-	 * @param string              $block_content Rendered block HTML.
-	 * @param array<string,mixed> $block         Block data.
-	 *
-	 * @return string
-	 */
-	public function filter_render_block( $block_content, $block ) {
-		global $post;
-
-		if ( ! $this->is_search_enabled() || ! $this->is_remote_post( $post ) || empty( $post->guid ) ) {
-			return $block_content;
-		}
-
-		$block_name = $block['blockName'] ?? '';
-
-		// Fix permalink for block-based post titles.
-		if ( 'core/post-title' === $block_name && false !== strpos( $block_content, 'href=' ) ) {
-			$remote_url    = esc_url( $post->guid );
-			$block_content = (string) preg_replace( '#href="[^"]*"#', 'href="' . $remote_url . '"', $block_content, 1 );
-		}
-
-		// Ensure excerpt block uses our remote excerpt when present.
-		if ( 'core/post-excerpt' === $block_name && ! empty( $post->post_excerpt ) ) {
-			if ( preg_match( '#<p[^>]*>.*?</p>#s', $block_content ) ) {
-				$excerpt_html  = wpautop( wp_kses_post( $post->post_excerpt ) );
-				$block_content = (string) preg_replace( '#<p[^>]*>.*?</p>#s', $excerpt_html, $block_content, 1 );
-			}
-		}
-
-		return $block_content;
-	}
-
-	/**
 	 * Provide the remote file URL when core asks for a remote attachment's URL.
 	 *
-	 * A remote attachment search result is assigned the proxy attachment's real
-	 * (positive) ID, so core's wp_get_attachment_url() resolves the post and
-	 * reaches this filter (unlike a negative ID, which it rejects before any
-	 * filter runs). We return the remote file URL so prepend_attachment() /
-	 * wp_get_attachment_link() render natively without replacing their output.
+	 * Applies to remote attachment results, and to the companion attachments that
+	 * stand in for the featured images of remote posts.
 	 *
 	 * @param string|false $url           The attachment URL (or false if not resolved).
 	 * @param int          $attachment_id The attachment post ID.
@@ -400,55 +383,10 @@ final class Search implements Registrable {
 	}
 
 	/**
-	 * Resolve a remote post's `_thumbnail_id` to the shared proxy attachment.
-	 *
-	 * Remote posts carry a negative (non-existent) ID, so they have no real
-	 * `_thumbnail_id`. We short-circuit the meta read to return the proxy
-	 * attachment's ID, allowing WordPress' native thumbnail pipeline to run.
-	 * The matching remote post is recorded so get_remote_attachment_image_src()
-	 * knows which remote file the proxy should resolve to.
-	 *
-	 * @param mixed  $value     The pre-filtered meta value (null by default).
-	 * @param int    $object_id The object ID the meta is requested for.
-	 * @param string $meta_key  The meta key being requested.
-	 * @param bool   $single    Whether a single value is requested.
-	 *
-	 * @return mixed The proxy attachment ID for remote thumbnails, else $value.
-	 */
-	public function get_remote_thumbnail_id( $value, $object_id, $meta_key, $single ) {
-		if ( '_thumbnail_id' !== $meta_key || (int) $object_id >= 0 ) {
-			return $value;
-		}
-
-		$global_post = $GLOBALS['post'] ?? null;
-
-		$remote_post = $this->is_remote_post( $global_post ) && (int) $global_post->ID === (int) $object_id
-			? $global_post
-			: ( $this->remote_posts_map[ (int) $object_id ] ?? null );
-
-		if ( ! $remote_post instanceof \WP_Post || empty( $remote_post->onesearch_thumbnail['url'] ) ) {
-			return $value;
-		}
-
-		$proxy_id = $this->get_proxy_attachment_id();
-		if ( ! $proxy_id ) {
-			return $value;
-		}
-
-		// Record which remote file the proxy attachment should resolve to next.
-		$this->current_remote_post = $remote_post;
-
-		// get_metadata_raw() expects an array when $single is false.
-		return $single ? (string) $proxy_id : [ (string) $proxy_id ];
-	}
-
-	/**
 	 * Swap a remote attachment's image src for the actual remote file.
 	 *
-	 * Handles two cases, both keyed off the Algolia thumbnail data:
-	 *  - the shared proxy attachment, assigned as a remote post's thumbnail; and
-	 *  - a remote attachment search result, which is assigned the shared proxy ID
-	 *    so core attachment functions resolve it natively.
+	 * Applies to remote attachment results, and to the companion attachments that
+	 * stand in for the featured images of remote posts.
 	 *
 	 * @param array{0: string, 1: int, 2: int, 3: bool}|false $image         Array of image data or false.
 	 * @param int                                             $attachment_id Attachment post ID.
@@ -470,9 +408,7 @@ final class Search implements Registrable {
 	/**
 	 * Adjust a remote attachment's image attributes for the remote file.
 	 *
-	 * Remote attachments (and the proxy) have no real metadata, so we set a
-	 * meaningful alt text from the remote post and drop any srcset/sizes that
-	 * would point at non-existent local files.
+	 * Remote attachments have no real metadata, so we set a meaningful alt text from the remote post.
 	 *
 	 * @param array<string, string> $attr       Image attributes.
 	 * @param \WP_Post              $attachment The attachment post.
@@ -491,10 +427,8 @@ final class Search implements Registrable {
 			return $attr;
 		}
 
-		unset( $attr['srcset'], $attr['sizes'] );
-
+		// Core escapes the attributes after this filter.
 		if ( empty( $attr['alt'] ) && ! empty( $remote_post->post_title ) ) {
-			// Core escapes the attributes after this filter.
 			$attr['alt'] = wp_strip_all_tags( $remote_post->post_title );
 		}
 
@@ -502,105 +436,153 @@ final class Search implements Registrable {
 	}
 
 	/**
-	 * Exclude the proxy attachment from attachment queries.
-	 *
-	 * Applies everywhere (front end, admin, and REST), so the synthetic proxy
-	 * never surfaces in any attachment listing. The internal thumbnail pipeline
-	 * resolves the proxy via get_post()/get_option(), not WP_Query, so it is
-	 * unaffected by this exclusion.
-	 *
-	 * @param \WP_Query $query The query being run.
-	 */
-	public function exclude_proxy_from_attachment_queries( \WP_Query $query ): void {
-		$post_types = (array) $query->get( 'post_type' );
-		if ( ! in_array( 'attachment', $post_types, true ) && ! in_array( 'any', $post_types, true ) ) {
-			return;
-		}
-
-		$proxy_id = (int) get_option( self::PROXY_ATTACHMENT_OPTION, 0 );
-		if ( ! $proxy_id ) {
-			return;
-		}
-
-		// get() returns '' when unset and (array) '' is [''], so array_filter() strips that empty element.
-		$excluded   = array_filter( (array) $query->get( 'post__not_in' ) );
-		$excluded[] = $proxy_id;
-		// phpcs:ignore WordPressVIPMinimum.Hooks.PreGetPosts.PreGetPosts -- Intentionally filters attachment queries (front end, admin, and REST) to hide the single synthetic proxy attachment.
-		$query->set( 'post__not_in', $excluded );
-	}
-
-	/**
 	 * Whether a post is a remote (Algolia-mocked) search result.
-	 *
-	 * Remote results are the only posts that carry `onesearch_original_id`
-	 * (local-site results return early in build_post_from_record() without it),
-	 * so this identifies them regardless of whether their ID is the negative
-	 * placeholder (regular posts) or the positive proxy ID (attachments).
 	 *
 	 * @param mixed $post The candidate post.
 	 *
 	 * @return bool True when the post is a remote result.
 	 */
 	private function is_remote_post( $post ): bool {
-		return $post instanceof \WP_Post && property_exists( $post, 'onesearch_original_id' );
+		return $post instanceof \WP_Post && isset( $this->remote_posts_map[ $post->ID ] );
 	}
 
 	/**
-	 * Locate the remote post a permalink request belongs to.
+	 * Finds the remote author a core author filter is asking about.
 	 *
-	 * Some link filters pass the WP_Post object, others only an ID. Attachment
-	 * results share a single proxy ID, so an ID alone can't identify them — for
-	 * those we rely on the in-loop global post. Regular remote posts have unique
-	 * negative IDs and can be matched by scanning the result set.
+	 * Only the synthetic author ID of a remote post matches. Real users (positive IDs), emails, WP_User and WP_Comment arguments never do.
 	 *
-	 * @param int|\WP_Post $post Post object or ID from the link filter.
+	 * @param mixed $author_id The user ID the filter was given.
 	 *
-	 * @return \WP_Post|null The matching remote post, or null when not ours.
+	 * @return array{display_name: string, link: string, avatar: string}|null The author data, or null when this isn't a remote author.
 	 */
-	private function resolve_remote_post_for_permalink( $post ): ?\WP_Post {
-		global $wp_query;
-
-		if ( $post instanceof \WP_Post ) {
-			return $this->is_remote_post( $post ) ? $post : null;
+	private function resolve_remote_author( $author_id ): ?array {
+		if ( empty( $this->remote_authors_map ) || ! $this->is_filtering_main_search() ) {
+			return null;
 		}
 
-		$post_id     = (int) $post;
-		$global_post = $GLOBALS['post'] ?? null;
-
-		// Loop context (covers proxy-ID attachments): the global post is the one being rendered and matches the ID.
-		if ( $this->is_remote_post( $global_post ) && (int) $global_post->ID === $post_id ) {
-			return $global_post;
-		}
-
-		// Regular remote posts have unique negative IDs; match by scanning results.
-		if ( $post_id < 0 ) {
-			foreach ( $wp_query->posts as $found ) {
-				if ( $this->is_remote_post( $found ) && (int) $found->ID === $post_id ) {
-					return $found;
-				}
-			}
+		if ( ( is_int( $author_id ) && $author_id < 0 ) || ( is_string( $author_id ) && 1 === preg_match( '/^-\d+$/', $author_id ) ) ) {
+			return $this->remote_authors_map[ (int) $author_id ] ?? null;
 		}
 
 		return null;
 	}
 
 	/**
+	 * Whether the main query is a search being served by Algolia.
+	 *
+	 * The cheap query checks run before the search config lookup.
+	 */
+	private function is_filtering_main_search(): bool {
+		global $wp_query;
+
+		return $wp_query instanceof \WP_Query && $this->should_filter_query( $wp_query ) && $this->is_search_enabled();
+	}
+
+	/**
+	 * Whether a stored remote term is the one core asked about.
+	 *
+	 * @param array<string,mixed> $tax_term The stored term.
+	 * @param mixed               $term     A WP_Term, term ID or slug.
+	 */
+	private function is_same_term( array $tax_term, $term ): bool {
+		if ( $term instanceof \WP_Term ) {
+			return (int) ( $tax_term['term_id'] ?? 0 ) === $term->term_id && ( $tax_term['slug'] ?? '' ) === $term->slug;
+		}
+
+		if ( is_int( $term ) || ( is_string( $term ) && ctype_digit( $term ) ) ) {
+			return (int) ( $tax_term['term_id'] ?? 0 ) === (int) $term;
+		}
+
+		return is_string( $term ) && ( $tax_term['slug'] ?? '' ) === $term;
+	}
+
+	/**
+	 * Locate the remote post a permalink request belongs to.
+	 *
+	 * Some link filters pass the WP_Post object, others only an ID. A featured image links to the post it belongs to.
+	 *
+	 * @param int|\WP_Post $post Post object or ID from the link filter.
+	 *
+	 * @return \WP_Post|null The matching remote post, or null when not ours.
+	 */
+	private function resolve_remote_post_for_permalink( $post ): ?\WP_Post {
+		$post_id = $post instanceof \WP_Post ? (int) $post->ID : (int) $post;
+
+		return $this->remote_posts_map[ $post_id ] ?? $this->remote_attachments_map[ $post_id ] ?? null;
+	}
+
+	/**
 	 * Register the remote posts for the current request.
 	 *
-	 * Builds the negative-ID -> WP_Post map used by the attachment hooks. Remote
-	 * posts are mocked WP_Post objects with negative IDs, so they are not in the
-	 * database and cannot be resolved via get_post(); the filters that handle
-	 * them read from this map (and the global $post) instead.
+	 * Gives the mocked posts a place in the object cache, so core can resolve them by their synthetic ID, and
+	 * creates the companion attachments that stand in for the featured images of remote posts.
 	 *
 	 * @param \WP_Post[] $posts The posts returned for the query.
 	 */
 	private function register_remote_posts( array $posts ): void {
 		foreach ( $posts as $post ) {
-			if ( ! $post instanceof \WP_Post || (int) $post->ID >= 0 ) {
+			// Local hits are real posts. Only the mocked ones have an original ID.
+			if ( ! property_exists( $post, 'onesearch_original_id' ) ) {
 				continue;
 			}
 
-			$this->remote_posts_map[ (int) $post->ID ] = $post;
+			$this->remote_posts_map[ $post->ID ] = $post;
+
+			$meta = [];
+			if ( 'attachment' !== $post->post_type && ! empty( $post->onesearch_thumbnail['url'] ) ) {
+				$meta['_thumbnail_id'] = [ (string) $this->register_companion_attachment( $post ) ];
+			}
+
+			// Every taxonomy of the post type, since core asks for terms the record doesn't have too, e.g. for the post classes.
+			$taxonomies = is_array( $post->onesearch_remote_taxonomies ?? null ) ? array_keys( $post->onesearch_remote_taxonomies ) : [];
+			$taxonomies = array_unique( array_merge( array_map( 'strval', $taxonomies ), get_object_taxonomies( $post->post_type ) ) );
+
+			$this->prime_remote_post_cache( $post, $meta, $taxonomies );
+		}
+	}
+
+	/**
+	 * Creates the attachment that stands in for the featured image of a remote post.
+	 *
+	 * @param \WP_Post $remote_post The remote post.
+	 *
+	 * @return int The attachment's synthetic ID.
+	 */
+	private function register_companion_attachment( \WP_Post $remote_post ): int {
+		$url  = (string) ( $remote_post->onesearch_thumbnail['url'] ?? '' );
+		$path = wp_parse_url( $url, PHP_URL_PATH );
+		$mime = wp_check_filetype( is_string( $path ) ? $path : '' )['type'] ?: 'image/jpeg';
+
+		$attachment                 = new \WP_Post( new \stdClass() );
+		$attachment->ID             = $this->next_remote_id++; // @phpstan-ignore assign.propertyType (Synthetic IDs are far above what core stubs consider possible.)
+		$attachment->filter         = 'raw';
+		$attachment->guid           = $url;
+		$attachment->post_mime_type = $mime;
+		$attachment->post_parent    = $remote_post->ID;
+		$attachment->post_status    = 'inherit';
+		$attachment->post_title     = $remote_post->post_title;
+		$attachment->post_type      = 'attachment';
+
+		$this->prime_remote_post_cache( $attachment, [], [] );
+
+		$this->remote_attachments_map[ $attachment->ID ] = $remote_post;
+
+		return $attachment->ID;
+	}
+
+	/**
+	 * Primes the object cache for a synthetic post, so core resolves it, its meta and its terms without querying the database.
+	 *
+	 * @param \WP_Post                    $post       The synthetic post.
+	 * @param array<string, list<string>> $meta       The post's meta, as core caches it.
+	 * @param string[]                    $taxonomies The taxonomies the post has terms in.
+	 */
+	private function prime_remote_post_cache( \WP_Post $post, array $meta, array $taxonomies ): void {
+		wp_cache_set( $post->ID, $post, 'posts' );
+		wp_cache_set( $post->ID, $meta, 'post_meta' );
+
+		foreach ( $taxonomies as $taxonomy ) {
+			wp_cache_set( $post->ID, [], $taxonomy . '_relationships' );
 		}
 	}
 
@@ -678,70 +660,20 @@ final class Search implements Registrable {
 	}
 
 	/**
-	 * Resolve which remote post an attachment request belongs to.
+	 * Resolve which remote post provides the file of an attachment request.
 	 *
 	 * @param int $attachment_id The attachment ID being resolved.
 	 *
 	 * @return \WP_Post|null The matching remote post, or null if not ours.
 	 */
 	private function resolve_remote_attachment_post( int $attachment_id ): ?\WP_Post {
-		if ( null === $this->proxy_attachment_id || $attachment_id !== $this->proxy_attachment_id ) {
-			return null;
+		if ( isset( $this->remote_attachments_map[ $attachment_id ] ) ) {
+			return $this->remote_attachments_map[ $attachment_id ];
 		}
 
-		global $post;
-		if ( $post instanceof \WP_Post && $this->is_remote_post( $post ) && ! empty( $post->onesearch_thumbnail['url'] ) ) {
-			return $post;
-		}
-		return $this->current_remote_post;
-	}
+		$remote_post = $this->remote_posts_map[ $attachment_id ] ?? null;
 
-	/**
-	 * Get the shared proxy attachment ID, creating it if necessary.
-	 *
-	 * A single fictitious attachment is created per site and reused for every
-	 * remote post. It is recreated if the stored ID no longer points to a
-	 * valid attachment (e.g. it was deleted).
-	 *
-	 * @return int The proxy attachment ID, or 0 on failure.
-	 */
-	private function get_proxy_attachment_id(): int {
-		if ( null !== $this->proxy_attachment_id ) {
-			return $this->proxy_attachment_id;
-		}
-
-		$stored = (int) get_option( self::PROXY_ATTACHMENT_OPTION, 0 );
-
-		if ( $stored > 0 ) {
-			$existing = get_post( $stored );
-			if ( $existing instanceof \WP_Post && 'attachment' === $existing->post_type ) {
-				$this->proxy_attachment_id = $stored;
-				return $stored;
-			}
-		}
-
-		$proxy_id = wp_insert_post(
-			[
-				'post_title'     => 'OneSearch Remote Attachment Proxy',
-				'post_name'      => 'onesearch-remote-attachment-proxy',
-				'post_status'    => 'private',
-				'post_type'      => 'attachment',
-				'post_mime_type' => 'image/jpeg',
-				'post_content'   => '',
-				'post_excerpt'   => '',
-			],
-			true
-		);
-
-		if ( is_wp_error( $proxy_id ) || ! $proxy_id ) {
-			$this->proxy_attachment_id = 0;
-			return 0;
-		}
-
-		update_option( self::PROXY_ATTACHMENT_OPTION, $proxy_id, false );
-		$this->proxy_attachment_id = (int) $proxy_id;
-
-		return $this->proxy_attachment_id;
+		return $remote_post instanceof \WP_Post && 'attachment' === $remote_post->post_type ? $remote_post : null;
 	}
 
 	/**
@@ -935,6 +867,18 @@ final class Search implements Registrable {
 			$records = $this->get_all_chunks_for_records( $records );
 		}
 
+		// The query's own cache priming is off (see `cache_results` in `get_algolia_results()`), so load the local hits in one go.
+		$site_url  = Utils::get_current_site_url();
+		$local_ids = [];
+		foreach ( $records as $record ) {
+			if ( isset( $record['post_id'], $record['site_url'] ) && Utils::normalize_url( $record['site_url'] ) === $site_url ) {
+				$local_ids[] = (int) $record['post_id'];
+			}
+		}
+		if ( [] !== $local_ids ) {
+			_prime_post_caches( $local_ids );
+		}
+
 		$posts = [];
 
 		foreach ( $records as $record ) {
@@ -1026,15 +970,7 @@ final class Search implements Registrable {
 		$post      = new \WP_Post( new \stdClass() );
 		$post_type = $record['post_type'] ?? '';
 
-		/**
-		 * Attachment results take the real (positive) proxy attachment ID so core's
-		 * attachment functions resolve them natively; every other remote post gets a
-		 * negative placeholder ID to avoid colliding with local posts. Fall back to
-		 * the negative ID when the proxy can't be created.
-		 */
-		$proxy_id = 'attachment' === $post_type ? $this->get_proxy_attachment_id() : 0;
-
-		$post->ID                = $proxy_id > 0 ? $proxy_id : -1 - absint( $record['post_id'] ); // @phpstan-ignore assign.propertyType (A negative ID is used to represent remote post.)
+		$post->ID                = $this->next_remote_id++; // @phpstan-ignore assign.propertyType (Synthetic IDs are far above what core stubs consider possible.)
 		$post->filter            = 'raw';
 		$post->guid              = esc_url_raw( $record['permalink'] ?? '' );
 		$post->post_content      = wp_kses_post( $record['content'] ?? '' );
@@ -1052,10 +988,18 @@ final class Search implements Registrable {
 
 		// Set negative author ID to avoid conflicts.
 		if ( isset( $record['post_author_data'] ) ) {
-			$post->post_author                               = (string) ( -1000 - absint( $record['post_author_data']['author_id'] ) );
+			$author_id = $this->next_remote_author_id--;
+
+			$post->post_author                               = (string) $author_id;
 			$post->onesearch_remote_post_author_display_name = sanitize_text_field( $record['post_author_data']['author_display_name'] ?? '' );
 			$post->onesearch_remote_post_author_link         = esc_url_raw( $record['post_author_data']['author_posts_url'] ?? '' );
 			$post->onesearch_remote_post_author_gravatar     = esc_url_raw( $record['post_author_data']['author_avatar'] ?? '' );
+
+			$this->remote_authors_map[ $author_id ] = [
+				'display_name' => $post->onesearch_remote_post_author_display_name,
+				'link'         => $post->onesearch_remote_post_author_link,
+				'avatar'       => $post->onesearch_remote_post_author_gravatar,
+			];
 		}
 
 		// Set Custom OneSearch properties.
