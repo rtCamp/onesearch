@@ -283,6 +283,35 @@ final class PostRecordTest extends TestCase {
 	}
 
 	/**
+	 * Escaped markup in the content stays escaped, instead of becoming live markup in the index.
+	 */
+	public function test_to_records_keeps_entities_encoded(): void {
+		$post = self::factory()->post->create_and_get( [ 'post_content' => '<pre><code>&lt;script&gt;alert(1)&lt;/script&gt;</code></pre>' ] );
+
+		$content = ( new Post_Record() )->to_records( $post )[0]['content'];
+
+		$this->assertStringContainsString( '&lt;script&gt;', $content );
+		$this->assertStringNotContainsString( '<script', $content );
+	}
+
+	/**
+	 * The filter that was removed is put back when rendering throws.
+	 */
+	public function test_to_records_restores_filters_when_rendering_fails(): void {
+		add_filter(
+			'the_content',
+			static function (): string {
+				throw new \RuntimeException( 'broken block' );
+			}
+		);
+
+		$records = ( new Post_Record() )->to_records( self::factory()->post->create_and_get() );
+
+		$this->assertSame( '', $records[0]['content'] );
+		$this->assertSame( 10, has_filter( 'the_content', 'wptexturize' ) );
+	}
+
+	/**
 	 * Tests that to_records includes post author data.
 	 */
 	public function test_to_records_includes_post_author_data(): void {

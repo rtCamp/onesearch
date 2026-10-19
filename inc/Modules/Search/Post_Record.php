@@ -361,6 +361,7 @@ final class Post_Record {
 	 * Gets the cleaned content for the post.
 	 *
 	 * Uses the_content filter to process blocks and other content modifications.
+	 * Entities stay encoded, since decoding them turns escaped markup (e.g. in code blocks) into live markup.
 	 *
 	 * @param \WP_Post $post The post.
 	 */
@@ -379,11 +380,11 @@ final class Post_Record {
 				)
 			);
 			return '';
-		}
-
-		// Restore filter if it was removed.
-		if ( $removed_filter ) {
-			add_filter( 'the_content', 'wptexturize', 10 );
+		} finally {
+			// Restore filter if it was removed.
+			if ( $removed_filter ) {
+				add_filter( 'the_content', 'wptexturize', 10 );
+			}
 		}
 
 		// Replace encoded white spaces with regular spaces.
@@ -404,7 +405,7 @@ final class Post_Record {
 		];
 		$content   = preg_replace( array_keys( $regex_map ), array_values( $regex_map ), $content );
 
-		return null !== $content ? trim( html_entity_decode( $content, ENT_QUOTES | ENT_HTML5 ) ) : '';
+		return null !== $content ? trim( $content ) : '';
 	}
 
 	/**
