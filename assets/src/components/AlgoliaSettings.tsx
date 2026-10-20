@@ -127,11 +127,11 @@ const AlgoliaSettings = ( {
 								? __(
 										'A key is saved. Enter it again to save changes.',
 										'onesearch'
-								  )
+									)
 								: __(
 										'Enter your Algolia Write API Key',
 										'onesearch'
-								  )
+									)
 						}
 						help={ __(
 							"This key is usable for write operations and it's also able to list the indices you've got access to.",

@@ -149,7 +149,7 @@ const SiteModal = ( {
 							: __(
 									'An error occurred while saving the site. Please try again.',
 									'onesearch'
-							  ),
+								),
 				} );
 				setShowNotice( true );
 			}
@@ -243,11 +243,11 @@ const SiteModal = ( {
 						? __(
 								'This is the API key that will be used to authenticate the site for OneSearch.',
 								'onesearch'
-						  )
+							)
 						: __(
 								'Leave blank to keep the current key.',
 								'onesearch'
-						  )
+							)
 				}
 				__nextHasNoMarginBottom
 			/>

@@ -1,6 +1,7 @@
 /**
  * External dependencies
  */
+import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
 import SiteTable from '@/components/SiteTable';
@@ -17,10 +18,10 @@ describe( 'SiteTable', () => {
 		render(
 			<SiteTable
 				sites={ [] }
-				onEdit={ jest.fn() }
-				onDelete={ jest.fn() }
-				setFormData={ jest.fn() }
-				setShowModal={ jest.fn() }
+				onEdit={ vi.fn() }
+				onDelete={ vi.fn() }
+				setFormData={ vi.fn() }
+				setShowModal={ vi.fn() }
 			/>
 		);
 
@@ -30,14 +31,14 @@ describe( 'SiteTable', () => {
 	} );
 
 	it( 'opens the add modal when the add button is clicked', () => {
-		const setShowModal = jest.fn();
+		const setShowModal = vi.fn();
 
 		render(
 			<SiteTable
 				sites={ [] }
-				onEdit={ jest.fn() }
-				onDelete={ jest.fn() }
-				setFormData={ jest.fn() }
+				onEdit={ vi.fn() }
+				onDelete={ vi.fn() }
+				setFormData={ vi.fn() }
 				setShowModal={ setShowModal }
 			/>
 		);
@@ -50,15 +51,15 @@ describe( 'SiteTable', () => {
 	} );
 
 	it( 'passes the selected site to edit handlers', () => {
-		const onEdit = jest.fn();
-		const setFormData = jest.fn();
-		const setShowModal = jest.fn();
+		const onEdit = vi.fn();
+		const setFormData = vi.fn();
+		const setShowModal = vi.fn();
 
 		render(
 			<SiteTable
 				sites={ sites }
 				onEdit={ onEdit }
-				onDelete={ jest.fn() }
+				onDelete={ vi.fn() }
 				setFormData={ setFormData }
 				setShowModal={ setShowModal }
 			/>
@@ -76,15 +77,15 @@ describe( 'SiteTable', () => {
 	} );
 
 	it( 'confirms deletion before calling onDelete', () => {
-		const onDelete = jest.fn();
+		const onDelete = vi.fn();
 
 		render(
 			<SiteTable
 				sites={ sites }
-				onEdit={ jest.fn() }
+				onEdit={ vi.fn() }
 				onDelete={ onDelete }
-				setFormData={ jest.fn() }
-				setShowModal={ jest.fn() }
+				setFormData={ vi.fn() }
+				setShowModal={ vi.fn() }
 			/>
 		);
 
@@ -107,15 +108,15 @@ describe( 'SiteTable', () => {
 	} );
 
 	it( 'lets the user cancel deletion', () => {
-		const onDelete = jest.fn();
+		const onDelete = vi.fn();
 
 		render(
 			<SiteTable
 				sites={ sites }
-				onEdit={ jest.fn() }
+				onEdit={ vi.fn() }
 				onDelete={ onDelete }
-				setFormData={ jest.fn() }
-				setShowModal={ jest.fn() }
+				setFormData={ vi.fn() }
+				setShowModal={ vi.fn() }
 			/>
 		);
 

@@ -1,6 +1,16 @@
 /**
  * External dependencies
  */
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	type MockedFunction,
+	type MockInstance,
+	vi,
+} from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 /**
  * WordPress dependencies
@@ -9,15 +19,15 @@ import apiFetch from '@wordpress/api-fetch';
 
 import SiteTypeSettings from '@/components/SiteTypeSettings';
 
-const mockedApiFetch = apiFetch as jest.MockedFunction< typeof apiFetch >;
+const mockedApiFetch = apiFetch as MockedFunction< typeof apiFetch >;
 
 describe( 'SiteTypeSettings', () => {
-	let consoleWarnSpy: jest.SpyInstance;
+	let consoleWarnSpy: MockInstance;
 
 	beforeEach( () => {
 		mockedApiFetch.mockReset();
 		// Suppress WordPress component deprecation warnings (outside our control)
-		consoleWarnSpy = jest
+		consoleWarnSpy = vi
 			.spyOn( console, 'warn' )
 			.mockImplementation( () => {} );
 	} );
@@ -27,7 +37,7 @@ describe( 'SiteTypeSettings', () => {
 	} );
 
 	it( 'saves the chosen site type and reloads the screen', async () => {
-		const consoleErrorSpy = jest
+		const consoleErrorSpy = vi
 			.spyOn( console, 'error' )
 			.mockImplementation( () => {} );
 		mockedApiFetch.mockResolvedValueOnce( {

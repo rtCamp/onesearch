@@ -1,6 +1,7 @@
 /**
  * External dependencies
  */
+import { describe, expect, it, type MockedFunction, vi } from 'vitest';
 import {
 	fireEvent,
 	render,
@@ -16,7 +17,7 @@ import apiFetch from '@wordpress/api-fetch';
 
 import SiteIndexableEntities from '@/components/SiteIndexableEntities';
 
-const mockedApiFetch = apiFetch as jest.MockedFunction< typeof apiFetch >;
+const mockedApiFetch = apiFetch as MockedFunction< typeof apiFetch >;
 
 const currentSiteUrl = 'https://governing.example.com/';
 const brandSiteUrl = 'https://brand.example.com/';
@@ -24,7 +25,7 @@ const brandSiteUrl = 'https://brand.example.com/';
 const okJson = ( data: unknown ) =>
 	( {
 		ok: true,
-		json: jest.fn().mockResolvedValue( data ),
+		json: vi.fn().mockResolvedValue( data ),
 	} ) as unknown as Response;
 
 describe( 'SiteIndexableEntities', () => {
@@ -37,10 +38,10 @@ describe( 'SiteIndexableEntities', () => {
 				} }
 				currentSiteUrl={ currentSiteUrl }
 				indexableEntities={ { [ currentSiteUrl ]: [ 'post' ] } }
-				setNotice={ jest.fn() }
-				onEntitiesSaved={ jest.fn() }
+				setNotice={ vi.fn() }
+				onEntitiesSaved={ vi.fn() }
 				saving={ false }
-				setSaving={ jest.fn() }
+				setSaving={ vi.fn() }
 			/>
 		);
 
@@ -67,10 +68,10 @@ describe( 'SiteIndexableEntities', () => {
 				} }
 				currentSiteUrl={ currentSiteUrl }
 				indexableEntities={ {} }
-				setNotice={ jest.fn() }
-				onEntitiesSaved={ jest.fn() }
+				setNotice={ vi.fn() }
+				onEntitiesSaved={ vi.fn() }
 				saving={ false }
-				setSaving={ jest.fn() }
+				setSaving={ vi.fn() }
 			/>
 		);
 
@@ -82,12 +83,12 @@ describe( 'SiteIndexableEntities', () => {
 	} );
 
 	it( 'saves entities and reindexes after changes', async () => {
-		const setNotice = jest.fn();
-		const onEntitiesSaved = jest.fn();
-		const setSaving = jest.fn();
+		const setNotice = vi.fn();
+		const onEntitiesSaved = vi.fn();
+		const setSaving = vi.fn();
 
 		mockedApiFetch.mockResolvedValueOnce( {} );
-		global.fetch = jest.fn().mockResolvedValueOnce(
+		global.fetch = vi.fn().mockResolvedValueOnce(
 			okJson( {
 				message: 'Reindex complete.',
 				errors: [],
@@ -152,9 +153,9 @@ describe( 'SiteIndexableEntities', () => {
 				postTypeErrors={ [
 					{ site_url: brandSiteUrl, message: 'Request timed out.' },
 				] }
-				setNotice={ jest.fn() }
+				setNotice={ vi.fn() }
 				saving={ false }
-				setSaving={ jest.fn() }
+				setSaving={ vi.fn() }
 			/>
 		);
 
@@ -176,9 +177,9 @@ describe( 'SiteIndexableEntities', () => {
 				currentSiteUrl={ currentSiteUrl }
 				indexableEntities={ {} }
 				loadFailed
-				setNotice={ jest.fn() }
+				setNotice={ vi.fn() }
 				saving={ false }
-				setSaving={ jest.fn() }
+				setSaving={ vi.fn() }
 			/>
 		);
 
@@ -191,8 +192,8 @@ describe( 'SiteIndexableEntities', () => {
 	} );
 
 	it( 'shows the error notice when saving entities fails', async () => {
-		const setNotice = jest.fn();
-		const setSaving = jest.fn();
+		const setNotice = vi.fn();
+		const setSaving = vi.fn();
 
 		mockedApiFetch.mockRejectedValueOnce( {
 			code: 'rest_invalid_param',
@@ -208,7 +209,7 @@ describe( 'SiteIndexableEntities', () => {
 				currentSiteUrl={ currentSiteUrl }
 				indexableEntities={ {} }
 				setNotice={ setNotice }
-				onEntitiesSaved={ jest.fn() }
+				onEntitiesSaved={ vi.fn() }
 				saving={ false }
 				setSaving={ setSaving }
 			/>
@@ -233,7 +234,7 @@ describe( 'SiteIndexableEntities', () => {
 	} );
 
 	it( 'opens and closes re-index modal and handles server errors', async () => {
-		const setNotice = jest.fn();
+		const setNotice = vi.fn();
 
 		mockedApiFetch.mockRejectedValueOnce( {
 			code: 'internal_server_error',
@@ -249,9 +250,9 @@ describe( 'SiteIndexableEntities', () => {
 				currentSiteUrl={ currentSiteUrl }
 				indexableEntities={ { [ currentSiteUrl ]: [ 'post' ] } }
 				setNotice={ setNotice }
-				onEntitiesSaved={ jest.fn() }
+				onEntitiesSaved={ vi.fn() }
 				saving={ false }
-				setSaving={ jest.fn() }
+				setSaving={ vi.fn() }
 			/>
 		);
 
@@ -272,7 +273,7 @@ describe( 'SiteIndexableEntities', () => {
 			} );
 		} );
 
-		global.fetch = jest.fn().mockResolvedValueOnce(
+		global.fetch = vi.fn().mockResolvedValueOnce(
 			okJson( {
 				message: 'failed',
 				errors: [ { site_url: currentSiteUrl, message: 'timed out' } ],

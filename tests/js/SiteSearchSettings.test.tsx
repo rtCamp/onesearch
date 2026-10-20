@@ -1,6 +1,14 @@
 /**
  * External dependencies
  */
+import {
+	beforeEach,
+	describe,
+	expect,
+	it,
+	type MockedFunction,
+	vi,
+} from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 /**
  * WordPress dependencies
@@ -9,7 +17,7 @@ import apiFetch from '@wordpress/api-fetch';
 
 import SiteSearchSettings from '@/components/SiteSearchSettings';
 
-const mockedApiFetch = apiFetch as jest.MockedFunction< typeof apiFetch >;
+const mockedApiFetch = apiFetch as MockedFunction< typeof apiFetch >;
 
 const currentSiteUrl = 'https://governing.example.com/';
 const brandSiteUrl = 'https://brand.example.com/';
@@ -40,7 +48,7 @@ describe( 'SiteSearchSettings', () => {
 	} );
 
 	it( 'loads and saves search settings', async () => {
-		const setNotice = jest.fn();
+		const setNotice = vi.fn();
 
 		mockedApiFetch
 			.mockResolvedValueOnce( { onesearch_sites_search_settings: {} } )
@@ -105,7 +113,7 @@ describe( 'SiteSearchSettings', () => {
 					[ brandSiteUrl ]: [],
 				} }
 				allPostTypes={ defaultPostTypes }
-				setNotice={ jest.fn() }
+				setNotice={ vi.fn() }
 				isIndexableEntitiesSaving={ false }
 			/>
 		);
@@ -121,7 +129,7 @@ describe( 'SiteSearchSettings', () => {
 	} );
 
 	it( 'auto-disables sites when entities are removed', async () => {
-		const setNotice = jest.fn();
+		const setNotice = vi.fn();
 
 		mockedApiFetch
 			.mockResolvedValueOnce( {
@@ -179,7 +187,7 @@ describe( 'SiteSearchSettings', () => {
 	} );
 
 	it( 'does not save over unsaved edits when entities are removed', async () => {
-		const setNotice = jest.fn();
+		const setNotice = vi.fn();
 
 		mockedApiFetch.mockResolvedValueOnce( {
 			onesearch_sites_search_settings: {
@@ -245,7 +253,7 @@ describe( 'SiteSearchSettings', () => {
 	} );
 
 	it( 'shows error when settings fail to load', async () => {
-		const setNotice = jest.fn();
+		const setNotice = vi.fn();
 		mockedApiFetch.mockRejectedValueOnce( new Error( 'load failed' ) );
 
 		render(
@@ -266,7 +274,7 @@ describe( 'SiteSearchSettings', () => {
 	} );
 
 	it( 'shows error when settings fail to save', async () => {
-		const setNotice = jest.fn();
+		const setNotice = vi.fn();
 
 		mockedApiFetch
 			.mockResolvedValueOnce( { onesearch_sites_search_settings: {} } )
@@ -314,7 +322,7 @@ describe( 'SiteSearchSettings', () => {
 			<SiteSearchSettings
 				indexableEntities={ defaultEntities }
 				allPostTypes={ defaultPostTypes }
-				setNotice={ jest.fn() }
+				setNotice={ vi.fn() }
 				isIndexableEntitiesSaving={ false }
 			/>
 		);
@@ -356,7 +364,7 @@ describe( 'SiteSearchSettings', () => {
 								},
 								[ hiddenSiteUrl ]: hiddenSettings,
 							},
-					  }
+						}
 			)
 		);
 
@@ -367,7 +375,7 @@ describe( 'SiteSearchSettings', () => {
 					[ hiddenSiteUrl ]: [ 'post' ],
 				} }
 				allPostTypes={ defaultPostTypes }
-				setNotice={ jest.fn() }
+				setNotice={ vi.fn() }
 				isIndexableEntitiesSaving={ false }
 			/>
 		);
@@ -409,7 +417,7 @@ describe( 'SiteSearchSettings', () => {
 			<SiteSearchSettings
 				indexableEntities={ defaultEntities }
 				allPostTypes={ defaultPostTypes }
-				setNotice={ jest.fn() }
+				setNotice={ vi.fn() }
 				isIndexableEntitiesSaving
 			/>
 		);
@@ -441,7 +449,7 @@ describe( 'SiteSearchSettings', () => {
 			<SiteSearchSettings
 				indexableEntities={ defaultEntities }
 				allPostTypes={ defaultPostTypes }
-				setNotice={ jest.fn() }
+				setNotice={ vi.fn() }
 				isIndexableEntitiesSaving={ false }
 			/>
 		);
@@ -461,7 +469,7 @@ describe( 'SiteSearchSettings', () => {
 	} );
 
 	it( 'toggles searchable sites', async () => {
-		const setNotice = jest.fn();
+		const setNotice = vi.fn();
 
 		// 1. Initial load, 2. Save, 3. Reload after save
 		mockedApiFetch

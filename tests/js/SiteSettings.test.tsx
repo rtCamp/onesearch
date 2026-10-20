@@ -1,6 +1,7 @@
 /**
  * External dependencies
  */
+import { describe, expect, it, type Mock, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import SiteSettings from '@/components/SiteSettings';
@@ -8,7 +9,7 @@ import SiteSettings from '@/components/SiteSettings';
 const okJson = ( data: unknown ) =>
 	( {
 		ok: true,
-		json: jest.fn().mockResolvedValue( data ),
+		json: vi.fn().mockResolvedValue( data ),
 	} ) as unknown as Response;
 
 const siteSettingsFetch = ( handlers: {
@@ -20,7 +21,7 @@ const siteSettingsFetch = ( handlers: {
 	failRegenerate?: boolean;
 	failDisconnect?: boolean;
 } ) =>
-	jest.fn( async ( input: RequestInfo | URL, init?: RequestInit ) => {
+	vi.fn( async ( input: RequestInfo | URL, init?: RequestInit ) => {
 		const url = String( input );
 		const method = init?.method ?? 'GET';
 
@@ -49,7 +50,7 @@ const siteSettingsFetch = ( handlers: {
 
 			return {
 				ok: handlers.deleteOk ?? true,
-				json: jest.fn().mockResolvedValue(
+				json: vi.fn().mockResolvedValue(
 					handlers.disconnectResponse ?? {
 						governing_site_notified: true,
 					}
@@ -183,7 +184,7 @@ describe( 'SiteSettings', () => {
 		global.fetch = siteSettingsFetch( {
 			governingSiteUrl: 'https://governing.example.com/',
 		} );
-		navigator.clipboard.writeText = jest
+		navigator.clipboard.writeText = vi
 			.fn()
 			.mockRejectedValueOnce( new Error( 'clipboard failed' ) );
 
@@ -320,7 +321,7 @@ describe( 'SiteSettings', () => {
 
 		await screen.findByDisplayValue( 'api-key' );
 		expect( global.fetch ).toHaveBeenCalledTimes( 1 );
-		( global.fetch as jest.Mock ).mock.calls.forEach( ( [ , init ] ) => {
+		( global.fetch as Mock ).mock.calls.forEach( ( [ , init ] ) => {
 			expect( init?.headers ).not.toHaveProperty( 'X-OneSearch-Token' );
 			expect( init?.headers ).toHaveProperty( 'X-WP-Nonce', 'nonce' );
 		} );

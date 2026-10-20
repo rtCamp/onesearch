@@ -1,6 +1,7 @@
 /**
  * External dependencies
  */
+import { describe, expect, it } from 'vitest';
 import {
 	API_KEY,
 	API_NAMESPACE,

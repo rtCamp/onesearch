@@ -1,6 +1,14 @@
 /**
  * External dependencies
  */
+import {
+	describe,
+	expect,
+	it,
+	type Mock,
+	type MockedFunction,
+	vi,
+} from 'vitest';
 import { useState } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 /**
@@ -11,7 +19,7 @@ import apiFetch from '@wordpress/api-fetch';
 import SiteModal from '@/components/SiteModal';
 import { defaultBrandSite } from '@/admin/settings/page';
 
-const mockedApiFetch = apiFetch as jest.MockedFunction< typeof apiFetch >;
+const mockedApiFetch = apiFetch as MockedFunction< typeof apiFetch >;
 
 const baseFormData = {
 	...defaultBrandSite,
@@ -25,13 +33,13 @@ function SiteModalHarness( {
 	editing = false,
 	sites = [],
 	originalData,
-	onSubmit = jest.fn().mockResolvedValue( true ),
+	onSubmit = vi.fn().mockResolvedValue( true ),
 }: {
 	initialData?: typeof defaultBrandSite;
 	editing?: boolean;
 	sites?: Array< typeof defaultBrandSite >;
 	originalData?: typeof defaultBrandSite;
-	onSubmit?: jest.Mock< Promise< boolean | string >, [] >;
+	onSubmit?: Mock< () => Promise< boolean | string > >;
 } ) {
 	const [ formData, setFormData ] = useState( initialData );
 
@@ -40,7 +48,7 @@ function SiteModalHarness( {
 			formData={ formData }
 			setFormData={ setFormData }
 			onSubmit={ onSubmit }
-			onClose={ jest.fn() }
+			onClose={ vi.fn() }
 			editing={ editing }
 			sites={ sites }
 			originalData={ originalData }
@@ -88,7 +96,7 @@ describe( 'SiteModal', () => {
 	} );
 
 	it( 'prevents duplicate site urls', async () => {
-		const onSubmit = jest.fn().mockResolvedValue( true );
+		const onSubmit = vi.fn().mockResolvedValue( true );
 
 		render(
 			<SiteModalHarness
@@ -115,7 +123,7 @@ describe( 'SiteModal', () => {
 	} );
 
 	it( 'shows an error when saving the site fails', async () => {
-		const onSubmit = jest.fn().mockResolvedValue( false );
+		const onSubmit = vi.fn().mockResolvedValue( false );
 
 		render( <SiteModalHarness onSubmit={ onSubmit } /> );
 
@@ -131,7 +139,7 @@ describe( 'SiteModal', () => {
 	} );
 
 	it( 'submits without calling the brand site, which the server checks on save', async () => {
-		const onSubmit = jest.fn().mockResolvedValue( true );
+		const onSubmit = vi.fn().mockResolvedValue( true );
 
 		render( <SiteModalHarness onSubmit={ onSubmit } /> );
 
@@ -147,7 +155,7 @@ describe( 'SiteModal', () => {
 	} );
 
 	it( 'saves an edit without a new key', async () => {
-		const onSubmit = jest.fn().mockResolvedValue( true );
+		const onSubmit = vi.fn().mockResolvedValue( true );
 		const stored = { ...baseFormData, id: 'one', api_key: '' };
 
 		render(
@@ -191,7 +199,7 @@ describe( 'SiteModal', () => {
 	} );
 
 	it( 'shows the server message when saving fails', async () => {
-		const onSubmit = jest.fn().mockResolvedValue( 'Invalid site data.' );
+		const onSubmit = vi.fn().mockResolvedValue( 'Invalid site data.' );
 
 		render( <SiteModalHarness onSubmit={ onSubmit } /> );
 
