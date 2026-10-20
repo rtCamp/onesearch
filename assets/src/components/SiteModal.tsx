@@ -52,6 +52,10 @@ const SiteModal = ( {
 	const [ showNotice, setShowNotice ] = useState( false );
 	const [ isProcessing, setIsProcessing ] = useState( false );
 
+	// A blank API key means the user hasn't typed one yet.
+	const typedApiKey = ( formData.api_key ?? '' ).trim();
+	const needsApiKey = ! editing || formData.url !== originalData?.url;
+
 	// Check if form data has changed from original data (only for editing mode)
 	const hasChanges = useMemo( () => {
 		if ( ! editing ) {
@@ -61,9 +65,9 @@ const SiteModal = ( {
 		return (
 			formData.name !== originalData?.name ||
 			formData.url !== originalData?.url ||
-			formData.api_key !== originalData?.api_key
+			typedApiKey !== ''
 		);
-	}, [ editing, formData, originalData ] );
+	}, [ editing, formData, originalData, typedApiKey ] );
 
 	const handleSubmit = async (): Promise< void > => {
 		// Validate inputs
@@ -82,9 +86,10 @@ const SiteModal = ( {
 				? __( 'Site Name is required.', 'onesearch' )
 				: '',
 			url: siteUrlError,
-			api_key: ! formData.api_key.trim()
-				? __( 'API Key is required.', 'onesearch' )
-				: '',
+			api_key:
+				needsApiKey && ! typedApiKey
+					? __( 'API Key is required.', 'onesearch' )
+					: '',
 			message: '',
 		};
 
@@ -109,33 +114,6 @@ const SiteModal = ( {
 		setShowNotice( false );
 
 		try {
-			// Connect the brand site to this governing site
-			const connectResponse = await fetch(
-				`${ formData.url }/wp-json/onesearch/v1/governing-site`,
-				{
-					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json',
-						'X-OneSearch-Token': formData.api_key,
-						'X-OneSearch-Site-URL':
-							window.OneSearchSettings.currentSiteUrl,
-					},
-				}
-			);
-
-			if ( ! connectResponse.ok ) {
-				setErrors( {
-					...newErrors,
-					message: __(
-						"Couldn't connect to the brand site. Please verify the API key and make sure it isn't connected to another governing site.",
-						'onesearch'
-					),
-				} );
-				setShowNotice( true );
-				setIsProcessing( false );
-				return;
-			}
-
 			// check if same url is already added or not.
 			let isAlreadyExists = false;
 			sites.forEach( ( site ) => {
@@ -204,7 +182,7 @@ const SiteModal = ( {
 		isProcessing ||
 		! formData.name ||
 		! formData.url ||
-		! formData.api_key ||
+		( needsApiKey && ! typedApiKey ) ||
 		( editing && ! hasChanges );
 
 	return (
@@ -258,15 +236,26 @@ const SiteModal = ( {
 				__nextHasNoMarginBottom
 			/>
 			<TextareaControl
-				label={ __( 'API Key*', 'onesearch' ) }
-				value={ formData.api_key }
+				label={
+					needsApiKey
+						? __( 'API Key*', 'onesearch' )
+						: __( 'API Key', 'onesearch' )
+				}
+				value={ formData.api_key ?? '' }
 				onChange={ ( value ) =>
 					setFormData( { ...formData, api_key: value } )
 				}
-				help={ __(
-					'This is the API key that will be used to authenticate the site for OneSearch.',
-					'onesearch'
-				) }
+				help={
+					needsApiKey
+						? __(
+								'This is the API key that will be used to authenticate the site for OneSearch.',
+								'onesearch'
+						  )
+						: __(
+								'Leave blank to keep the current key.',
+								'onesearch'
+						  )
+				}
 				__nextHasNoMarginBottom
 			/>
 

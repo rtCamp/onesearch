@@ -9,7 +9,6 @@ const sites = [
 	{
 		name: 'Brand One',
 		url: 'https://brand-one.example.com/',
-		api_key: '1234567890abcdef',
 	},
 ];
 
@@ -67,7 +66,11 @@ describe( 'SiteTable', () => {
 
 		fireEvent.click( screen.getByRole( 'button', { name: 'Edit' } ) );
 
-		expect( setFormData ).toHaveBeenCalledWith( sites[ 0 ] );
+		// The key field starts empty, since the stored key never reaches the browser.
+		expect( setFormData ).toHaveBeenCalledWith( {
+			...sites[ 0 ],
+			api_key: '',
+		} );
 		expect( onEdit ).toHaveBeenCalledWith( 0 );
 		expect( setShowModal ).toHaveBeenCalledWith( true );
 	} );

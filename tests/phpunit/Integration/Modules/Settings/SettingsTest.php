@@ -71,6 +71,15 @@ final class SettingsTest extends TestCase {
 		$this->assertSettingRegistered( Settings::OPTION_GOVERNING_SHARED_SITES );
 	}
 
+	/** The brand sites hold their keys, so they aren't exposed through the core settings route. */
+	public function test_shared_sites_are_not_in_the_rest_settings(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+
+		$this->settings->register_settings();
+
+		$this->assertFalse( get_registered_settings()[ Settings::OPTION_GOVERNING_SHARED_SITES ]['show_in_rest'] );
+	}
+
 	/** Ensures get_site_type returns null when not set. */
 	public function test_get_site_type_returns_null_when_not_set(): void {
 		delete_option( Settings::OPTION_SITE_TYPE );

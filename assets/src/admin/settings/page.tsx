@@ -5,7 +5,7 @@
  * External dependencies
  */
 import { useState } from 'react';
-import { __, sprintf } from '@wordpress/i18n';
+import { __ } from '@wordpress/i18n';
 import { Notice, Snackbar } from '@wordpress/components';
 import apiFetch from '@wordpress/api-fetch';
 
@@ -17,7 +17,6 @@ import SiteModal from '@/components/SiteModal';
 import SiteSettings from '@/components/SiteSettings';
 import AlgoliaSettings from '@/components/AlgoliaSettings';
 import SiteTypeSettings from '@/components/SiteTypeSettings';
-import { REST_NAMESPACE, withTrailingSlash } from '@/js/utils';
 import type { SiteType } from '@/types/global';
 
 export interface NoticeType {
@@ -29,7 +28,8 @@ export interface BrandSite {
 	id?: string;
 	name: string;
 	url: string;
-	api_key: string;
+	// Only set while the admin types a key.
+	api_key?: string;
 }
 
 export const defaultBrandSite: BrandSite = {
@@ -49,75 +49,16 @@ const SHARED_SITES_ENDPOINT = '/onesearch/v1/shared-sites';
  */
 apiFetch.use( apiFetch.createNonceMiddleware( NONCE ) );
 
-/**
- * Tells a removed brand site to disconnect from this governing site.
- *
- * @param site The removed brand site.
- *
- * @return A notice for the admin if the brand site wasn't disconnected, otherwise null.
- */
-const disconnectRemovedBrandSite = async (
-	site: BrandSite
-): Promise< NoticeType | null > => {
-	const siteUrl = withTrailingSlash( site.url );
-	let status = 0;
-
-	try {
-		const response = await fetch(
-			`${ siteUrl }wp-json/${ REST_NAMESPACE }/governing-site`,
-			{
-				method: 'DELETE',
-				headers: {
-					'Content-Type': 'application/json',
-					'X-OneSearch-Token': site.api_key,
-					'X-OneSearch-Site-URL':
-						window.OneSearchSettings.currentSiteUrl,
-				},
-			}
-		);
-
-		if ( response.ok ) {
-			return null;
-		}
-
-		status = response.status;
-	} catch {
-		// The brand site couldn't be reached.
-	}
-
-	// The brand site only authenticates the governing site it is connected to.
-	if ( status === 401 || status === 403 ) {
-		return {
-			type: 'warning',
-			message: sprintf(
-				/* translators: %s: brand site name. */
-				__(
-					'%s was removed, but it did not recognize this site, so it may already be disconnected. If it still shows this site under Governing Site Connection, disconnect it there.',
-					'onesearch'
-				),
-				site.name
-			),
-		};
-	}
-
-	return {
-		type: 'warning',
-		message: sprintf(
-			/* translators: %s: brand site name. */
-			__(
-				'%s was removed, but it could not be notified. To finish disconnecting, click Disconnect Governing Site in its OneSearch settings.',
-				'onesearch'
-			),
-			site.name
-		),
-	};
-};
+interface DeleteSiteResponse {
+	governing_site_notified?: boolean;
+	message?: string;
+}
 
 const SettingsPage = () => {
 	const [ showModal, setShowModal ] = useState( false );
 	const [ editingIndex, setEditingIndex ] = useState< EditingIndex >( null );
 	const [ sites, setSites ] = useState< BrandSite[] >(
-		( window.OneSearchSettings.sharedSites ?? [] ) as BrandSite[]
+		window.OneSearchSettings.sharedSites ?? []
 	);
 	const [ formData, setFormData ] = useState< BrandSite >( defaultBrandSite );
 	const [ notice, setNotice ] = useState< NoticeType | null >( null );
@@ -160,10 +101,13 @@ const SettingsPage = () => {
 				} );
 				return true;
 			} )
-			.catch( () => {
+			.catch( ( error: { code?: string; message?: string } ) => {
 				setNotice( {
 					type: 'error',
-					message: __( 'Failed to update shared sites', 'onesearch' ),
+					// A REST error has the server's reason, like a brand site that failed its health check.
+					message:
+						( error?.code && error.message ) ||
+						__( 'Failed to update shared sites', 'onesearch' ),
 				} );
 				return false;
 			} )
@@ -176,22 +120,21 @@ const SettingsPage = () => {
 
 	const handleDelete = async ( index: number | null ): Promise< void > => {
 		const removedSite = index !== null ? sites[ index ] : undefined;
-		const updated: BrandSite[] = sites.filter( ( _, i ) => i !== index );
 
-		let savedSites: BrandSite[];
+		if ( ! removedSite ) {
+			return;
+		}
+
+		let response: DeleteSiteResponse;
 
 		try {
-			const data = await apiFetch< { shared_sites?: BrandSite[] } >( {
-				path: SHARED_SITES_ENDPOINT,
-				method: 'POST',
-				data: { sites_data: updated },
+			// The server also tells the brand site to disconnect, with the key it stored.
+			response = await apiFetch< DeleteSiteResponse >( {
+				path: `${ SHARED_SITES_ENDPOINT }/${ encodeURIComponent(
+					removedSite.id ?? ''
+				) }`,
+				method: 'DELETE',
 			} );
-
-			if ( ! data?.shared_sites ) {
-				throw new Error( 'No shared sites in response' );
-			}
-
-			savedSites = data.shared_sites;
 		} catch {
 			setNotice( {
 				type: 'error',
@@ -200,13 +143,16 @@ const SettingsPage = () => {
 			return;
 		}
 
-		setSites( savedSites );
+		setSites( ( current ) =>
+			current.filter( ( site ) => site.id !== removedSite.id )
+		);
 
-		const disconnectNotice = removedSite
-			? await disconnectRemovedBrandSite( removedSite )
-			: null;
+		if ( response?.governing_site_notified === false && response.message ) {
+			const disconnectNotice: NoticeType = {
+				type: 'warning',
+				message: response.message,
+			};
 
-		if ( disconnectNotice ) {
 			setDisconnectNotices( ( notices ) => [
 				...notices.filter(
 					( item ) => item.message !== disconnectNotice.message
