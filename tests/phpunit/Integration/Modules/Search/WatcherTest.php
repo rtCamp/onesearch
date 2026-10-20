@@ -316,6 +316,36 @@ final class WatcherTest extends TestCase {
 	}
 
 	/**
+	 * A published post that gets a password has its records removed instead of updated.
+	 */
+	public function test_deletes_records_when_a_post_gets_a_password(): void {
+		$this->set_up_governing_site();
+
+		$paths    = [];
+		$requests = [];
+		$this->mock_algolia_http_client( $paths, null, null, $requests );
+
+		( new Watcher() )->register_hooks();
+
+		$post_id   = self::factory()->post->create( [ 'post_status' => 'publish' ] );
+		$stored_id = $this->get_indexed_site_post_id( $requests );
+
+		// Drop the publish traffic, so only the password change is left to assert on.
+		$paths    = [];
+		$requests = [];
+
+		wp_update_post(
+			[
+				'ID'            => $post_id,
+				'post_password' => 'secret',
+			]
+		);
+
+		$this->assertSame( [ sprintf( 'site_post_id:"%s"', $stored_id ) ], $this->get_delete_filters( $requests ) );
+		$this->assertSame( [], array_filter( $paths, static fn ( string $path ): bool => str_contains( $path, '/batch' ) ), 'The protected content must not be saved.' );
+	}
+
+	/**
 	 * Ensures a record is purged when wp_delete_post() is used to permanently delete the post directly.
 	 */
 	public function test_deletes_record_when_a_post_is_permanently_deleted(): void {

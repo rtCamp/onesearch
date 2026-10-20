@@ -36,10 +36,7 @@ use OneSearch\Utils;
  *  }|array{},
  *  post_author_data?: array{
  *    author_display_name: string,
- *    author_first_name: string,
  *    author_id: int,
- *    author_last_name: string,
- *    author_login: string,
  *    author_posts_url: string,
  *    author_avatar: string,
  *  },
@@ -80,10 +77,7 @@ use OneSearch\Utils;
  *  }|array{},
  *  post_author_data?: array{
  *    author_display_name: string,
- *    author_first_name: string,
  *    author_id: int,
- *    author_last_name: string,
- *    author_login: string,
  *    author_posts_url: string,
  *    author_avatar: string,
  *  },
@@ -221,6 +215,28 @@ final class Post_Record {
 	}
 
 	/**
+	 * Whether a post's content has to stay on its own site.
+	 *
+	 * That's the case for password-protected posts, and for media attached to a post that has a password or a status that isn't public.
+	 *
+	 * @param \WP_Post $post The post.
+	 */
+	public static function is_protected( \WP_Post $post ): bool {
+		if ( '' !== $post->post_password ) {
+			return true;
+		}
+
+		if ( 'attachment' !== $post->post_type || ! $post->post_parent ) {
+			return false;
+		}
+
+		$parent = get_post( $post->post_parent );
+
+		// Only the parent's status counts, since media of a post type without front-end pages can still show up on the site.
+		return ! $parent instanceof \WP_Post || '' !== $parent->post_password || ! is_post_status_viewable( (string) get_post_status( $parent ) );
+	}
+
+	/**
 	 * Gets the WP_Post objects that can be indexed.
 	 *
 	 * @param string[] $post_types The post types to get posts for.
@@ -234,8 +250,9 @@ final class Post_Record {
 			'post_type'              => $post_types,
 			'post_status'            => self::get_allowed_statuses( $post_types ),
 			'posts_per_page'         => $posts_per_page,
-			'update_post_meta_cache' => false,
-			'update_post_term_cache' => false,
+			// Records need the meta and terms of every post, so load them with one query per batch.
+			'update_post_meta_cache' => true,
+			'update_post_term_cache' => true,
 			'ignore_sticky_posts'    => true,
 			'no_found_rows'          => true,
 		];
@@ -248,6 +265,10 @@ final class Post_Record {
 		$query = new \WP_Query( $args );
 		/** @var \WP_Post[] $posts */
 		$posts = $query->get_posts();
+
+		// Records include the featured images too.
+		update_post_thumbnail_cache( $query );
+
 		return $posts;
 	}
 
@@ -345,6 +366,7 @@ final class Post_Record {
 	 * Gets the cleaned content for the post.
 	 *
 	 * Uses the_content filter to process blocks and other content modifications.
+	 * Entities stay encoded, since decoding them turns escaped markup (e.g. in code blocks) into live markup.
 	 *
 	 * @param \WP_Post $post The post.
 	 */
@@ -363,11 +385,11 @@ final class Post_Record {
 				)
 			);
 			return '';
-		}
-
-		// Restore filter if it was removed.
-		if ( $removed_filter ) {
-			add_filter( 'the_content', 'wptexturize', 10 );
+		} finally {
+			// Restore filter if it was removed.
+			if ( $removed_filter ) {
+				add_filter( 'the_content', 'wptexturize', 10 );
+			}
 		}
 
 		// Replace encoded white spaces with regular spaces.
@@ -388,7 +410,7 @@ final class Post_Record {
 		];
 		$content   = preg_replace( array_keys( $regex_map ), array_values( $regex_map ), $content );
 
-		return null !== $content ? trim( html_entity_decode( $content, ENT_QUOTES | ENT_HTML5 ) ) : '';
+		return null !== $content ? trim( $content ) : '';
 	}
 
 	/**
@@ -419,10 +441,7 @@ final class Post_Record {
 		if ( ! empty( $post->post_author ) ) {
 			$base_record['post_author_data'] = [
 				'author_display_name' => get_the_author_meta( 'display_name', (int) $post->post_author ),
-				'author_first_name'   => get_the_author_meta( 'first_name', (int) $post->post_author ),
 				'author_id'           => (int) $post->post_author,
-				'author_last_name'    => get_the_author_meta( 'last_name', (int) $post->post_author ),
-				'author_login'        => get_the_author_meta( 'user_login', (int) $post->post_author ),
 				'author_posts_url'    => get_author_posts_url( (int) $post->post_author ),
 				'author_avatar'       => get_avatar_url( $post->post_author ) ?: '',
 			];
@@ -458,9 +477,10 @@ final class Post_Record {
 		$taxonomy_data = [];
 
 		foreach ( $taxonomies as $taxonomy ) {
-			$terms = wp_get_object_terms( $post->ID, $taxonomy->name );
+			// The term cache is primed by the indexing query for the whole batch.
+			$terms = get_the_terms( $post, $taxonomy->name );
 
-			if ( is_wp_error( $terms ) || empty( $terms ) ) {
+			if ( ! is_array( $terms ) || empty( $terms ) ) {
 				continue;
 			}
 
@@ -549,7 +569,7 @@ final class Post_Record {
 	/**
 	 * Split content into chunks.
 	 *
-	 * Splits the content into parts, each not exceeding the max size.
+	 * Splits the content into parts, each not exceeding the max size in bytes.
 	 * Cuts at word boundaries where possible, adding ellipsis for continuation.
 	 *
 	 * @param string $content The content to split.
@@ -557,37 +577,43 @@ final class Post_Record {
 	 * @return string[] The chunks.
 	 */
 	private function split_content_into_chunks( string $content, int $max_size ): array {
-		// If max size is zero or negative, return empty array.
+		// Bail if there's no (more) room for content.
 		if ( $max_size <= 0 ) {
 			return [];
 		}
 
 		$content = trim( $content );
+
 		// If content fits within max size, return as single chunk.
-		if ( mb_strlen( $content, 'UTF-8' ) <= $max_size ) {
+		if ( strlen( $content ) <= $max_size ) {
 			return [ $content ];
 		}
 
 		$chunks              = [];
 		$continuation_prefix = '';
-		$content_length      = mb_strlen( $content, 'UTF-8' );
+		$content_length      = strlen( $content );
 
 		while ( $content_length > $max_size ) {
-			// Find the last space within the allowed size.
-			$search_start = $content_length - $max_size;
-			$cut_position = mb_strrpos( $content, ' ', -$search_start, 'UTF-8' );
+			// Cut within the allowed bytes without splitting a character.
+			$chunk = mb_strcut( $content, 0, $max_size, 'UTF-8' );
 
-			// If no space found, cut at max_size (may split words). A leading space would make an empty chunk, so it's skipped too.
-			if ( ! $cut_position ) {
-				$cut_position = $max_size;
+			// Back off to the last space. If there's none, the cut may split a word. A leading space would make an empty chunk, so it's skipped too.
+			$cut_position = strrpos( $chunk, ' ' );
+			if ( $cut_position ) {
+				$chunk = substr( $chunk, 0, $cut_position );
+			}
+
+			// A max size smaller than the first character still has to move on.
+			if ( '' === $chunk ) {
+				$chunk = mb_substr( $content, 0, 1, 'UTF-8' );
 			}
 
 			// Add the chunk with prefix.
-			$chunks[] = $continuation_prefix . mb_substr( $content, 0, $cut_position, 'UTF-8' );
+			$chunks[] = $continuation_prefix . $chunk;
 
 			// Keep the whitespace at the cut in the next chunk, so joining the chunks restores it exactly.
-			$content        = mb_substr( $content, $cut_position, null, 'UTF-8' );
-			$content_length = mb_strlen( $content, 'UTF-8' );
+			$content        = substr( $content, strlen( $chunk ) );
+			$content_length = strlen( $content );
 
 			$continuation_prefix = self::CONTINUATION_PREFIX;
 		}

@@ -94,12 +94,54 @@ final class PostRecordTest extends TestCase {
 	}
 
 	/**
+	 * Media follows the status of its parent, but not its post type, since a post type without front-end pages can still show its media on the site.
+	 */
+	public function test_is_protected_checks_the_status_of_a_media_parent(): void {
+		register_post_type( 'onesearch_hidden', [ 'public' => false ] );
+
+		$hidden  = self::factory()->post->create( [ 'post_type' => 'onesearch_hidden' ] );
+		$trashed = self::factory()->post->create();
+		wp_trash_post( $trashed );
+
+		$hidden_media  = get_post( self::factory()->attachment->create( [ 'post_parent' => $hidden ] ) );
+		$trashed_media = get_post( self::factory()->attachment->create( [ 'post_parent' => $trashed ] ) );
+
+		unregister_post_type( 'onesearch_hidden' );
+
+		$this->assertInstanceOf( \WP_Post::class, $hidden_media );
+		$this->assertInstanceOf( \WP_Post::class, $trashed_media );
+		$this->assertFalse( Post_Record::is_protected( $hidden_media ) );
+		$this->assertTrue( Post_Record::is_protected( $trashed_media ) );
+	}
+
+	/**
 	 * Ensures get_indexable_posts returns an array.
 	 */
 	public function test_get_indexable_posts_returns_array(): void {
 		$posts = Post_Record::get_indexable_posts( [ 'post' ] );
 
 		$this->assertIsArray( $posts );
+	}
+
+	/**
+	 * The records of an indexing batch still have the posts' terms, read from the term cache the query primes.
+	 */
+	public function test_records_of_indexable_posts_keep_their_terms(): void {
+		$category = self::factory()->category->create_and_get( [ 'name' => 'News' ] );
+		$this->assertInstanceOf( \WP_Term::class, $category );
+
+		self::factory()->post->create(
+			[
+				'post_category' => [ $category->term_id ],
+				'tags_input'    => [ 'breaking' ],
+			]
+		);
+
+		$posts   = Post_Record::get_indexable_posts( [ 'post' ], 1, 10 );
+		$records = ( new Post_Record() )->to_records( $posts[0] );
+
+		$this->assertSame( $category->term_id, $records[0]['taxonomies']['category'][0]['term_id'] );
+		$this->assertSame( 'breaking', $records[0]['taxonomies']['post_tag'][0]['slug'] );
 	}
 
 	/**
@@ -199,6 +241,24 @@ final class PostRecordTest extends TestCase {
 	}
 
 	/**
+	 * Chunks are measured in bytes, so multibyte content stays under Algolia's 10KB record limit and still joins back together.
+	 */
+	public function test_to_records_chunks_multibyte_content_by_bytes(): void {
+		$content = trim( str_repeat( '日本語のテキストです。検索のために分割されます。 ', 800 ) );
+		$post    = self::factory()->post->create_and_get( [ 'post_content' => $content ] );
+
+		$records = ( new Post_Record() )->to_records( $post );
+
+		$this->assertGreaterThan( 1, count( $records ) );
+		foreach ( $records as $record ) {
+			$this->assertLessThan( 10000, strlen( (string) wp_json_encode( $record, JSON_UNESCAPED_UNICODE ) ) );
+		}
+
+		// `the_content` wraps it in a paragraph.
+		$this->assertSame( "<p>{$content}</p>", Post_Record::join_content( $records ) );
+	}
+
+	/**
 	 * Joining the chunks restores the content they were split from, whatever order they're in.
 	 */
 	public function test_join_content_reverses_chunking(): void {
@@ -262,15 +322,41 @@ final class PostRecordTest extends TestCase {
 	}
 
 	/**
+	 * Escaped markup in the content stays escaped, instead of becoming live markup in the index.
+	 */
+	public function test_to_records_keeps_entities_encoded(): void {
+		$post = self::factory()->post->create_and_get( [ 'post_content' => '<pre><code>&lt;script&gt;alert(1)&lt;/script&gt;</code></pre>' ] );
+
+		$content = ( new Post_Record() )->to_records( $post )[0]['content'];
+
+		$this->assertStringContainsString( '&lt;script&gt;', $content );
+		$this->assertStringNotContainsString( '<script', $content );
+	}
+
+	/**
+	 * The filter that was removed is put back when rendering throws.
+	 */
+	public function test_to_records_restores_filters_when_rendering_fails(): void {
+		add_filter(
+			'the_content',
+			static function (): string {
+				throw new \RuntimeException( 'broken block' );
+			}
+		);
+
+		$records = ( new Post_Record() )->to_records( self::factory()->post->create_and_get() );
+
+		$this->assertSame( '', $records[0]['content'] );
+		$this->assertSame( 10, has_filter( 'the_content', 'wptexturize' ) );
+	}
+
+	/**
 	 * Tests that to_records includes post author data.
 	 */
 	public function test_to_records_includes_post_author_data(): void {
 		$user_id = self::factory()->user->create(
 			[
 				'display_name' => 'Record Author',
-				'first_name'   => 'Record',
-				'last_name'    => 'Author',
-				'user_login'   => 'record-author',
 			]
 		);
 
@@ -287,9 +373,6 @@ final class PostRecordTest extends TestCase {
 		$author_data = $records[0]['post_author_data'];
 
 		$this->assertSame( 'Record Author', $author_data['author_display_name'] );
-		$this->assertSame( 'Record', $author_data['author_first_name'] );
-		$this->assertSame( 'Author', $author_data['author_last_name'] );
-		$this->assertSame( 'record-author', $author_data['author_login'] );
 		$this->assertSame( $user_id, $author_data['author_id'] );
 		$this->assertSame( get_author_posts_url( $user_id ), $author_data['author_posts_url'] );
 		$this->assertSame( get_avatar_url( $user_id ) ?: '', $author_data['author_avatar'] );

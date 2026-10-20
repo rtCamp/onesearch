@@ -225,6 +225,11 @@ final class Indexer {
 		$site_post_id = $post_record->get_site_post_id( $post->ID );
 		$records      = $post_record->to_records( $post );
 
+		// Sometimes the first chunk is too big, e.g too many terms or filtering `onesearch_algolia_base_record_data`.
+		if ( [] === $records ) {
+			return new \WP_Error( 'onesearch_post_too_big', __( 'The post is too big to index.', 'onesearch' ) );
+		}
+
 		$is_saved = $this->save_records( $records );
 		if ( is_wp_error( $is_saved ) ) {
 			return $is_saved;
@@ -456,6 +461,11 @@ final class Indexer {
 
 			$records = [];
 			foreach ( $posts as $post ) {
+				// Password-protected posts, and media attached to a post that isn't public.
+				if ( Post_Record::is_protected( $post ) ) {
+					continue;
+				}
+
 				$records = array_merge( $records, ( new Post_Record() )->to_records( $post ) );
 			}
 			yield $records;
