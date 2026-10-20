@@ -142,7 +142,7 @@ final class Post_Record {
 	/**
 	 * Gets the `site_post_id` value used to identify a post's records.
 	 *
-	 * @see Indexer::delete_post() for the delete-by-filter counterpart.
+	 * @see Indexer::delete_posts() for the delete-by-filter counterpart.
 	 *
 	 * @param int $post_id The post ID.
 	 */
@@ -232,8 +232,18 @@ final class Post_Record {
 
 		$parent = get_post( $post->post_parent );
 
-		// Only the parent's status counts, since media of a post type without front-end pages can still show up on the site.
-		return ! $parent instanceof \WP_Post || '' !== $parent->post_password || ! is_post_status_viewable( (string) get_post_status( $parent ) );
+		return ! $parent instanceof \WP_Post || ! self::is_public( $parent );
+	}
+
+	/**
+	 * Whether anyone can see a post, without a password.
+	 *
+	 * Unlike is_post_publicly_viewable(), the post type doesn't count, since media of a post type without front-end pages can still show up on the site.
+	 *
+	 * @param \WP_Post $post The post.
+	 */
+	public static function is_public( \WP_Post $post ): bool {
+		return '' === $post->post_password && is_post_status_viewable( (string) get_post_status( $post ) );
 	}
 
 	/**

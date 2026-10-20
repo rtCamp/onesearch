@@ -182,7 +182,8 @@ final class Indexer {
 			return $index;
 		}
 
-		$is_deleted = $this->delete_site_records( [ Utils::get_current_site_url() ] );
+		// Wait until the old records are gone, so a failed delete doesn't leave them mixed in with the new ones.
+		$is_deleted = $this->delete_site_records( [ Utils::get_current_site_url() ], true );
 		if ( is_wp_error( $is_deleted ) ) {
 			return $is_deleted;
 		}
@@ -235,32 +236,32 @@ final class Indexer {
 			return $is_saved;
 		}
 
-		// Chunks from when the post was longer would still match searches, so delete them. Checked first, since deleting is slow.
-		$saved_records = $this->get_post_records( [ $site_post_id ] );
-		$has_stale     = is_wp_error( $saved_records ) || [] !== array_filter(
-			$saved_records[ $site_post_id ] ?? [],
-			static fn ( array $record ): bool => (int) ( $record['chunk_index'] ?? 0 ) >= count( $records )
-		);
-
-		if ( ! $has_stale ) {
-			return true;
-		}
-
+		// Chunks from when the post was longer would still match searches, so delete them.
 		return $this->delete_by_filter(
 			sprintf( '%s AND chunk_index >= %d', self::filter_any_of( 'site_post_id', [ $site_post_id ] ), count( $records ) )
 		);
 	}
 
 	/**
-	 * Deletes a post's records.
+	 * Deletes the records of the given posts.
 	 *
-	 * @param int $post_id The post ID.
+	 * @param int[] $post_ids The post IDs.
 	 *
 	 * @return true|\WP_Error
 	 */
-	public function delete_post( int $post_id ): bool|\WP_Error {
+	public function delete_posts( array $post_ids ): bool|\WP_Error {
+		if ( empty( $post_ids ) ) {
+			return true;
+		}
+
 		return $this->delete_by_filter(
-			self::filter_any_of( 'site_post_id', [ ( new Post_Record() )->get_site_post_id( $post_id ) ] )
+			self::filter_any_of(
+				'site_post_id',
+				array_map(
+					[ new Post_Record(), 'get_site_post_id' ],
+					$post_ids
+				)
+			)
 		);
 	}
 
@@ -268,16 +269,18 @@ final class Indexer {
 	 * Deletes all records belonging to the given sites.
 	 *
 	 * @param string[] $site_urls The site URLs.
+	 * @param bool     $wait      Whether to wait until Algolia has deleted them.
 	 *
 	 * @return true|\WP_Error
 	 */
-	public function delete_site_records( array $site_urls ): bool|\WP_Error {
+	public function delete_site_records( array $site_urls, bool $wait = false ): bool|\WP_Error {
 		if ( empty( $site_urls ) ) {
 			return true;
 		}
 
 		return $this->delete_by_filter(
-			self::filter_any_of( 'site_url', array_map( [ Utils::class, 'normalize_url' ], $site_urls ) )
+			self::filter_any_of( 'site_url', array_map( [ Utils::class, 'normalize_url' ], $site_urls ) ),
+			$wait
 		);
 	}
 
@@ -321,16 +324,17 @@ final class Indexer {
 	 * Deletes the records matching a filter.
 	 *
 	 * @param string $filter The Algolia filter.
+	 * @param bool   $wait   Whether to wait until Algolia has applied the delete.
 	 *
 	 * @return true|\WP_Error
 	 */
-	private function delete_by_filter( string $filter ): bool|\WP_Error {
+	private function delete_by_filter( string $filter, bool $wait = false ): bool|\WP_Error {
 		$index = $this->get_index();
 		if ( is_wp_error( $index ) ) {
 			return $index;
 		}
 
-		return $index->delete_by( [ 'filters' => $filter ] );
+		return $index->delete_by( [ 'filters' => $filter ], $wait );
 	}
 
 	/**

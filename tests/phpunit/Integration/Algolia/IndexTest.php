@@ -65,13 +65,13 @@ final class IndexTest extends TestCase {
 	}
 
 	/**
-	 * Saves the records, and waits for Algolia to apply them.
+	 * Saves the records without waiting for Algolia to apply them.
 	 */
 	public function test_save_records(): void {
 		$this->mock_algolia_http_client( $this->paths, null, null, $this->requests );
 
 		$this->assertTrue( $this->get_index()->save_records( [ [ 'objectID' => 'a' ] ] ) );
-		$this->assertSame( [ '/1/indexes/test_index/batch', '/1/indexes/test_index/task/1' ], $this->paths );
+		$this->assertSame( [ '/1/indexes/test_index/batch' ], $this->paths );
 		$this->assertSame(
 			[
 				[
@@ -84,24 +84,34 @@ final class IndexTest extends TestCase {
 	}
 
 	/**
-	 * Deletes by the given params, and waits for Algolia to apply it.
+	 * Deletes by the given params without waiting for Algolia to apply it.
 	 */
 	public function test_delete_by(): void {
 		$this->mock_algolia_http_client( $this->paths, null, null, $this->requests );
 
 		$this->assertTrue( $this->get_index()->delete_by( [ 'filters' => 'site_url:"https://example.com/"' ] ) );
-		$this->assertSame( [ '/1/indexes/test_index/deleteByQuery', '/1/indexes/test_index/task/1' ], $this->paths );
+		$this->assertSame( [ '/1/indexes/test_index/deleteByQuery' ], $this->paths );
 		$this->assertSame( [ 'filters' => 'site_url:"https://example.com/"' ], json_decode( $this->requests[0]['body'], true ) );
 	}
 
 	/**
-	 * Sets the settings, and waits for Algolia to apply them.
+	 * Deletes by the given params, and waits for Algolia to apply it when asked to.
+	 */
+	public function test_delete_by_waits_when_asked(): void {
+		$this->mock_algolia_http_client( $this->paths, null, null, $this->requests );
+
+		$this->assertTrue( $this->get_index()->delete_by( [ 'filters' => 'site_url:"https://example.com/"' ], true ) );
+		$this->assertSame( [ '/1/indexes/test_index/deleteByQuery', '/1/indexes/test_index/task/1' ], $this->paths );
+	}
+
+	/**
+	 * Sets the settings without waiting for Algolia to apply them.
 	 */
 	public function test_set_settings(): void {
 		$this->mock_algolia_http_client( $this->paths, null, null, $this->requests );
 
 		$this->assertTrue( $this->get_index()->set_settings( [ 'distinct' => true ] ) );
-		$this->assertSame( [ '/1/indexes/test_index/settings', '/1/indexes/test_index/task/1' ], $this->paths );
+		$this->assertSame( [ '/1/indexes/test_index/settings' ], $this->paths );
 		$this->assertSame( [ 'distinct' => true ], json_decode( $this->requests[0]['body'], true ) );
 	}
 
