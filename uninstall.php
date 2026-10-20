@@ -56,7 +56,7 @@ function uninstall(): void {
 }
 
 /**
- * Delete the shared "proxy" attachment used for remote post thumbnails.
+ * Delete the shared "proxy" attachment that 1.1.x and earlier used for remote post thumbnails.
  */
 function delete_proxy_attachment(): void {
 	$proxy_id = (int) get_option( PLUGIN_PREFIX . 'proxy_attachment_id', 0 );
@@ -90,7 +90,7 @@ function delete_options(): void {
 		PLUGIN_PREFIX . 'parent_site_url',
 		PLUGIN_PREFIX . 'consumer_api_key',
 
-		// Shared proxy attachment used for remote post thumbnails.
+		// 1.1.x and earlier: the shared proxy attachment used for remote post thumbnails.
 		PLUGIN_PREFIX . 'proxy_attachment_id',
 	];
 

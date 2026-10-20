@@ -90,67 +90,779 @@ final class SearchTest extends TestCase {
 	 * Returns mapped remote posts when search is enabled and query is a main search query.
 	 */
 	public function test_get_algolia_results_returns_remote_posts_when_search_enabled(): void {
-		$this->enable_search_for_governing_site();
-		Search_Settings::set_algolia_credentials(
+		$search = new Search();
+		$result = $this->run_search(
+			$search,
 			[
-				'app_id'    => 'TEST_APP',
-				'write_key' => 'TEST_KEY',
+				'hits'   => [ self::get_remote_hit() ],
+				'nbHits' => 1,
 			]
 		);
 
-		$recorded_paths = [];
-		$this->mock_algolia_http_client(
-			$recorded_paths,
-			static function ( string $path ): string {
-				if ( str_contains( $path, '/query' ) ) {
-					return wp_json_encode(
+		$this->assertNotEmpty( $result );
+		$this->assertInstanceOf( \WP_Post::class, $result[0] );
+		// A positive ID that core resolves, and that stays exact in JavaScript.
+		$this->assertGreaterThan( 0, $result[0]->ID );
+		$this->assertLessThan( 2 ** 53, $result[0]->ID );
+		$this->assertSame( 17, $result[0]->onesearch_original_id );
+		$this->assertSame( 'https://remote.example.com/posts/17/', $result[0]->guid );
+
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Reading query prepared by helper.
+		global $wp_query;
+
+		$this->assertSame( 1, $wp_query->post_count );
+		$this->assertSame( 1, $wp_query->found_posts );
+		$this->assertTrue( (bool) ( $wp_query->is_algolia_search ?? false ) );
+
+		// WordPress must not cache the synthetic IDs in the `post-queries` cache.
+		$this->assertFalse( $wp_query->get( 'cache_results' ) );
+	}
+
+	/**
+	 * Remote posts get unique IDs, and core resolves them from the object cache without reading local meta.
+	 */
+	public function test_remote_posts_get_unique_ids_that_core_can_resolve(): void {
+		$local_id = self::factory()->post->create();
+		update_post_meta( $local_id, '_thumbnail_id', '999' );
+
+		$search = new Search();
+		$result = $this->run_search(
+			$search,
+			[
+				'hits' => [
+					self::get_remote_hit( [ 'post_title' => 'First' ] ),
+					// Same post ID on another site.
+					self::get_remote_hit(
 						[
-							'hits'        => [
-								[
-									'objectID'          => '17',
-									'site_post_id'      => '17',
-									'post_id'           => 17,
-									'post_title'        => 'Remote Post',
-									'post_type'         => 'post',
-									'permalink'         => 'https://remote.example.com/posts/17/',
-									'site_url'          => 'https://remote.example.com/',
-									'site_name'         => 'Remote',
-									'total_chunks'      => 1,
-									'post_date_gmt'     => 1710000000,
-									'post_modified_gmt' => 1710000000,
-								],
-							],
-							'nbHits'      => 1,
-							'page'        => 0,
-							'hitsPerPage' => 10,
+							'objectID'   => 'other_17_0',
+							'site_url'   => 'https://other.example.com/',
+							'site_name'  => 'Other',
+							'permalink'  => 'https://other.example.com/posts/17/',
+							'post_title' => 'Second',
 						]
-					) ?: '{}';
-				}
-
-				if ( str_contains( $path, '/task/' ) ) {
-					return '{"status":"published","pendingTask":false}';
-				}
-
-				return '{"taskID":1,"updatedAt":"2024-01-01T00:00:00.000Z"}';
-			}
+					),
+				],
+			]
 		);
+
+		$this->assertCount( 2, $result );
+		$this->assertNotSame( $result[0]->ID, $result[1]->ID );
+
+		$resolved = get_post( $result[1]->ID );
+		$this->assertInstanceOf( \WP_Post::class, $resolved );
+		$this->assertSame( 'Second', $resolved->post_title );
+		$this->assertSame( 'https://other.example.com/', $resolved->onesearch_site_url );
+
+		// No meta of the local post leaks in, and no thumbnail without a record thumbnail.
+		$this->assertSame( '', get_post_meta( $result[0]->ID, '_thumbnail_id', true ) );
+		$this->assertSame( [], get_post_meta( $result[0]->ID, 'anything', false ) );
+		$this->assertFalse( has_post_thumbnail( $result[0]->ID ) );
+	}
+
+	/**
+	 * Pagination comes from Algolia's totals.
+	 */
+	public function test_get_algolia_results_sets_found_posts_and_max_num_pages(): void {
+		$search = new Search();
+		$this->run_search(
+			$search,
+			[
+				'hits'    => [ self::get_remote_hit() ],
+				'nbHits'  => 12,
+				'nbPages' => 4,
+			]
+		);
+
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Reading query prepared by helper.
+		global $wp_query;
+
+		$this->assertSame( 12, $wp_query->found_posts );
+		$this->assertSame( 4, $wp_query->max_num_pages );
+	}
+
+	/**
+	 * Without `nbPages`, the number of pages is derived from the total and the page size.
+	 */
+	public function test_get_algolia_results_derives_max_num_pages(): void {
+		update_option( 'posts_per_page', 10 );
+
+		$search = new Search();
+		$this->run_search(
+			$search,
+			[
+				'hits'   => [ self::get_remote_hit() ],
+				'nbHits' => 12,
+			]
+		);
+
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Reading query prepared by helper.
+		global $wp_query;
+
+		$this->assertSame( 12, $wp_query->found_posts );
+		$this->assertSame( 2, $wp_query->max_num_pages );
+	}
+
+	/**
+	 * WordPress runs its native search when Algolia can't answer.
+	 */
+	public function test_get_algolia_results_falls_back_when_algolia_errors(): void {
+		$this->enable_search_with_credentials();
+
+		$recorded_paths = [];
+		$this->mock_algolia_http_client( $recorded_paths, null, '/query' );
+
+		// The plugin's own instance is hooked at boot, and would run the search while the query is primed.
+		remove_all_filters( 'posts_pre_query' );
 
 		$this->prime_main_search_query( 'remote test' );
 
 		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Reading query prepared by helper.
 		global $wp_query;
 
-		$search = new Search();
-		$result = $search->get_algolia_results( [], $wp_query );
+		$result = ( new Search() )->get_algolia_results( null, $wp_query );
 
-		$this->assertNotEmpty( $result );
-		$this->assertInstanceOf( \WP_Post::class, $result[0] );
-		$this->assertSame( -18, $result[0]->ID );
-		$this->assertSame( 'https://remote.example.com/posts/17/', $result[0]->guid );
-		$this->assertSame( 1, $wp_query->post_count );
-		$this->assertSame( 1, $wp_query->found_posts );
-		$this->assertTrue( (bool) ( $wp_query->is_algolia_search ?? false ) );
-		$this->assertNotEmpty( $recorded_paths );
+		$this->assertNull( $result );
+		$this->assertFalse( (bool) ( $wp_query->is_algolia_search ?? false ) );
+	}
+
+	/**
+	 * Algolia's order is kept, and ranking info isn't requested.
+	 */
+	public function test_get_algolia_results_keeps_algolia_order_and_sends_expected_params(): void {
+		update_option( 'posts_per_page', 7 );
+
+		$requests = [];
+		$search   = new Search();
+		$result   = $this->run_search(
+			$search,
+			[
+				'hits' => [
+					self::get_remote_hit(
+						[
+							'post_id'      => 20,
+							'post_title'   => 'First',
+							'_rankingInfo' => [ 'rankingScore' => 0.1 ],
+						]
+					),
+					self::get_remote_hit(
+						[
+							'post_id'      => 30,
+							'post_title'   => 'Second',
+							'_rankingInfo' => [ 'rankingScore' => 0.9 ],
+						]
+					),
+				],
+			],
+			$requests
+		);
+
+		$this->assertSame( [ 'First', 'Second' ], wp_list_pluck( $result, 'post_title' ) );
+
+		$params = json_decode( $requests[0]['body'], true );
+
+		$this->assertIsArray( $params );
+		$this->assertArrayNotHasKey( 'getRankingInfo', $params );
+		$this->assertSame( 7, $params['hitsPerPage'] );
+		// Local results are boosted when this site is searched.
+		$this->assertSame( [ 'site_url:' . Utils::get_current_site_url() ], $params['optionalFilters'] );
+	}
+
+	/**
+	 * `posts_per_page` is clamped for Algolia.
+	 */
+	public function test_get_algolia_results_clamps_hits_per_page(): void {
+		update_option( 'posts_per_page', 12 );
+
+		$this->enable_search_with_credentials();
+
+		foreach ( [
+			-1   => 12,
+			0    => 12,
+			5000 => 1000,
+		] as $posts_per_page => $expected ) {
+			$requests = [];
+			$this->mock_search_response( [ 'hits' => [] ], $requests );
+			$this->prime_main_search_query( 'remote test' );
+
+			// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Reading query prepared by helper.
+			global $wp_query;
+
+			$wp_query->set( 'posts_per_page', $posts_per_page );
+			( new Search() )->get_algolia_results( null, $wp_query );
+
+			$params = json_decode( $requests[0]['body'], true );
+
+			$this->assertIsArray( $params );
+			$this->assertSame( $expected, $params['hitsPerPage'], "posts_per_page={$posts_per_page}" );
+		}
+	}
+
+	/**
+	 * Any site with the write key can write records, so the remote fields that themes print are sanitized.
+	 */
+	public function test_remote_records_are_sanitized(): void {
+		$result = $this->run_search(
+			new Search(),
+			[
+				'hits' => [
+					self::get_remote_hit(
+						[
+							'post_title'       => '<img src=x onerror=alert(1)>Evil <b>title</b>',
+							'post_excerpt'     => '<script>alert(2)</script>Excerpt',
+							'content'          => '<script>alert(3)</script><p onclick="x()">Hi <a href="javascript:alert(4)">l</a></p>',
+							'permalink'        => 'javascript:alert(5)',
+							'site_name'        => '<b>Evil</b> Site',
+							'post_author_data' => [
+								'author_id'           => 3,
+								'author_display_name' => '<i>Mallory</i>',
+								'author_posts_url'    => 'javascript:alert(6)',
+								'author_avatar'       => 'data:text/html,x',
+							],
+						]
+					),
+				],
+			]
+		);
+
+		$this->assertCount( 1, $result );
+		$post = $result[0];
+
+		$this->assertStringNotContainsString( 'onerror', $post->post_title );
+		$this->assertStringContainsString( '<b>title</b>', $post->post_title );
+		$this->assertStringNotContainsString( '<script', $post->post_excerpt );
+		$this->assertStringNotContainsString( '<script', $post->post_content );
+		$this->assertStringNotContainsString( 'onclick', $post->post_content );
+		$this->assertStringNotContainsString( 'javascript:', $post->post_content );
+		$this->assertSame( '', $post->guid );
+		$this->assertSame( 'Evil Site', $post->onesearch_site_name );
+		$this->assertSame( 'Mallory', $post->onesearch_remote_post_author_display_name );
+		$this->assertSame( '', $post->onesearch_remote_post_author_link );
+		$this->assertSame( '', $post->onesearch_remote_post_author_gravatar );
+	}
+
+	/**
+	 * Local hits are loaded with one query, not one per post.
+	 */
+	public function test_local_hits_are_loaded_together(): void {
+		$post_ids = self::factory()->post->create_many( 5 );
+		$hits     = array_map(
+			static fn ( int $post_id ): array => self::get_remote_hit(
+				[
+					'post_id'   => $post_id,
+					'post_type' => 'post',
+					'site_url'  => Utils::get_current_site_url(),
+				]
+			),
+			$post_ids
+		);
+		wp_cache_flush_group( 'posts' );
+
+		$single_post_queries = 0;
+		add_filter(
+			'query',
+			static function ( string $query ) use ( &$single_post_queries ): string {
+				global $wpdb;
+				if ( str_starts_with( $query, "SELECT * FROM {$wpdb->posts} WHERE ID = " ) ) {
+					++$single_post_queries;
+				}
+				return $query;
+			}
+		);
+
+		$result = $this->run_search( new Search(), [ 'hits' => $hits ] );
+
+		$this->assertCount( 5, $result );
+		$this->assertSame( 0, $single_post_queries );
+	}
+
+	/**
+	 * Remote term names, descriptions and links are sanitized when core asks for them.
+	 */
+	public function test_remote_terms_are_sanitized(): void {
+		$result = $this->run_search(
+			new Search(),
+			[
+				'hits' => [
+					self::get_remote_hit(
+						[
+							'taxonomies' => [
+								'category' => [
+									[
+										'term_id'     => 22,
+										'name'        => '<script>alert(1)</script>News',
+										'slug'        => 'news',
+										'description' => '<p>About</p><script>alert(3)</script>',
+										'term_link'   => 'javascript:alert(2)',
+									],
+								],
+							],
+						]
+					),
+				],
+			]
+		);
+
+		$terms = get_the_terms( $result[0]->ID, 'category' );
+
+		$this->assertIsArray( $terms );
+		$this->assertSame( 'News', $terms[0]->name );
+		$this->assertStringNotContainsString( '<script>', term_description( $terms[0] ) );
+		$this->assertStringContainsString( '<p>About</p>', term_description( $terms[0] ) );
+		$this->assertSame( '', get_term_link( $terms[0] ) );
+	}
+
+	/**
+	 * Dates are built from the GMT timestamp, independent of the timezone.
+	 */
+	public function test_remote_post_dates_are_built_from_gmt_timestamps(): void {
+		update_option( 'timezone_string', 'America/New_York' );
+
+		$result = $this->run_search( new Search(), [ 'hits' => [ self::get_remote_hit( [ 'post_date_gmt' => 1710000000 ] ) ] ] );
+
+		$this->assertSame( '2024-03-09 16:00:00', $result[0]->post_date_gmt );
+		$this->assertSame( '2024-03-09 11:00:00', $result[0]->post_date );
+	}
+
+	/**
+	 * Gets a search response with two remote posts by different authors.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private static function get_two_author_response(): array {
+		$hit = static fn ( int $id, string $name ): array => self::get_remote_hit(
+			[
+				'objectID'         => 'remote_' . $id . '_0',
+				'site_post_id'     => 'remote_' . $id,
+				'post_id'          => $id,
+				'post_author_data' => [
+					'author_id'           => 3,
+					'author_display_name' => $name,
+					'author_posts_url'    => 'https://remote.example.com/author/' . strtolower( $name ) . '/',
+					'author_avatar'       => 'https://cdn.example.net/' . strtolower( $name ) . '.png',
+				],
+			]
+		);
+
+		return [ 'hits' => [ $hit( 17, 'Alice' ), $hit( 18, 'Bob' ) ] ];
+	}
+
+	/**
+	 * The author of a remote post comes through the classic author filters, keyed by its unique synthetic author ID.
+	 */
+	public function test_remote_author_is_used_by_core_author_functions(): void {
+		$search = new Search();
+		$result = $this->run_search( $search, self::get_two_author_response() );
+
+		$this->assertNotFalse( has_filter( 'get_the_author_display_name', [ $search, 'get_post_author' ] ) );
+		$this->assertNotFalse( has_filter( 'author_link', [ $search, 'get_post_author_link' ] ) );
+		$this->assertNotFalse( has_filter( 'get_avatar_url', [ $search, 'get_post_author_avatar' ] ) );
+
+		$alice = (int) $result[0]->post_author;
+		$bob   = (int) $result[1]->post_author;
+
+		// Unique per remote post, never a real user.
+		$this->assertLessThan( 0, $alice );
+		$this->assertLessThan( 0, $bob );
+		$this->assertNotSame( $alice, $bob );
+
+		// No global post is needed to resolve them.
+		$GLOBALS['post'] = self::factory()->post->create_and_get(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+
+		$this->assertSame( 'Alice', get_the_author_meta( 'display_name', $alice ) );
+		$this->assertSame( 'Bob', get_the_author_meta( 'display_name', (string) $bob ) );
+		$this->assertSame( 'https://remote.example.com/author/alice/', get_author_posts_url( $alice ) );
+		$this->assertSame( 'https://cdn.example.net/bob.png', get_avatar_url( $bob ) );
+		$this->assertSame( 'https://cdn.example.net/alice.png', get_avatar_url( $result[0] ) );
+	}
+
+	/**
+	 * Real users, emails and comments are never swapped for a remote author.
+	 */
+	public function test_remote_author_never_replaces_real_authors(): void {
+		$search = new Search();
+		$result = $this->run_search( $search, self::get_two_author_response() );
+
+		$user_id = self::factory()->user->create( [ 'display_name' => 'Real User' ] );
+		$local   = self::factory()->post->create_and_get( [ 'post_author' => $user_id ] );
+
+		// Even in the loop, with a remote global post.
+		$GLOBALS['post'] = $result[0]; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		$this->set_in_the_loop( true );
+
+		$this->assertSame( 'Real User', get_the_author_meta( 'display_name', $user_id ) );
+		$this->assertSame( 'Default', $search->get_post_author( 'Default', $user_id ) );
+		$this->assertSame( 'link', $search->get_post_author_link( 'link', $user_id ) );
+		$this->assertSame( 'avatar', $search->get_post_author_avatar( 'avatar', $user_id ) );
+		$this->assertSame( 'avatar', $search->get_post_author_avatar( 'avatar', 'a@example.com' ) );
+		$this->assertSame( 'avatar', $search->get_post_author_avatar( 'avatar', new \WP_User( $user_id ) ) );
+		$this->assertSame( 'avatar', $search->get_post_author_avatar( 'avatar', new \WP_Comment( (object) [ 'comment_ID' => 1 ] ) ) );
+		$this->assertSame( 'avatar', $search->get_post_author_avatar( 'avatar', $local ) );
+
+		$this->set_in_the_loop( false );
+	}
+
+	/**
+	 * Core's author template tags work for a remote post set up with `setup_postdata()`.
+	 */
+	public function test_remote_post_sets_up_authordata_for_template_tags(): void {
+		$search = new Search();
+		$result = $this->run_search( $search, self::get_two_author_response() );
+
+		$this->set_in_the_loop( true );
+		setup_postdata( $result[0] );
+
+		$link = get_the_author_posts_link();
+		$this->assertStringContainsString( 'https://remote.example.com/author/alice/', $link );
+		$this->assertStringContainsString( 'Alice', $link );
+		$this->assertSame( 'Alice', get_the_author() );
+		$this->assertSame( (int) $result[0]->post_author, $GLOBALS['authordata']->ID );
+
+		// A local post gets a real author again.
+		$user_id = self::factory()->user->create( [ 'display_name' => 'Real User' ] );
+		$local   = self::factory()->post->create_and_get( [ 'post_author' => $user_id ] );
+		setup_postdata( $local );
+		$this->assertSame( $user_id, (int) $GLOBALS['authordata']->ID );
+
+		$this->set_in_the_loop( false );
+		wp_reset_postdata();
+	}
+
+	/**
+	 * The author blocks render the remote author for remote posts.
+	 */
+	public function test_author_blocks_render_remote_author(): void {
+		$search = new Search();
+		$result = $this->run_search( $search, self::get_two_author_response() );
+
+		$context = [ 'postId' => $result[1]->ID ];
+
+		$name = ( new \WP_Block(
+			[
+				'blockName' => 'core/post-author-name',
+				'attrs'     => [ 'isLink' => true ],
+			],
+			$context
+		) )->render();
+
+		$this->assertStringContainsString( '>Bob</a>', $name );
+		$this->assertStringContainsString( 'href="https://remote.example.com/author/bob/"', $name );
+
+		$author = ( new \WP_Block(
+			[
+				'blockName' => 'core/post-author',
+				'attrs'     => [
+					'avatarSize' => 48,
+					'isLink'     => true,
+				],
+			],
+			$context
+		) )->render();
+
+		$this->assertStringContainsString( 'Bob', $author );
+		$this->assertStringContainsString( 'https://cdn.example.net/bob.png', $author );
+		$this->assertStringContainsString( 'href="https://remote.example.com/author/bob/"', $author );
+	}
+
+	/**
+	 * Sets whether core thinks it's inside the main loop.
+	 *
+	 * @param bool $in_the_loop Whether to be in the loop.
+	 */
+	private function set_in_the_loop( bool $in_the_loop ): void {
+		global $wp_query;
+
+		$wp_query->in_the_loop = $in_the_loop;
+	}
+
+	/**
+	 * Remote terms resolve through the post's synthetic ID, with their links, including where core looks a term up by ID.
+	 */
+	public function test_remote_terms_resolve_through_core(): void {
+		$search = new Search();
+		$result = $this->run_search(
+			$search,
+			[
+				'hits' => [
+					self::get_remote_hit(
+						[
+							'taxonomies' => [
+								'category' => [
+									[
+										'term_id'   => 22,
+										'name'      => 'Remote News',
+										'slug'      => 'remote-news',
+										'parent'    => 0,
+										'term_link' => 'https://remote.example.com/category/remote-news/',
+									],
+								],
+								'post_tag' => [
+									[
+										'term_id'   => 23,
+										'name'      => 'Tag',
+										'slug'      => 'tag',
+										'parent'    => 0,
+										'term_link' => 'https://remote.example.com/tag/tag/',
+									],
+								],
+							],
+						]
+					),
+				],
+			]
+		);
+
+		$terms = get_the_terms( $result[0]->ID, 'category' );
+
+		$this->assertIsArray( $terms );
+		$this->assertCount( 1, $terms );
+		$this->assertSame( 'Remote News', $terms[0]->name );
+		$this->assertSame( 'category', $terms[0]->taxonomy );
+		$this->assertSame( 0, $terms[0]->count );
+		$this->assertSame( '', $terms[0]->description );
+		$this->assertSame( 'https://remote.example.com/category/remote-news/', get_term_link( $terms[0] ) );
+
+		// `the_category()` links each category by its ID.
+		$this->assertStringContainsString( 'href="https://remote.example.com/category/remote-news/"', get_the_category_list( ', ', '', $result[0]->ID ) );
+
+		$tags = get_the_terms( $result[0]->ID, 'post_tag' );
+		$this->assertIsArray( $tags );
+		$this->assertSame( 'Tag', $tags[0]->name );
+		$this->assertStringContainsString( 'href="https://remote.example.com/tag/tag/"', (string) get_the_tag_list( '', ', ', '', $result[0]->ID ) );
+
+		// A taxonomy the record has no terms in doesn't fall through to the database.
+		global $wpdb;
+		$queries = $wpdb->num_queries;
+		$this->assertFalse( get_the_terms( $result[0]->ID, 'post_format' ) );
+		$this->assertSame( $queries, $wpdb->num_queries );
+	}
+
+	/**
+	 * A local term keeps its own link even when a remote post has a term with the same ID.
+	 */
+	public function test_local_term_links_stay_local(): void {
+		$local = self::factory()->category->create_and_get( [ 'slug' => 'local-news' ] );
+		$this->assertInstanceOf( \WP_Term::class, $local );
+
+		$search = new Search();
+		$result = $this->run_search(
+			$search,
+			[
+				'hits' => [
+					self::get_remote_hit(
+						[
+							'taxonomies' => [
+								'category' => [
+									[
+										'term_id'   => $local->term_id,
+										'name'      => 'Remote News',
+										'slug'      => 'local-news',
+										'parent'    => 0,
+										'term_link' => 'https://remote.example.com/category/local-news/',
+									],
+								],
+							],
+						]
+					),
+				],
+			]
+		);
+
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- What WP::register_globals() sets for the main query.
+		$GLOBALS['post'] = $result[0];
+
+		$this->assertStringNotContainsString( 'remote.example.com', (string) get_term_link( $local ) );
+		$this->assertStringNotContainsString( 'remote.example.com', get_category_link( $local->term_id ) );
+	}
+
+	/**
+	 * A remote post's featured image resolves to the remote file through core's thumbnail functions.
+	 */
+	public function test_remote_featured_image_resolves_through_core(): void {
+		$thumbnail = [
+			'url'    => 'https://remote.example.com/uploads/img.png',
+			'width'  => 600,
+			'height' => 400,
+			'sizes'  => [
+				'medium' => [
+					'url'    => 'https://remote.example.com/uploads/img-300x200.png',
+					'width'  => 300,
+					'height' => 200,
+				],
+			],
+		];
+
+		$search = new Search();
+		$result = $this->run_search( $search, [ 'hits' => [ self::get_remote_hit( [ 'thumbnail' => $thumbnail ] ) ] ] );
+
+		$remote_id    = $result[0]->ID;
+		$thumbnail_id = get_post_thumbnail_id( $remote_id );
+
+		$this->assertTrue( has_post_thumbnail( $remote_id ) );
+		$this->assertGreaterThan( 0, $thumbnail_id );
+		$this->assertSame( [ (string) $thumbnail_id ], get_post_meta( $remote_id, '_thumbnail_id', false ) );
+
+		$attachment = get_post( $thumbnail_id );
+		$this->assertInstanceOf( \WP_Post::class, $attachment );
+		$this->assertSame( 'attachment', $attachment->post_type );
+		$this->assertSame( 'image/png', $attachment->post_mime_type );
+		$this->assertSame( $remote_id, $attachment->post_parent );
+		$this->assertSame( 'https://remote.example.com/uploads/img.png', $attachment->guid );
+
+		$this->assertSame( 'https://remote.example.com/uploads/img.png', wp_get_attachment_url( $thumbnail_id ) );
+		$this->assertSame(
+			[ 'https://remote.example.com/uploads/img-300x200.png', 300, 200, true ],
+			wp_get_attachment_image_src( $thumbnail_id, 'medium' )
+		);
+
+		$html = get_the_post_thumbnail( $remote_id, 'medium' );
+		$this->assertStringContainsString( 'https://remote.example.com/uploads/img-300x200.png', $html );
+		$this->assertStringNotContainsString( 'srcset', $html );
+		$this->assertStringContainsString( 'alt="Remote Post"', $html );
+
+		// The companion attachment links back to the remote post.
+		$this->assertSame( 'https://remote.example.com/posts/17/', get_attachment_link( $thumbnail_id ) );
+	}
+
+	/**
+	 * No local attachment is created while searching.
+	 */
+	public function test_searching_does_not_write_to_the_database(): void {
+		global $wpdb;
+
+		$search = new Search();
+		$this->run_search(
+			$search,
+			[
+				'hits' => [
+					self::get_remote_hit(
+						[
+							'post_type' => 'attachment',
+							'thumbnail' => [ 'url' => 'https://remote.example.com/a.jpg' ],
+						]
+					),
+				],
+			]
+		);
+
+		$this->assertSame( 0, (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'attachment'" ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		$this->assertFalse( get_option( 'onesearch_proxy_attachment_id' ) );
+	}
+
+	/**
+	 * The proxy attachment that 1.1.x created is deleted.
+	 */
+	public function test_delete_legacy_proxy_attachment_deletes_the_proxy(): void {
+		$proxy_id = self::factory()->attachment->create( [ 'post_name' => 'onesearch-remote-attachment-proxy' ] );
+		update_option( 'onesearch_proxy_attachment_id', $proxy_id );
+
+		( new Search() )->delete_legacy_proxy_attachment();
+
+		$this->assertNull( get_post( $proxy_id ) );
+		$this->assertFalse( get_option( 'onesearch_proxy_attachment_id' ) );
+	}
+
+	/**
+	 * An attachment that isn't the proxy is kept, even when the option points at it.
+	 */
+	public function test_delete_legacy_proxy_attachment_keeps_other_attachments(): void {
+		$attachment_id = self::factory()->attachment->create( [ 'post_name' => 'holiday-photo' ] );
+		update_option( 'onesearch_proxy_attachment_id', $attachment_id );
+
+		( new Search() )->delete_legacy_proxy_attachment();
+
+		$this->assertInstanceOf( \WP_Post::class, get_post( $attachment_id ) );
+		$this->assertFalse( get_option( 'onesearch_proxy_attachment_id' ) );
+	}
+
+	/**
+	 * A remote attachment result is served from its own file.
+	 */
+	public function test_remote_attachment_results_resolve_to_their_file(): void {
+		$thumbnail = [
+			'url'    => 'https://remote.example.com/uploads/doc.jpeg',
+			'width'  => 800,
+			'height' => 600,
+		];
+
+		$search = new Search();
+		$result = $this->run_search(
+			$search,
+			[
+				'hits' => [
+					self::get_remote_hit(
+						[
+							'post_type' => 'attachment',
+							'thumbnail' => $thumbnail,
+						]
+					),
+				],
+			]
+		);
+
+		$id = $result[0]->ID;
+
+		$this->assertSame( 'https://remote.example.com/uploads/doc.jpeg', wp_get_attachment_url( $id ) );
+		$this->assertSame(
+			[ 'https://remote.example.com/uploads/doc.jpeg', 800, 600, false ],
+			wp_get_attachment_image_src( $id, 'full' )
+		);
+		$this->assertFalse( has_post_thumbnail( $id ) );
+	}
+
+	/**
+	 * Returns the remote permalink for remote posts by their synthetic ID.
+	 */
+	public function test_get_post_type_permalink_returns_remote_for_synthetic_id(): void {
+		$search = new Search();
+		$result = $this->run_search( $search, [ 'hits' => [ self::get_remote_hit() ] ] );
+
+		$id = $result[0]->ID;
+
+		$this->assertSame( 'https://remote.example.com/posts/17/', $search->get_post_type_permalink( 'https://example.com/local/', $id ) );
+		$this->assertSame( 'https://remote.example.com/posts/17/', $search->get_post_type_permalink( 'https://example.com/local/', get_post( $id ) ) );
+		$this->assertSame( 'https://remote.example.com/posts/17/', get_permalink( $id ) );
+
+		// A local post is left alone.
+		$local = self::factory()->post->create_and_get();
+		$this->assertSame( 'https://example.com/local/', $search->get_post_type_permalink( 'https://example.com/local/', $local ) );
+	}
+
+	/**
+	 * The post blocks of a block theme render remote posts, and the title links to the remote post through the core permalink filters.
+	 */
+	public function test_post_blocks_render_remote_posts(): void {
+		$search = new Search();
+		$result = $this->run_search(
+			$search,
+			[
+				'hits' => [
+					self::get_remote_hit(
+						[
+							'post_excerpt' => 'Remote excerpt',
+							'thumbnail'    => [ 'url' => 'https://remote.example.com/uploads/img.png' ],
+						]
+					),
+				],
+			]
+		);
+
+		// The Post Template block sets up each post before rendering its inner blocks.
+		$GLOBALS['post'] = $result[0]; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+
+		$render = static fn ( string $name, array $attrs ): string => ( new \WP_Block(
+			[
+				'blockName' => $name,
+				'attrs'     => $attrs,
+			],
+			[ 'postId' => $result[0]->ID ]
+		) )->render();
+
+		$title = $render( 'core/post-title', [ 'isLink' => true ] );
+		$this->assertStringContainsString( 'href="https://remote.example.com/posts/17/"', $title );
+		$this->assertStringContainsString( '>Remote Post</a>', $title );
+
+		$this->assertStringContainsString( 'src="https://remote.example.com/uploads/img.png"', $render( 'core/post-featured-image', [] ) );
+		$this->assertStringContainsString( 'Remote excerpt', $render( 'core/post-excerpt', [] ) );
 	}
 
 	/**
@@ -234,98 +946,6 @@ final class SearchTest extends TestCase {
 	}
 
 	/**
-	 * Sorts hits by Algolia ranking score (descending) without raising notices.
-	 */
-	public function test_get_algolia_results_sorts_hits_by_ranking_score(): void {
-		$this->enable_search_for_governing_site();
-		Search_Settings::set_algolia_credentials(
-			[
-				'app_id'    => 'TEST_APP',
-				'write_key' => 'TEST_KEY',
-			]
-		);
-
-		$recorded_paths = [];
-		$this->mock_algolia_http_client(
-			$recorded_paths,
-			static function ( string $path ): string {
-				if ( str_contains( $path, '/query' ) ) {
-					return wp_json_encode(
-						[
-							'hits'        => [
-								[
-									'objectID'          => '20',
-									'site_post_id'      => '20',
-									'post_id'           => 20,
-									'post_title'        => 'Middle Score',
-									'post_type'         => 'post',
-									'permalink'         => 'https://remote.example.com/posts/20/',
-									'site_url'          => 'https://remote.example.com/',
-									'site_name'         => 'Remote',
-									'total_chunks'      => 1,
-									'post_date_gmt'     => 1710000000,
-									'post_modified_gmt' => 1710000000,
-									'_rankingInfo'      => [ 'rankingScore' => 0.5 ],
-								],
-								[
-									'objectID'          => '30',
-									'site_post_id'      => '30',
-									'post_id'           => 30,
-									'post_title'        => 'Lowest Score',
-									'post_type'         => 'post',
-									'permalink'         => 'https://remote.example.com/posts/30/',
-									'site_url'          => 'https://remote.example.com/',
-									'site_name'         => 'Remote',
-									'total_chunks'      => 1,
-									'post_date_gmt'     => 1710000000,
-									'post_modified_gmt' => 1710000000,
-									'_rankingInfo'      => [ 'rankingScore' => 0.1 ],
-								],
-								[
-									'objectID'          => '40',
-									'site_post_id'      => '40',
-									'post_id'           => 40,
-									'post_title'        => 'Highest Score',
-									'post_type'         => 'post',
-									'permalink'         => 'https://remote.example.com/posts/40/',
-									'site_url'          => 'https://remote.example.com/',
-									'site_name'         => 'Remote',
-									'total_chunks'      => 1,
-									'post_date_gmt'     => 1710000000,
-									'post_modified_gmt' => 1710000000,
-									'_rankingInfo'      => [ 'rankingScore' => 0.9 ],
-								],
-							],
-							'nbHits'      => 3,
-							'page'        => 0,
-							'hitsPerPage' => 10,
-						]
-					) ?: '{}';
-				}
-
-				if ( str_contains( $path, '/task/' ) ) {
-					return '{"status":"published","pendingTask":false}';
-				}
-
-				return '{"taskID":1,"updatedAt":"2024-01-01T00:00:00.000Z"}';
-			}
-		);
-
-		$this->prime_main_search_query( 'remote test' );
-
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Reading query prepared by helper.
-		global $wp_query;
-
-		$search = new Search();
-		$result = $search->get_algolia_results( [], $wp_query );
-
-		$this->assertCount( 3, $result );
-		$this->assertSame( 'Highest Score', $result[0]->post_title );
-		$this->assertSame( 'Middle Score', $result[1]->post_title );
-		$this->assertSame( 'Lowest Score', $result[2]->post_title );
-	}
-
-	/**
 	 * Returns default permalink for local posts (positive ID).
 	 */
 	public function test_get_post_type_permalink_returns_default_for_local_post(): void {
@@ -338,576 +958,18 @@ final class SearchTest extends TestCase {
 	}
 
 	/**
-	 * Returns remote permalink for placeholder posts during enabled search.
-	 */
-	public function test_get_post_type_permalink_returns_remote_for_placeholder_post(): void {
-		$this->enable_search_for_governing_site();
-		$this->prime_main_search_query( 'test query' );
-
-		global $wp_query; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-
-		$remote_post                        = new \WP_Post( new \stdClass() );
-		$remote_post->onesearch_original_id = 17;
-		$remote_post->ID                    = -18;
-		$remote_post->guid                  = 'https://remote.example.com/posts/17/';
-
-		$wp_query->posts = [ $remote_post ];
-
-		$search = new Search();
-		$result = $search->get_post_type_permalink( 'https://example.com/local/', -18 );
-
-		$this->assertSame( 'https://remote.example.com/posts/17/', $result );
-	}
-
-	/**
-	 * Returns the default author name when search is not enabled.
-	 *
-	 * Sets otherwise valid query/post context so disabled search is the only unmet
-	 * precondition.
-	 */
-	public function test_get_post_author_returns_default_when_search_disabled(): void {
-		// Set up everything search needs EXCEPT the search settings option itself.
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-		$this->prime_main_search_query( 'test query' );
-
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
-		global $post;
-
-		$post                        = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-		$post->ID                    = -99;
-		$post->onesearch_original_id = 98;
-		$post->onesearch_remote_post_author_display_name = 'Remote Author';
-
-		// Now disable search; this is the sole reason the default should be returned.
-		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
-
-		$search = new Search();
-		$result = $search->get_post_author( 'Default Author' );
-
-		$this->assertSame( 'Default Author', $result );
-	}
-
-	/**
-	 * Returns remote author name when search is enabled for remote posts.
-	 */
-	public function test_get_post_author_returns_remote_when_search_enabled(): void {
-		$this->enable_search_for_governing_site();
-		$this->prime_main_search_query( 'test query' );
-
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
-		global $post;
-
-		$post                        = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-		$post->ID                    = -10;
-		$post->onesearch_original_id = 9;
-		$post->onesearch_remote_post_author_display_name = 'Remote Author';
-
-		$search = new Search();
-		$result = $search->get_post_author( 'Default Author' );
-
-		$this->assertSame( 'Remote Author', $result );
-	}
-
-	/**
-	 * Returns the default author link when search is not enabled.
-	 *
-	 * Sets otherwise valid query/post context so disabled search is the only unmet
-	 * precondition.
-	 */
-	public function test_get_post_author_link_returns_default_when_search_disabled(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-		$this->prime_main_search_query( 'test query' );
-
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
-		global $post;
-
-		$post                                    = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-		$post->ID                                = -99;
-		$post->onesearch_original_id             = 98;
-		$post->onesearch_remote_post_author_link = 'https://remote.example.com/authors/john/';
-
-		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
-
-		$search = new Search();
-		$result = $search->get_post_author_link( 'https://example.com/author/admin/' );
-
-		$this->assertSame( 'https://example.com/author/admin/', $result );
-	}
-
-	/**
-	 * Returns remote author link when search is enabled for remote posts.
-	 */
-	public function test_get_post_author_link_returns_remote_when_search_enabled(): void {
-		$this->enable_search_for_governing_site();
-		$this->prime_main_search_query( 'test query' );
-
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
-		global $post;
-
-		$post                                    = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-		$post->ID                                = -11;
-		$post->onesearch_original_id             = 10;
-		$post->onesearch_remote_post_author_link = 'https://remote.example.com/authors/john/';
-
-		$search = new Search();
-		$result = $search->get_post_author_link( 'https://example.com/author/admin/' );
-
-		$this->assertSame( 'https://remote.example.com/authors/john/', $result );
-	}
-
-	/**
-	 * Returns the default avatar URL when search is not enabled.
-	 *
-	 * Sets otherwise valid query/post context so disabled search is the only unmet
-	 * precondition.
-	 */
-	public function test_get_post_author_avatar_returns_default_when_search_disabled(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-		$this->prime_main_search_query( 'test query' );
-
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
-		global $post;
-
-		$post                                        = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-		$post->ID                                    = -99;
-		$post->onesearch_original_id                 = 98;
-		$post->onesearch_remote_post_author_gravatar = 'https://remote.example.com/avatar.jpg';
-
-		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
-
-		$search = new Search();
-		$result = $search->get_post_author_avatar( 'https://example.com/avatar.jpg' );
-
-		$this->assertSame( 'https://example.com/avatar.jpg', $result );
-	}
-
-	/**
-	 * Returns remote author avatar when search is enabled for remote posts.
-	 */
-	public function test_get_post_author_avatar_returns_remote_when_search_enabled(): void {
-		$this->enable_search_for_governing_site();
-		$this->prime_main_search_query( 'test query' );
-
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
-		global $post;
-
-		$post                                        = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-		$post->ID                                    = -12;
-		$post->onesearch_original_id                 = 11;
-		$post->onesearch_remote_post_author_gravatar = 'https://remote.example.com/avatar.jpg';
-
-		$search = new Search();
-		$result = $search->get_post_author_avatar( 'https://example.com/avatar.jpg' );
-
-		$this->assertSame( 'https://remote.example.com/avatar.jpg', $result );
-	}
-
-	/**
-	 * Returns the default term link when search is not enabled.
-	 *
-	 * Sets otherwise valid query/post context so disabled search is the only unmet
-	 * precondition.
-	 */
-	public function test_get_term_link_returns_default_when_search_disabled(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-		$this->prime_main_search_query( 'test query' );
-
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
-		global $post;
-
-		$post                              = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-		$post->ID                          = -99;
-		$post->onesearch_original_id       = 98;
-		$post->onesearch_remote_taxonomies = [
-			[
-				'taxonomy'  => 'category',
-				'term_id'   => 7,
-				'slug'      => 'news',
-				'term_link' => 'https://remote.example.com/category/news/',
-			],
-		];
-
-		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
-
-		$search = new Search();
-		$result = $search->get_term_link( 'https://example.com/category/news/', 7, 'category' );
-
-		$this->assertSame( 'https://example.com/category/news/', $result );
-	}
-
-	/**
-	 * Returns remote term link when search is enabled and taxonomy data exists.
-	 */
-	public function test_get_term_link_returns_remote_when_search_enabled(): void {
-		$this->enable_search_for_governing_site();
-		$this->prime_main_search_query( 'test query' );
-
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
-		global $post;
-
-		$post                              = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-		$post->ID                          = -13;
-		$post->onesearch_original_id       = 12;
-		$post->onesearch_remote_taxonomies = [
-			[
-				'taxonomy'  => 'category',
-				'term_id'   => 7,
-				'slug'      => 'news',
-				'term_link' => 'https://remote.example.com/category/news/',
-			],
-		];
-
-		$search = new Search();
-		$result = $search->get_term_link( 'https://example.com/category/news/', 7, 'category' );
-
-		$this->assertSame( 'https://remote.example.com/category/news/', $result );
-	}
-
-	/**
-	 * Delegates to get_term_link with 'category' taxonomy.
-	 */
-	public function test_get_category_link_returns_default_when_search_disabled(): void {
-		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
-
-		$search = new Search();
-		$result = $search->get_category_link( 'https://example.com/category/tech/', 5 );
-
-		$this->assertSame( 'https://example.com/category/tech/', $result );
-	}
-
-	/**
-	 * Delegates to get_term_link with 'category' taxonomy for enabled remote search.
-	 */
-	public function test_get_category_link_returns_remote_when_search_enabled(): void {
-		$this->enable_search_for_governing_site();
-		$this->prime_main_search_query( 'test query' );
-
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
-		global $post;
-
-		$post                              = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-		$post->ID                          = -105;
-		$post->onesearch_original_id       = 104;
-		$post->onesearch_remote_taxonomies = [
-			[
-				'taxonomy'  => 'category',
-				'term_id'   => 5,
-				'slug'      => 'tech',
-				'term_link' => 'https://remote.example.com/category/tech/',
-			],
-		];
-
-		$search = new Search();
-		$result = $search->get_category_link( 'https://example.com/category/tech/', 5 );
-
-		$this->assertSame( 'https://remote.example.com/category/tech/', $result );
-	}
-
-	/**
-	 * Delegates to get_term_link with 'post_tag' taxonomy.
-	 */
-	public function test_get_tag_link_returns_default_when_search_disabled(): void {
-		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
-
-		$search = new Search();
-		$result = $search->get_tag_link( 'https://example.com/tag/php/', 3 );
-
-		$this->assertSame( 'https://example.com/tag/php/', $result );
-	}
-
-	/**
-	 * Delegates to get_term_link with 'post_tag' taxonomy for enabled remote search.
-	 */
-	public function test_get_tag_link_returns_remote_when_search_enabled(): void {
-		$this->enable_search_for_governing_site();
-		$this->prime_main_search_query( 'test query' );
-
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
-		global $post;
-
-		$post                              = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-		$post->ID                          = -106;
-		$post->onesearch_original_id       = 105;
-		$post->onesearch_remote_taxonomies = [
-			[
-				'taxonomy'  => 'post_tag',
-				'term_id'   => 3,
-				'slug'      => 'php',
-				'term_link' => 'https://remote.example.com/tag/php/',
-			],
-		];
-
-		$search = new Search();
-		$result = $search->get_tag_link( 'https://example.com/tag/php/', 3 );
-
-		$this->assertSame( 'https://remote.example.com/tag/php/', $result );
-	}
-
-	/**
-	 * Returns original terms when search is not enabled.
-	 */
-	public function test_get_post_terms_returns_original_when_search_disabled(): void {
-		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
-
-		$search   = new Search();
-		$original = [ new \WP_Term( new \stdClass() ) ];
-
-		$result = $search->get_post_terms( $original, 1, 'category' );
-		$this->assertSame( $original, $result );
-	}
-
-	/**
-	 * Returns mapped terms for enabled search when remote taxonomy metadata exists.
-	 */
-	public function test_get_post_terms_returns_remote_terms_when_search_enabled(): void {
-		$this->enable_search_for_governing_site();
-		$this->prime_main_search_query( 'test query' );
-
-		$post_id = self::factory()->post->create();
-		$post    = get_post( $post_id );
-
-		$this->assertInstanceOf( \WP_Post::class, $post );
-
-		$post->onesearch_remote_taxonomies = [
-			[
-				'taxonomy'    => 'category',
-				'term_id'     => 22,
-				'slug'        => 'remote-news',
-				'name'        => 'Remote News',
-				'term_link'   => 'https://remote.example.com/category/remote-news/',
-				'count'       => 3,
-				'description' => 'Remote category',
-				'parent'      => 0,
-			],
-		];
-
-		wp_cache_set( $post_id, $post, 'posts' );
-
-		$search = new Search();
-		$result = $search->get_post_terms( [], $post_id, 'category' );
-
-		$this->assertIsArray( $result );
-		$this->assertCount( 1, $result );
-		$this->assertInstanceOf( \WP_Term::class, $result[0] );
-		$this->assertSame( 'Remote News', $result[0]->name );
-		$this->assertSame( 'category', $result[0]->taxonomy );
-		$this->assertSame( 22, $result[0]->term_id );
-	}
-
-	/**
-	 * Returns unchanged block content when search is not enabled.
-	 *
-	 * Sets otherwise valid remote-post context so disabled search is the only unmet
-	 * precondition.
-	 */
-	public function test_filter_render_block_returns_original_when_search_disabled(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
-		global $post;
-
-		$post                        = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-		$post->ID                    = -99;
-		$post->onesearch_original_id = 98;
-		$post->guid                  = 'https://remote.example.com/post/98/';
-
-		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
-
-		$search  = new Search();
-		$content = '<h2><a href="https://example.com/old/">Title</a></h2>';
-		$block   = [ 'blockName' => 'core/post-title' ];
-
-		$result = $search->filter_render_block( $content, $block );
-
-		$this->assertSame( $content, $result );
-	}
-
-	/**
-	 * Rewrites title block link for remote posts when search is enabled.
-	 */
-	public function test_filter_render_block_rewrites_title_link_for_remote_post(): void {
-		$this->enable_search_for_governing_site();
-
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
-		global $post;
-
-		// Slug-based guid that doesn't coincide with `ID` (14), proving the link uses the guid, not the ID.
-		$post                        = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-		$post->ID                    = -14;
-		$post->onesearch_original_id = 13;
-		$post->guid                  = 'https://remote.example.com/remote-title/';
-
-		$search  = new Search();
-		$content = '<h2><a href="https://example.com/old/">Title</a></h2>';
-		$block   = [ 'blockName' => 'core/post-title' ];
-
-		$result = $search->filter_render_block( $content, $block );
-
-		$this->assertStringContainsString( 'https://remote.example.com/remote-title/', $result );
-		$this->assertStringNotContainsString( 'https://example.com/old/', $result );
-	}
-
-	/**
-	 * Rewrites excerpt block text for remote posts when search is enabled.
-	 */
-	public function test_filter_render_block_rewrites_excerpt_for_remote_post(): void {
-		$this->enable_search_for_governing_site();
-
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Setting up test global state.
-		global $post;
-
-		$post                        = new \WP_Post( new \stdClass() ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
-		$post->ID                    = -15;
-		$post->onesearch_original_id = 14;
-		$post->guid                  = 'https://remote.example.com/post/14/';
-		$post->post_excerpt          = 'Remote excerpt body';
-
-		$search  = new Search();
-		$content = '<div class="wp-block-post-excerpt"><p>Old excerpt</p></div>';
-		$block   = [ 'blockName' => 'core/post-excerpt' ];
-
-		$result = $search->filter_render_block( $content, $block );
-
-		$this->assertStringContainsString( 'Remote excerpt body', $result );
-		$this->assertStringNotContainsString( 'Old excerpt', $result );
-	}
-
-	/**
-	 * Passes the meta value through unchanged for local posts (non-negative IDs).
-	 */
-	public function test_get_remote_thumbnail_id_passes_through_for_local_post(): void {
-		$search = new Search();
-
-		$result = $search->get_remote_thumbnail_id( 'original-value', 123, '_thumbnail_id', true );
-
-		$this->assertSame( 'original-value', $result );
-	}
-
-	/**
-	 * Points a remote post's _thumbnail_id at the shared proxy attachment.
-	 */
-	public function test_get_remote_thumbnail_id_returns_proxy_for_remote_post(): void {
-		$remote                        = new \WP_Post( new \stdClass() );
-		$remote->ID                    = -18;
-		$remote->onesearch_original_id = 17;
-		$remote->post_title            = 'Remote Post';
-		$remote->onesearch_thumbnail   = [
-			'url'    => 'https://remote.example.com/uploads/img-300x200.jpeg',
-			'width'  => 300,
-			'height' => 200,
-		];
-
-		$search = new Search();
-		$this->set_private_property( $search, 'remote_posts_map', [ -18 => $remote ] );
-
-		$proxy_id = (int) $search->get_remote_thumbnail_id( null, -18, '_thumbnail_id', true );
-
-		$proxy_post = get_post( $proxy_id );
-		$this->assertGreaterThan( 0, $proxy_id );
-		$this->assertInstanceOf( \WP_Post::class, $proxy_post );
-		$this->assertSame( 'attachment', $proxy_post->post_type );
-	}
-
-	/**
-	 * Featured image: resolves a regular remote post's thumbnail to the remote file.
-	 */
-	public function test_get_remote_attachment_image_src_uses_remote_file_for_featured_image(): void {
-		global $post;
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Ensure no attachment-as-result context.
-		$post = null;
-
-		$remote                        = new \WP_Post( new \stdClass() );
-		$remote->ID                    = -18;
-		$remote->onesearch_original_id = 17;
-		$remote->post_title            = 'Remote Post';
-		$remote->onesearch_thumbnail   = [
-			'url'    => 'https://remote.example.com/uploads/img-300x200.jpeg',
-			'width'  => 300,
-			'height' => 200,
-		];
-
-		$search = new Search();
-		$this->set_private_property( $search, 'remote_posts_map', [ -18 => $remote ] );
-
-		// Drives the featured-image path: records current_remote_post + proxy id.
-		$proxy_id = (int) $search->get_remote_thumbnail_id( null, -18, '_thumbnail_id', true );
-
-		$src = $search->get_remote_attachment_image_src( false, $proxy_id, 'medium', false );
-
-		$this->assertSame(
-			[ 'https://remote.example.com/uploads/img-300x200.jpeg', 300, 200, false ],
-			$src
-		);
-	}
-
-	/**
-	 * Resolves the in-loop post's thumbnail even after another remote post's
-	 * _thumbnail_id was requested, guarding the shared current_remote_post slot
-	 * from being overwritten before the image renders.
-	 */
-	public function test_get_remote_attachment_image_src_prefers_in_loop_post_over_last_recorded(): void {
-		$first                        = new \WP_Post( new \stdClass() );
-		$first->ID                    = -18;
-		$first->onesearch_original_id = 17;
-		$first->post_title            = 'First Remote';
-		$first->onesearch_thumbnail   = [
-			'url'    => 'https://remote.example.com/uploads/first-300x200.jpeg',
-			'width'  => 300,
-			'height' => 200,
-		];
-
-		$second                        = new \WP_Post( new \stdClass() );
-		$second->ID                    = -20;
-		$second->onesearch_original_id = 19;
-		$second->post_title            = 'Second Remote';
-		$second->onesearch_thumbnail   = [
-			'url'    => 'https://remote.example.com/uploads/second-640x480.jpeg',
-			'width'  => 640,
-			'height' => 480,
-		];
-
-		$search = new Search();
-		$this->set_private_property(
-			$search,
-			'remote_posts_map',
-			[
-				-18 => $first,
-				-20 => $second,
-			]
-		);
-
-		// Both _thumbnail_id lookups happen before any render, so current_remote_post now points at $second.
-		$proxy_id = (int) $search->get_remote_thumbnail_id( null, -18, '_thumbnail_id', true );
-		$search->get_remote_thumbnail_id( null, -20, '_thumbnail_id', true );
-
-		// $first is the post actually being rendered in the loop.
-		global $post;
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Simulating the in-loop post.
-		$post = $first;
-
-		$src = $search->get_remote_attachment_image_src( false, $proxy_id, 'medium', false );
-
-		$this->assertSame(
-			[ 'https://remote.example.com/uploads/first-300x200.jpeg', 300, 200, false ],
-			$src
-		);
-	}
-
-	/**
 	 * Builds an attachment-result Search primed with a multi-size thumbnail.
 	 *
-	 * @param int $proxy_id The proxy attachment ID.
+	 * @param int $attachment_id The synthetic attachment ID.
 	 *
-	 * @return \OneSearch\Modules\Search\Search The primed Search instance (global $post is the result).
+	 * @return \OneSearch\Modules\Search\Search The primed Search instance.
 	 */
-	private function make_sized_attachment_search( int $proxy_id ): Search {
-		global $post;
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- The attachment result is the post being rendered.
+	private function make_sized_attachment_search( int $attachment_id ): Search {
 		$post                        = new \WP_Post( new \stdClass() );
-		$post->ID                    = $proxy_id;
+		$post->ID                    = $attachment_id;
 		$post->post_type             = 'attachment';
 		$post->onesearch_original_id = 8;
-		$post->post_title            = 'Remote Image';
+		$post->post_title            = 'Remote <em>Image</em>';
 		$post->onesearch_thumbnail   = [
 			'url'    => 'https://remote.example.com/uploads/photo.jpeg',
 			'width'  => 1600,
@@ -927,7 +989,7 @@ final class SearchTest extends TestCase {
 		];
 
 		$search = new Search();
-		$this->set_private_property( $search, 'proxy_attachment_id', $proxy_id );
+		$this->set_private_property( $search, 'remote_posts_map', [ $attachment_id => $post ] );
 
 		return $search;
 	}
@@ -936,10 +998,10 @@ final class SearchTest extends TestCase {
 	 * Returns the matching named-size variant when the record carries a size map.
 	 */
 	public function test_get_remote_attachment_image_src_returns_named_size(): void {
-		$proxy_id = 4242;
-		$search   = $this->make_sized_attachment_search( $proxy_id );
+		$attachment_id = 4_000_042;
+		$search        = $this->make_sized_attachment_search( $attachment_id );
 
-		$src = $search->get_remote_attachment_image_src( false, $proxy_id, 'medium', false );
+		$src = $search->get_remote_attachment_image_src( false, $attachment_id, 'medium', false );
 
 		$this->assertSame(
 			[ 'https://remote.example.com/uploads/photo-300x225.jpeg', 300, 225, true ],
@@ -951,10 +1013,10 @@ final class SearchTest extends TestCase {
 	 * Falls back to the full image for the 'full' size and reports it as such.
 	 */
 	public function test_get_remote_attachment_image_src_returns_full_for_full_size(): void {
-		$proxy_id = 4242;
-		$search   = $this->make_sized_attachment_search( $proxy_id );
+		$attachment_id = 4_000_042;
+		$search        = $this->make_sized_attachment_search( $attachment_id );
 
-		$src = $search->get_remote_attachment_image_src( false, $proxy_id, 'full', false );
+		$src = $search->get_remote_attachment_image_src( false, $attachment_id, 'full', false );
 
 		$this->assertSame(
 			[ 'https://remote.example.com/uploads/photo.jpeg', 1600, 1200, false ],
@@ -966,11 +1028,11 @@ final class SearchTest extends TestCase {
 	 * Picks the smallest variant that covers a requested [width, height].
 	 */
 	public function test_get_remote_attachment_image_src_best_fits_dimension_array(): void {
-		$proxy_id = 4242;
-		$search   = $this->make_sized_attachment_search( $proxy_id );
+		$attachment_id = 4_000_042;
+		$search        = $this->make_sized_attachment_search( $attachment_id );
 
 		// 200x200 fits within medium (300x225) but not thumbnail (150x150).
-		$src = $search->get_remote_attachment_image_src( false, $proxy_id, [ 200, 200 ], false );
+		$src = $search->get_remote_attachment_image_src( false, $attachment_id, [ 200, 200 ], false );
 
 		$this->assertSame(
 			[ 'https://remote.example.com/uploads/photo-300x225.jpeg', 300, 225, true ],
@@ -982,10 +1044,10 @@ final class SearchTest extends TestCase {
 	 * Uses the full image when no variant is large enough for the request.
 	 */
 	public function test_get_remote_attachment_image_src_uses_full_when_no_variant_fits(): void {
-		$proxy_id = 4242;
-		$search   = $this->make_sized_attachment_search( $proxy_id );
+		$attachment_id = 4_000_042;
+		$search        = $this->make_sized_attachment_search( $attachment_id );
 
-		$src = $search->get_remote_attachment_image_src( false, $proxy_id, [ 1200, 900 ], false );
+		$src = $search->get_remote_attachment_image_src( false, $attachment_id, [ 1200, 900 ], false );
 
 		$this->assertSame(
 			[ 'https://remote.example.com/uploads/photo.jpeg', 1600, 1200, false ],
@@ -1000,44 +1062,26 @@ final class SearchTest extends TestCase {
 		$search   = new Search();
 		$original = [ 'https://example.com/local.jpg', 100, 100, false ];
 
-		$result = $search->get_remote_attachment_image_src( $original, 99, 'medium', false );
-
-		$this->assertSame( $original, $result );
+		$this->assertSame( $original, $search->get_remote_attachment_image_src( $original, 99, 'medium', false ) );
 	}
 
 	/**
-	 * Attachment result: resolves the proxy URL to the remote file via the global post.
+	 * Attachment result: resolves the URL to the remote file.
 	 */
 	public function test_get_remote_attachment_url_uses_remote_file_for_attachment_result(): void {
-		$proxy_id = 4242;
+		$attachment_id = 4_000_042;
+		$search        = $this->make_sized_attachment_search( $attachment_id );
 
-		global $post;
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- The attachment result is the post being rendered.
-		$post                        = new \WP_Post( new \stdClass() );
-		$post->ID                    = $proxy_id;
-		$post->post_type             = 'attachment';
-		$post->onesearch_original_id = 8;
-		$post->post_title            = 'Remote Image';
-		$post->onesearch_thumbnail   = [
-			'url'    => 'https://remote.example.com/uploads/photo-300x200.jpeg',
-			'width'  => 300,
-			'height' => 200,
-		];
+		$url = $search->get_remote_attachment_url( 'https://example.com/local-file.jpg', $attachment_id );
 
-		$search = new Search();
-		$this->set_private_property( $search, 'proxy_attachment_id', $proxy_id );
-
-		$url = $search->get_remote_attachment_url( 'https://example.com/local-file.jpg', $proxy_id );
-
-		$this->assertSame( 'https://remote.example.com/uploads/photo-300x200.jpeg', $url );
+		$this->assertSame( 'https://remote.example.com/uploads/photo.jpeg', $url );
 	}
 
 	/**
-	 * Leaves the URL untouched for attachment IDs that are not the proxy.
+	 * Leaves the URL untouched for attachment IDs that are not remote.
 	 */
 	public function test_get_remote_attachment_url_passes_through_for_local_attachment(): void {
-		$search = new Search();
-		$this->set_private_property( $search, 'proxy_attachment_id', 4242 );
+		$search = $this->make_sized_attachment_search( 4_000_042 );
 
 		$url = $search->get_remote_attachment_url( 'https://example.com/local.jpg', 99 );
 
@@ -1045,39 +1089,18 @@ final class SearchTest extends TestCase {
 	}
 
 	/**
-	 * Sets remote alt text and strips local srcset/sizes for a proxy attachment.
+	 * Sets the remote alt text for a remote attachment.
 	 */
-	public function test_filter_remote_attachment_image_attributes_sets_alt_and_strips_srcset(): void {
-		$proxy_id = 4242;
+	public function test_filter_remote_attachment_image_attributes_sets_alt(): void {
+		$attachment_id = 4_000_042;
+		$search        = $this->make_sized_attachment_search( $attachment_id );
 
-		global $post;
-		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- The attachment result is the post being rendered.
-		$post                        = new \WP_Post( new \stdClass() );
-		$post->ID                    = $proxy_id;
-		$post->post_type             = 'attachment';
-		$post->onesearch_original_id = 8;
-		$post->post_title            = 'Remote Image';
-		$post->onesearch_thumbnail   = [
-			'url'    => 'https://remote.example.com/uploads/photo.jpeg',
-			'width'  => 300,
-			'height' => 200,
-		];
+		$attachment     = new \WP_Post( new \stdClass() );
+		$attachment->ID = $attachment_id;
 
-		$search = new Search();
-		$this->set_private_property( $search, 'proxy_attachment_id', $proxy_id );
+		$attr = $search->filter_remote_attachment_image_attributes( [ 'alt' => '' ], $attachment, 'medium' );
 
-		$attr = $search->filter_remote_attachment_image_attributes(
-			[
-				'srcset' => 'https://example.com/local-300w.jpg 300w',
-				'sizes'  => '(max-width: 300px) 100vw, 300px',
-				'alt'    => '',
-			],
-			$post,
-			'medium'
-		);
-
-		$this->assertArrayNotHasKey( 'srcset', $attr );
-		$this->assertArrayNotHasKey( 'sizes', $attr );
+		// Markup is stripped, and core escapes the attribute itself.
 		$this->assertSame( 'Remote Image', $attr['alt'] );
 	}
 
@@ -1157,6 +1180,75 @@ final class SearchTest extends TestCase {
 		global $wp_query;
 
 		return ( new Search() )->get_algolia_results( [], $wp_query ) ?? [];
+	}
+
+	/**
+	 * Mocks the Algolia search response.
+	 *
+	 * @param array<string, mixed>                          $response The response body.
+	 * @param array<int, array{path: string, body: string}> $requests Collects the requests.
+	 */
+	private function mock_search_response( array $response, array &$requests = [] ): void {
+		$recorded_paths = [];
+
+		$this->mock_algolia_http_client(
+			$recorded_paths,
+			static fn (): string => (string) wp_json_encode( $response ),
+			null,
+			$requests
+		);
+	}
+
+	/**
+	 * Runs a main search query through Algolia with the given response, then registers the hooks like WordPress would.
+	 *
+	 * @param \OneSearch\Modules\Search\Search              $search   The Search instance.
+	 * @param array<string, mixed>                          $response The Algolia response.
+	 * @param array<int, array{path: string, body: string}> $requests Collects the requests.
+	 *
+	 * @return \WP_Post[]|null The results.
+	 */
+	private function run_search( Search $search, array $response, array &$requests = [] ): ?array {
+		$this->enable_search_with_credentials();
+		$this->mock_search_response( $response, $requests );
+		$this->prime_main_search_query( 'remote test' );
+
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Reading query prepared by helper.
+		global $wp_query;
+
+		$posts = $search->get_algolia_results( null, $wp_query );
+
+		$search->register_hooks();
+
+		return $posts;
+	}
+
+	/**
+	 * Gets a search hit of a remote post.
+	 *
+	 * @param array<string, mixed> $overrides Fields to override.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private static function get_remote_hit( array $overrides = [] ): array {
+		return array_merge(
+			[
+				'objectID'          => 'remote_17_0',
+				'site_post_id'      => 'remote_17',
+				'post_id'           => 17,
+				'post_title'        => 'Remote Post',
+				'post_type'         => 'post',
+				'permalink'         => 'https://remote.example.com/posts/17/',
+				'site_url'          => 'https://remote.example.com/',
+				'site_name'         => 'Remote',
+				'content'           => 'Remote content',
+				'chunk_index'       => 0,
+				'total_chunks'      => 1,
+				'post_date_gmt'     => 1710000000,
+				'post_modified_gmt' => 1710000000,
+			],
+			$overrides
+		);
 	}
 
 	/**
