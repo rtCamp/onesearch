@@ -78,7 +78,6 @@ function delete_proxy_attachment(): void {
 function delete_options(): void {
 	$options = [
 		// Add more options as needed.
-		PLUGIN_PREFIX . 'version', // Set by Main::activate().
 
 		// Governing site options.
 		PLUGIN_PREFIX . 'site_type',
@@ -129,7 +128,16 @@ function cleanup_algolia_index(): void {
 	if ( \OneSearch\Modules\Settings\Settings::is_governing_site() ) {
 		$is_deleted = $indexer->delete_index();
 	} else {
-		$is_deleted = $indexer->delete_site_records( [ get_site_url() ] );
+		// Consumer sites need to delete their own records, and deregister from the governing site.
+		$is_deleted = $indexer->delete_site_records( [ \OneSearch\Utils::get_current_site_url() ] );
+
+		// Deregister after deletion, or deregistration may fail.
+		$deregistered = \OneSearch\Modules\Rest\Governing_Data_Handler::deregister_from_governing_site();
+
+		if ( is_wp_error( $deregistered ) ) {
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Nowhere else to report it during uninstall.
+			error_log( sprintf( 'OneSearch uninstall: Deregistering from the governing site failed: %s', $deregistered->get_error_message() ) );
+		}
 	}
 
 	if ( is_wp_error( $is_deleted ) ) {
