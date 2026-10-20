@@ -6,7 +6,6 @@
 		"npm": ">=11.19.0"
 	},
 	"files": [
-		"assets",
 		"build",
 		"inc",
 		"languages/*.pot",
@@ -70,6 +69,7 @@
 		"@wordpress/prettier-config": "^4.57.0",
 		"@wordpress/scripts": "^35.0.0",
 		"@wordpress/stylelint-config": "^25.0.0",
+		"copy-webpack-plugin": "^10.2.4",
 		"cross-env": "^10.1.0",
 		"eslint-plugin-jest": "^29.16.11",
 		"jest-watch-typeahead": "^3.0.1",

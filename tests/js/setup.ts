@@ -26,15 +26,6 @@ Object.defineProperty( window, 'OneSearchSettings', {
 	writable: true,
 } );
 
-Object.defineProperty( window, 'OneSearchOnboarding', {
-	value: {
-		nonce: 'onboarding-nonce',
-		site_type: '',
-		setup_url: '',
-	},
-	writable: true,
-} );
-
 Object.defineProperty( navigator, 'clipboard', {
 	value: {
 		writeText: jest.fn().mockResolvedValue( undefined ),

@@ -21,19 +21,11 @@ export interface OneSearchSettings {
 	sharedSites?: OneSearchSharedSite[];
 	restNamespace: string;
 	currentSiteUrl: string;
-	indexableEntities?: Record< string, string[] >;
 	hasAlgoliaCredentials?: boolean;
-}
-
-export interface OneSearchOnboarding {
-	nonce: string;
-	site_type: SiteType | '';
-	setup_url: string;
 }
 
 declare global {
 	interface Window {
 		OneSearchSettings: OneSearchSettings;
-		OneSearchOnboarding: OneSearchOnboarding;
 	}
 }

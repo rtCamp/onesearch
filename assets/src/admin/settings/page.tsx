@@ -16,8 +16,9 @@ import SiteTable from '@/components/SiteTable';
 import SiteModal from '@/components/SiteModal';
 import SiteSettings from '@/components/SiteSettings';
 import AlgoliaSettings from '@/components/AlgoliaSettings';
+import SiteTypeSettings from '@/components/SiteTypeSettings';
 import { REST_NAMESPACE, withTrailingSlash } from '@/js/utils';
-import type { SiteType } from '../onboarding/page';
+import type { SiteType } from '@/types/global';
 
 export interface NoticeType {
 	type: 'success' | 'error' | 'warning' | 'info';
@@ -140,12 +141,6 @@ const SettingsPage = () => {
 			} );
 	}, [] ); // Empty dependency array to run only once on mount
 
-	useEffect( () => {
-		if ( SITE_TYPE === 'governing-site' && sites.length > 0 ) {
-			document.body.classList.remove( 'onesearch-missing-brand-sites' );
-		}
-	}, [ sites ] );
-
 	const handleFormSubmit = async (): Promise< boolean > => {
 		const updated: BrandSite[] =
 			editingIndex !== null
@@ -234,17 +229,6 @@ const SettingsPage = () => {
 				disconnectNotice,
 			] );
 		}
-
-		if ( savedSites.length > 0 ) {
-			document.body.classList.remove( 'onesearch-missing-brand-sites' );
-		} else if ( ! disconnectNotice ) {
-			/*
-			 * Reloading causes the menus etc to reflect the missing sites.
-			 *
-			 * Skipped when there's a notice to show, since reloading would clear it.
-			 */
-			window.location.reload();
-		}
 	};
 
 	return (
@@ -279,6 +263,8 @@ const SettingsPage = () => {
 					{ disconnectNotice.message }
 				</Notice>
 			) ) }
+
+			{ ! SITE_TYPE && <SiteTypeSettings /> }
 
 			{ SITE_TYPE === 'brand-site' && <SiteSettings /> }
 

@@ -272,71 +272,6 @@ describe( 'SettingsPage', () => {
 		expect( screen.queryByTestId( 'site-modal' ) ).not.toBeInTheDocument();
 	} );
 
-	it( 'removes the missing sites body class when governing sites load', async () => {
-		document.body.classList.add( 'onesearch-missing-brand-sites' );
-		mockedApiFetch.mockResolvedValueOnce( {
-			shared_sites: [
-				{
-					name: 'Brand Site',
-					url: 'https://brand.example.com/',
-					api_key: 'key',
-				},
-			],
-		} );
-
-		render( <SettingsPage /> );
-
-		await waitFor( () => {
-			expect( screen.getByTestId( 'site-count' ) ).toHaveTextContent(
-				'1'
-			);
-		} );
-
-		expect(
-			document.body.classList.contains( 'onesearch-missing-brand-sites' )
-		).toBe( false );
-	} );
-
-	it( 'removes missing sites class when deleting the last site', async () => {
-		document.body.classList.add( 'onesearch-missing-brand-sites' );
-		mockedApiFetch
-			.mockResolvedValueOnce( {
-				shared_sites: [
-					{
-						name: 'Brand Site',
-						url: 'https://brand.example.com/',
-						api_key: 'key',
-					},
-				],
-			} )
-			.mockResolvedValueOnce( {
-				shared_sites: [
-					{
-						name: 'Remaining Site',
-						url: 'https://remaining.example.com/',
-						api_key: 'other-key',
-					},
-				],
-			} );
-		global.fetch = jest
-			.fn()
-			.mockResolvedValue( { ok: true, status: 200 } as Response );
-
-		render( <SettingsPage /> );
-
-		fireEvent.click(
-			await screen.findByRole( 'button', { name: 'Delete Site' } )
-		);
-
-		await waitFor( () => {
-			expect(
-				document.body.classList.contains(
-					'onesearch-missing-brand-sites'
-				)
-			).toBe( false );
-		} );
-	} );
-
 	it( 'shows an error and leaves the brand site alone when deleting fails', async () => {
 		mockedApiFetch
 			.mockResolvedValueOnce( {
@@ -439,7 +374,6 @@ describe( 'SettingsPage', () => {
 			await screen.findByRole( 'button', { name: 'Delete Site' } )
 		);
 
-		// Deleting the last site would normally reload the page, which would clear this notice.
 		const message =
 			'Brand Site was removed, but it could not be notified. To finish disconnecting, click Disconnect Governing Site in its OneSearch settings.';
 		expect(

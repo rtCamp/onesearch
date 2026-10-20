@@ -53,9 +53,8 @@ Code contributions, bug reports, and feature requests are welcome! The following
 ├── assets/  # Static assets that do not need compiling.
 │   └── src/
 │       ├── admin/
-│       │   ├── onboarding/ # Plugin activation modal.
-│       │   ├── search/     # Indices and Search settings.
-│       │   └── settings/   # Plugin settings.
+│       │   ├── search/   # Indices and Search settings.
+│       │   └── settings/ # Plugin settings.
 │       ├── components/
 │       │   ├── AlgoliaSettings.tsx
 │       │   ├── MultiSelectChips.tsx
@@ -63,10 +62,10 @@ Code contributions, bug reports, and feature requests are welcome! The following
 │       │   ├── SiteModal.tsx
 │       │   ├── SiteSearchSettings.tsx
 │       │   ├── SiteSettings.tsx
-│       │   └── SiteTable.tsx
+│       │   ├── SiteTable.tsx
+│       │   └── SiteTypeSettings.tsx
 │       ├── css/
-│       │   ├── admin.scss
-│       │   └── onboarding.scss
+│       │   └── admin.scss
 │       ├── images/
 │       └── js/
 │           └── utils.ts
@@ -160,8 +159,7 @@ Code contributions, bug reports, and feature requests are welcome! The following
 ├── .prettierignore               # Prettier ignore patterns.
 ├── .prettierrc.js                # Prettier configuration.
 ├── .release-please-manifest.json # Release Please manifest file.
-├── .stylelint.config.js          # Stylelint configuration.
-├── .stylelintignore              # Stylelint ignore patterns.
+├── stylelint.config.mjs          # Stylelint configuration.
 ├── .wp-env.json                  # wp-env configuration (governing site).
 ├── .wp-env.child.json            # wp-env configuration (brand site).
 ├── .wp-env.test.json             # wp-env configuration (test site).
@@ -379,7 +377,7 @@ npm run format
 
 This project uses [Stylelint](https://stylelint.io/) through `@wordpress/scripts` for CSS linting, following WordPress coding standards and best practices.
 
-Our specific Stylelint configuration is defined in the [`.stylelint.config.js`](../.stylelint.config.js) file.
+Our specific Stylelint configuration is defined in the [`stylelint.config.mjs`](../stylelint.config.mjs) file.
 
 You can run Stylelint on CSS files using:
 

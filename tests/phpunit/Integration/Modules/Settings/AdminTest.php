@@ -13,6 +13,7 @@ use OneSearch\Modules\Settings\Admin;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Tests for the settings admin screen.
@@ -42,41 +43,6 @@ final class AdminTest extends TestCase {
 		$this->remove_menu_entries();
 
 		parent::tearDown();
-	}
-
-	/**
-	 * Ensures the class can be instantiated and hook methods can be called without error.
-	 */
-	public function test_class_instantiation(): void {
-		$admin = new Admin();
-
-		$admin->register_hooks();
-		$admin->enqueue_scripts( Admin::SCREEN_ID );
-
-		// If we made it this far with no errors, we are good.
-		$this->assertTrue( true );
-	}
-
-	/**
-	 * Ensures the top-level menu page is registered.
-	 */
-	public function test_add_admin_menu_registers_menu_page(): void {
-		( new Admin() )->add_admin_menu();
-
-		$this->assertTrue( $this->menu_contains_slug( Admin::MENU_SLUG ) );
-	}
-
-	/**
-	 * Ensures the settings submenu page is registered.
-	 */
-	public function test_add_submenu_registers_submenu_page(): void {
-		$admin = new Admin();
-
-		$admin->add_admin_menu();
-		$admin->add_submenu();
-
-		$this->assertArrayHasKey( Admin::MENU_SLUG, $GLOBALS['submenu'] );
-		$this->assertTrue( $this->submenu_contains_slug( Admin::MENU_SLUG, Admin::SCREEN_ID ) );
 	}
 
 	/**
@@ -142,82 +108,63 @@ final class AdminTest extends TestCase {
 	}
 
 	/**
-	 * Ensures admin body classes are returned as a string.
-	 */
-	public function test_add_body_classes_returns_classes_string(): void {
-		set_current_screen( 'plugins.php' );
-		$admin = new Admin();
-
-		$classes = $admin->add_body_classes( '' );
-
-		$this->assertIsString( $classes );
-		$this->assertStringContainsString( 'onesearch-site-selection-modal', $classes );
-		$this->assertStringContainsString( 'onesearch-missing-brand-sites', $classes );
-
-		// Test with already configured which should remove the missing-brand-sites class and keep the modal class.
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-		update_option(
-			Settings::OPTION_GOVERNING_SHARED_SITES,
-			[
-				[
-					'url'     => 'https://example.com',
-					'name'    => 'Test',
-					'api_key' => '',
-				],
-			]
-		);
-		$classes = $admin->add_body_classes( '' );
-		$this->assertIsString( $classes );
-		$this->assertStringNotContainsString( 'onesearch-site-selection-modal', $classes );
-		$this->assertStringNotContainsString( 'onesearch-missing-brand-sites', $classes );
-
-		// Test with a bad current screen which should return the original classes unmodified.
-		set_current_screen( 'not-a-real-screen' );
-		$classes = $admin->add_body_classes( 'original-classes' );
-		$this->assertSame( 'original-classes', $classes );
-	}
-
-	/**
-	 * Ensures the site-selection modal renders when onboarding is needed.
-	 */
-	public function test_inject_site_selection_modal_outputs_html_when_conditions_met(): void {
-		set_current_screen( 'plugins.php' );
-
-		ob_start();
-		( new Admin() )->inject_site_selection_modal();
-		$output = (string) ob_get_clean();
-
-		$this->assertStringContainsString( 'onesearch-site-selection-modal', $output );
-		$this->assertStringContainsString( 'onesearch-modal', $output );
-	}
-
-	/**
-	 * Ensures the site-selection modal does not render after setup.
-	 */
-	public function test_inject_site_selection_modal_outputs_nothing_when_site_type_set(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-		set_current_screen( 'plugins.php' );
-
-		ob_start();
-		( new Admin() )->inject_site_selection_modal();
-		$output = (string) ob_get_clean();
-
-		$this->assertSame( '', trim( $output ) );
-	}
-
-	/**
-	 * Checks whether a menu slug is present in the admin menu.
+	 * Ensures the setup notice shows on the plugins and dashboard screens when the site type is unset.
 	 *
-	 * @param string $slug Menu slug.
+	 * @param string $screen Screen to render the notice on.
 	 */
-	private function menu_contains_slug( string $slug ): bool {
-		foreach ( (array) $GLOBALS['menu'] as $menu_item ) {
-			if ( isset( $menu_item[2] ) && $slug === $menu_item[2] ) {
-				return true;
-			}
-		}
+	#[DataProvider( 'setup_notice_screen_provider' )]
+	public function test_render_notices_shows_setup_notice_when_site_type_missing( string $screen ): void {
+		set_current_screen( $screen );
 
-		return false;
+		$output = $this->get_notices();
+
+		$this->assertStringContainsString( 'OneSearch needs to be set up', $output );
+		$this->assertStringContainsString( 'admin.php?page=' . Admin::SCREEN_ID, $output );
+	}
+
+	/**
+	 * Provides screens that show the setup notice.
+	 *
+	 * @return array<string, array{0: string}>
+	 */
+	public static function setup_notice_screen_provider(): array {
+		return [
+			'plugins'   => [ 'plugins' ],
+			'dashboard' => [ 'dashboard' ],
+		];
+	}
+
+	/**
+	 * Ensures the setup notice is skipped when it doesn't apply.
+	 */
+	public function test_render_notices_skips_setup_notice_when_not_applicable(): void {
+		// Unrelated screen.
+		set_current_screen( 'edit-post' );
+		$this->assertStringNotContainsString( 'needs to be set up', $this->get_notices() );
+
+		// The settings page, which shows the picker itself.
+		set_current_screen( Admin::SETTINGS_HOOK );
+		$this->assertStringNotContainsString( 'needs to be set up', $this->get_notices() );
+
+		// Already set up.
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		set_current_screen( 'plugins' );
+		$this->assertStringNotContainsString( 'needs to be set up', $this->get_notices() );
+
+		// No permission.
+		delete_option( Settings::OPTION_SITE_TYPE );
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'editor' ] ) );
+		$this->assertStringNotContainsString( 'needs to be set up', $this->get_notices() );
+	}
+
+	/**
+	 * Captures the output of the admin notices.
+	 */
+	private function get_notices(): string {
+		ob_start();
+		( new Admin() )->render_notices();
+
+		return (string) ob_get_clean();
 	}
 
 	/**

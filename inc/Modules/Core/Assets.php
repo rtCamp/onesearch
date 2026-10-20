@@ -32,10 +32,9 @@ final class Assets implements Registrable {
 	/**
 	 * Asset handles
 	 */
-	public const ADMIN_STYLES_HANDLE      = self::PREFIX . 'admin';
-	public const ONBOARDING_SCRIPT_HANDLE = self::PREFIX . 'onboarding';
-	public const SEARCH_SCRIPT_HANDLE     = self::PREFIX . 'search';
-	public const SETTINGS_SCRIPT_HANDLE   = self::PREFIX . 'settings';
+	public const ADMIN_STYLES_HANDLE    = self::PREFIX . 'admin';
+	public const SEARCH_SCRIPT_HANDLE   = self::PREFIX . 'search';
+	public const SETTINGS_SCRIPT_HANDLE = self::PREFIX . 'settings';
 
 	/**
 	 * Localized data for scripts.
@@ -70,7 +69,6 @@ final class Assets implements Registrable {
 			self::$localized_data = [
 				'currentSiteUrl'        => esc_url( home_url( '/' ) ),
 				'hasAlgoliaCredentials' => ! empty( $algolia_creds['app_id'] ) && ! empty( $algolia_creds['write_key'] ),
-				'indexableEntities'     => Search_Settings::get_indexable_entities(),
 				'nonce'                 => wp_create_nonce( 'wp_rest' ),
 				'api_key'               => Settings::get_api_key(),
 				'restNamespace'         => Abstract_REST_Controller::NAMESPACE,
@@ -98,7 +96,6 @@ final class Assets implements Registrable {
 	public function register_hooks(): void {
 		add_action( 'wp_enqueue_scripts', [ $this, 'register_assets' ] );
 		add_action( 'admin_enqueue_scripts', [ $this, 'register_assets' ] );
-		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_scripts' ] );
 
 		// Add defer attribute to certain plugin bundles to improve admin load performance.
 		add_filter( 'script_loader_tag', [ $this, 'defer_scripts' ], 10, 2 );
@@ -118,29 +115,11 @@ final class Assets implements Registrable {
 			'search',
 		);
 
-		$this->register_script(
-			self::ONBOARDING_SCRIPT_HANDLE,
-			'onboarding',
-		);
-		$this->register_style(
-			self::ONBOARDING_SCRIPT_HANDLE,
-			'onboarding',
-			[ 'wp-components' ],
-		);
-
 		$this->register_style(
 			self::ADMIN_STYLES_HANDLE,
 			'admin',
 			[ 'wp-components' ],
 		);
-	}
-
-	/**
-	 * Add scripts and styles to the page.
-	 */
-	public function enqueue_scripts(): void {
-		// @todo Only enqueue on OneSearch admin pages.
-		wp_enqueue_style( self::ADMIN_STYLES_HANDLE );
 	}
 
 	/**
@@ -154,7 +133,6 @@ final class Assets implements Registrable {
 		$defer_handles = [
 			self::SEARCH_SCRIPT_HANDLE,
 			self::SETTINGS_SCRIPT_HANDLE,
-			self::ONBOARDING_SCRIPT_HANDLE,
 		];
 
 		// Bail if we don't need to defer.

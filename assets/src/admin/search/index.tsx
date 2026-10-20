@@ -206,12 +206,6 @@ const OneSearchSettingsPage = () => {
 		fetchData();
 	}, [] );
 
-	useEffect( () => {
-		if ( siteType === 'governing-site' && sites.length > 0 ) {
-			document.body.classList.remove( 'onesearch-missing-brand-sites' );
-		}
-	}, [ sites, siteType ] );
-
 	const handleFormSubmit = async (): Promise< boolean > => {
 		const updated: BrandSite[] =
 			editingIndex !== null

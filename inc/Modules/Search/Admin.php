@@ -74,12 +74,13 @@ final class Admin implements Registrable {
 	 * @param string $hook Current admin page hook.
 	 */
 	public function enqueue_scripts( string $hook ): void {
-		if ( strpos( $hook, self::SCREEN_ID ) === false ) {
+		if ( 'toplevel_page_' . self::SCREEN_ID !== $hook ) {
 			return;
 		}
 
 		wp_localize_script( Assets::SEARCH_SCRIPT_HANDLE, 'OneSearchSettings', Assets::get_localized_data() );
 
 		wp_enqueue_script( Assets::SEARCH_SCRIPT_HANDLE );
+		wp_enqueue_style( Assets::ADMIN_STYLES_HANDLE );
 	}
 }

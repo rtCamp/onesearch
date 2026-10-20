@@ -27,7 +27,6 @@ final class AssetsTest extends TestCase {
 
 		$assets->register_hooks();
 		$assets->register_assets();
-		$assets->enqueue_scripts();
 
 		$this->assertTrue( true );
 	}
@@ -73,7 +72,6 @@ final class AssetsTest extends TestCase {
 		$data = Assets::get_localized_data();
 
 		$this->assertArrayHasKey( 'currentSiteUrl', $data );
-		$this->assertArrayHasKey( 'indexableEntities', $data );
 		$this->assertArrayHasKey( 'nonce', $data );
 		$this->assertArrayHasKey( 'api_key', $data );
 		$this->assertArrayHasKey( 'restNamespace', $data );

@@ -34,7 +34,12 @@ final class Admin implements Registrable {
 	 * @todo Replace with actual logo.
 	 * @var string
 	 */
-	private const SVG_LOGO_PATH = '';
+	private const SVG_LOGO_PATH = 'build/images/logo.svg';
+
+	/**
+	 * The admin page hook of the settings page.
+	 */
+	public const SETTINGS_HOOK = self::MENU_SLUG . '_page_' . self::SCREEN_ID;
 
 	/**
 	 * {@inheritDoc}
@@ -44,10 +49,9 @@ final class Admin implements Registrable {
 		add_action( 'admin_menu', [ $this, 'add_submenu' ], 20 ); // 20 priority to make sure settings page respect its position.
 		add_action( 'admin_menu', [ $this, 'remove_default_submenu' ], 999 );
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_scripts' ] );
-		add_action( 'admin_footer', [ $this, 'inject_site_selection_modal' ] );
+		add_action( 'admin_notices', [ $this, 'render_notices' ] );
 
 		add_filter( 'plugin_action_links_' . ONESEARCH_PLUGIN_BASENAME, [ $this, 'add_action_links' ], 2 );
-		add_filter( 'admin_body_class', [ $this, 'add_body_classes' ] );
 	}
 
 	/**
@@ -60,7 +64,7 @@ final class Admin implements Registrable {
 			'manage_options',
 			self::MENU_SLUG,
 			'__return_null',
-			self::SVG_LOGO_PATH,
+			ONESEARCH_URL . self::SVG_LOGO_PATH,
 			2
 		);
 	}
@@ -109,28 +113,37 @@ final class Admin implements Registrable {
 	 * @param string $hook Current admin page hook.
 	 */
 	public function enqueue_scripts( string $hook ): void {
-		if ( strpos( $hook, self::SCREEN_ID ) !== false ) {
-			wp_localize_script( Assets::SETTINGS_SCRIPT_HANDLE, 'OneSearchSettings', Assets::get_localized_data() );
-			wp_enqueue_script( Assets::SETTINGS_SCRIPT_HANDLE );
-		}
-
-		// Enqueue the onboarding modal.
-		$this->enqueue_onboarding_scripts();
-	}
-
-	/**
-	 * Inject site selection modal into the admin footer.
-	 */
-	public function inject_site_selection_modal(): void {
-		if ( ! $this->should_display_site_selection_modal() ) {
+		if ( self::SETTINGS_HOOK !== $hook ) {
 			return;
 		}
 
-		?>
-		<div class="wrap">
-			<div id="onesearch-site-selection-modal" class="onesearch-modal"></div>
-		</div>
-		<?php
+		wp_localize_script( Assets::SETTINGS_SCRIPT_HANDLE, 'OneSearchSettings', Assets::get_localized_data() );
+		wp_enqueue_script( Assets::SETTINGS_SCRIPT_HANDLE );
+		wp_enqueue_style( Assets::ADMIN_STYLES_HANDLE );
+	}
+
+	/**
+	 * Renders the setup admin notice.
+	 */
+	public function render_notices(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		// The settings page shows the site type picker itself.
+		if ( $this->needs_setup() && in_array( get_current_screen()?->base, [ 'plugins', 'dashboard' ], true ) ) {
+			wp_admin_notice(
+				sprintf(
+					/* translators: %s: URL of the OneSearch settings page. */
+					__( 'OneSearch needs to be set up. <a href="%s">Choose whether this is a governing or a brand site</a> to get started.', 'onesearch' ),
+					esc_url( admin_url( sprintf( 'admin.php?page=%s', self::SCREEN_ID ) ) )
+				),
+				[
+					'type'        => 'info',
+					'dismissible' => true,
+				]
+			);
+		}
 	}
 
 	/**
@@ -158,87 +171,9 @@ final class Admin implements Registrable {
 	}
 
 	/**
-	 * Add body classes for the admin area.
-	 *
-	 * @param string $classes Existing body classes.
+	 * Whether the site still has to choose its type.
 	 */
-	public function add_body_classes( $classes ): string {
-		$current_screen = get_current_screen();
-
-		if ( ! $current_screen ) {
-			return $classes;
-		}
-
-		// Cast to string in case it's null.
-		$classes = $this->add_body_class_for_modal( (string) $classes );
-		$classes = $this->add_body_class_for_missing_sites( (string) $classes );
-
-		return $classes;
-	}
-
-	/**
-	 * Enqueue scripts and styles for the onboarding screen.
-	 */
-	private function enqueue_onboarding_scripts(): void {
-		if ( ! $this->should_display_site_selection_modal() ) {
-			return;
-		}
-
-		wp_localize_script(
-			Assets::ONBOARDING_SCRIPT_HANDLE,
-			'OneSearchOnboarding',
-			[
-				'nonce'     => wp_create_nonce( 'wp_rest' ),
-				'setup_url' => admin_url( sprintf( 'admin.php?page=%s', self::SCREEN_ID ) ),
-				'site_type' => Settings::get_site_type(), // @todo We can probably remove this.
-			]
-		);
-
-		wp_enqueue_script( Assets::ONBOARDING_SCRIPT_HANDLE );
-		wp_enqueue_style( Assets::ONBOARDING_SCRIPT_HANDLE );
-	}
-
-	/**
-	 * Add body class if the modal is going to be shown.
-	 *
-	 * @param string $classes        Existing body classes.
-	 */
-	private function add_body_class_for_modal( string $classes ): string {
-		if ( ! $this->should_display_site_selection_modal() ) {
-			return $classes;
-		}
-
-		// Add onesearch-site-selection-modal class to body.
-		$classes .= ' onesearch-site-selection-modal ';
-		return $classes;
-	}
-
-	/**
-	 * Add body class for missing sites.
-	 *
-	 * @param string $classes Existing body classes.
-	 */
-	private function add_body_class_for_missing_sites( string $classes ): string {
-		// Bail if the shared sites are already set.
-		$shared_sites = Settings::get_shared_sites();
-		if ( ! empty( $shared_sites ) ) {
-			return $classes;
-		}
-
-		$classes .= ' onesearch-missing-brand-sites ';
-		return $classes;
-	}
-
-	/**
-	 * Whether to display the site selection modal.
-	 */
-	private function should_display_site_selection_modal(): bool {
-		$current_screen = get_current_screen();
-		if ( ! $current_screen || ( 'plugins' !== $current_screen->base && ! str_contains( $current_screen->id, self::MENU_SLUG ) ) ) {
-			return false;
-		}
-
-		// Bail if the site type is already set.
+	private function needs_setup(): bool {
 		return empty( Settings::get_site_type() );
 	}
 }

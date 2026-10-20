@@ -10,33 +10,10 @@ test.describe( 'plugin activation', () => {
 	} ) => {
 		await admin.visitAdminPage( '/plugins.php' );
 
-		// Helper to dismiss the onboarding modal if present.
-		const dismissOnboardingModal = async () => {
-			const modal = page.locator( '#onesearch-site-selection-modal' );
-			const backdrop = page.locator(
-				'body.onesearch-site-selection-modal'
-			);
-
-			if ( await modal.isVisible() ) {
-				await modal.evaluate( ( el ) => {
-					el.remove();
-				} );
-			}
-
-			if ( await backdrop.isVisible() ) {
-				await backdrop.evaluate( ( el ) => {
-					el.classList.remove( 'onesearch-site-selection-modal' );
-				} );
-			}
-		};
-
 		const pluginRow = page.locator(
 			'tr[data-plugin="onesearch/onesearch.php"]'
 		);
 		await expect( pluginRow ).toBeVisible();
-
-		// Dismiss modal before interacting with plugin row.
-		await dismissOnboardingModal();
 
 		const activateLink = pluginRow.locator( 'a', { hasText: 'Activate' } );
 
@@ -48,9 +25,6 @@ test.describe( 'plugin activation', () => {
 		await expect(
 			pluginRow.locator( 'a', { hasText: 'Deactivate' } )
 		).toBeVisible( { timeout: 10000 } );
-
-		// Dismiss modal again after activation.
-		await dismissOnboardingModal();
 
 		const deactivateLink = pluginRow.locator( 'a', {
 			hasText: 'Deactivate',
