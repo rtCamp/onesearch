@@ -77,23 +77,20 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 	}
 
 	/**
-	 * No origin -> auth layer falls back to manage_options (admin is set in set_up),
-	 * so the request reaches the controller which itself rejects the empty origin.
+	 * Only brand sites use brand-config, so a logged-in admin (from set_up) without a brand's key is refused.
 	 */
-	public function test_get_brand_config_rejects_empty_origin(): void {
+	public function test_get_brand_config_refuses_an_admin_without_a_brand_key(): void {
 		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/brand-config' );
 		$response = $this->server->dispatch( $request );
 
 		$this->assertSame( 403, $response->get_status() );
-		$this->assertSame( 'onesearch_unauthorized_site', $response->get_data()['code'] );
+		$this->assertSame( 'rest_forbidden', $response->get_data()['code'] );
 	}
 
 	/**
-	 * The cross-site auth layer requires a valid X-OneSearch-Token for any non-same-host
-	 * origin; an unknown origin cannot present one, so the request is rejected before
-	 * the controller runs.
+	 * A site that isn't listed is refused, even with a listed brand's key.
 	 */
-	public function test_get_brand_config_rejects_unknown_origin(): void {
+	public function test_get_brand_config_rejects_an_unlisted_site(): void {
 		Settings::set_shared_sites(
 			[
 				[
@@ -105,7 +102,8 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 		);
 
 		$request = new WP_REST_Request( 'GET', '/onesearch/v1/brand-config' );
-		$request->set_header( 'origin', 'https://unknown.example.com' );
+		$request->set_header( 'X-OneSearch-Site-URL', 'https://unknown.example.com' );
+		$request->set_header( 'X-OneSearch-Token', 'key-known' );
 
 		$response = $this->server->dispatch( $request );
 
@@ -136,7 +134,7 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 		);
 
 		$request = new WP_REST_Request( 'GET', '/onesearch/v1/brand-config' );
-		$request->set_header( 'origin', $site_url );
+		$request->set_header( 'X-OneSearch-Site-URL', $site_url );
 		$request->set_header( 'X-OneSearch-Token', $api_key );
 
 		$response = $this->server->dispatch( $request );
@@ -169,7 +167,7 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 		delete_option( Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
 
 		$request = new WP_REST_Request( 'GET', '/onesearch/v1/brand-config' );
-		$request->set_header( 'origin', 'https://brand.example.com' );
+		$request->set_header( 'X-OneSearch-Site-URL', 'https://brand.example.com' );
 		$request->set_header( 'X-OneSearch-Token', $api_key );
 
 		$response = $this->server->dispatch( $request );
@@ -181,11 +179,10 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 	}
 
 	/**
-	 * Token auth: no Origin but a valid X-OneSearch-Site-URL fallback header
-	 * resolves the site key and authorizes the request. Current user is logged
-	 * out to prove success comes from the token, not the manage_options fallback.
+	 * A listed brand's X-OneSearch-Site-URL and key identify it. The user is logged out
+	 * to prove success comes from the key.
 	 */
-	public function test_token_auth_succeeds_with_site_url_header_and_no_origin(): void {
+	public function test_is_brand_request_with_site_url_header_and_key(): void {
 		$site_url = 'https://brand.example.com/';
 		$api_key  = 'brand-token';
 		Settings::set_shared_sites(
@@ -204,15 +201,13 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 		$request->set_header( 'X-OneSearch-Token', $api_key );
 		$request->set_header( 'X-OneSearch-Site-URL', $site_url );
 
-		$this->assertTrue( ( new Governing_Data_Controller() )->check_api_permissions( $request ) );
+		$this->assertTrue( ( new Governing_Data_Controller() )->is_brand_request( $request ) );
 	}
 
 	/**
-	 * Token auth: a token with neither Origin nor X-OneSearch-Site-URL cannot
-	 * resolve a requesting site and must be rejected outright — it must not fall
-	 * back to the manage_options check even though an admin is logged in.
+	 * A key without X-OneSearch-Site-URL can't identify the brand, even when Origin names it.
 	 */
-	public function test_token_auth_fails_without_origin_or_site_url_header(): void {
+	public function test_is_not_brand_request_without_site_url_header(): void {
 		Settings::set_shared_sites(
 			[
 				[
@@ -223,21 +218,17 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 			]
 		);
 
-		// Admin is logged in from set_up(); the assertFalse proves the fallback is NOT reached.
-		$this->assertTrue( current_user_can( 'manage_options' ) );
-
 		$request = new WP_REST_Request( 'GET', '/onesearch/v1/brand-config' );
+		$request->set_header( 'origin', 'https://brand.example.com' );
 		$request->set_header( 'X-OneSearch-Token', 'brand-token' );
 
-		$this->assertFalse( ( new Governing_Data_Controller() )->check_api_permissions( $request ) );
+		$this->assertFalse( ( new Governing_Data_Controller() )->is_brand_request( $request ) );
 	}
 
 	/**
-	 * Token auth: the X-OneSearch-Site-URL fallback resolves the site but the token
-	 * itself is still validated. A wrong token is rejected even though an admin is
-	 * logged in — guarding against the fallback authorizing on header presence alone.
+	 * A listed brand's X-OneSearch-Site-URL with the wrong key isn't that brand.
 	 */
-	public function test_token_auth_fails_with_wrong_token_via_site_url_fallback(): void {
+	public function test_is_not_brand_request_with_wrong_key(): void {
 		$site_url = 'https://brand.example.com/';
 		Settings::set_shared_sites(
 			[
@@ -249,14 +240,11 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 			]
 		);
 
-		// Admin is logged in from set_up(); a wrong token must not slip through.
-		$this->assertTrue( current_user_can( 'manage_options' ) );
-
 		$request = new WP_REST_Request( 'GET', '/onesearch/v1/brand-config' );
 		$request->set_header( 'X-OneSearch-Token', 'wrong-token' );
 		$request->set_header( 'X-OneSearch-Site-URL', $site_url );
 
-		$this->assertFalse( ( new Governing_Data_Controller() )->check_api_permissions( $request ) );
+		$this->assertFalse( ( new Governing_Data_Controller() )->is_brand_request( $request ) );
 	}
 
 	/**
@@ -316,11 +304,10 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 		$block_http = static fn () => new \WP_Error( 'http_request_blocked', 'Blocked in tests.' );
 		add_filter( 'pre_http_request', $block_http );
 
-		// Logged out, so success comes from the token rather than the manage_options fallback.
 		wp_set_current_user( 0 );
 
 		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/brand-site' );
-		$request->set_header( 'origin', 'https://brand-one.example.com' );
+		$request->set_header( 'X-OneSearch-Site-URL', 'https://brand-one.example.com' );
 		$request->set_header( 'X-OneSearch-Token', 'brand-one-key' );
 
 		$response = $this->server->dispatch( $request );
@@ -364,7 +351,7 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 		wp_set_current_user( 0 );
 
 		$request = new WP_REST_Request( 'DELETE', '/onesearch/v1/brand-site' );
-		$request->set_header( 'origin', 'https://brand-one.example.com' );
+		$request->set_header( 'X-OneSearch-Site-URL', 'https://brand-one.example.com' );
 		$request->set_header( 'X-OneSearch-Token', 'wrong-key' );
 
 		$response = $this->server->dispatch( $request );
@@ -374,9 +361,9 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 	}
 
 	/**
-	 * A request that is authorized but not from a listed brand site is rejected by the controller.
+	 * Only a brand site can remove itself, so a logged-in admin (from set_up) without its key is refused.
 	 */
-	public function test_remove_brand_site_rejects_unlisted_origin(): void {
+	public function test_remove_brand_site_refuses_an_admin_without_a_brand_key(): void {
 		Settings::set_shared_sites(
 			[
 				[
@@ -387,12 +374,11 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 			]
 		);
 
-		// No origin, so the admin set in set_up() passes the manage_options fallback.
 		$request  = new WP_REST_Request( 'DELETE', '/onesearch/v1/brand-site' );
 		$response = $this->server->dispatch( $request );
 
 		$this->assertSame( 403, $response->get_status() );
-		$this->assertSame( 'onesearch_unauthorized_site', $response->get_data()['code'] );
+		$this->assertSame( 'rest_forbidden', $response->get_data()['code'] );
 		$this->assertCount( 1, Settings::get_shared_sites() );
 	}
 
@@ -436,12 +422,42 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 		);
 
 		$request = new WP_REST_Request( 'GET', '/onesearch/v1/brand-config' );
-		$request->set_header( 'origin', 'https://brand.example.com' );
+		$request->set_header( 'X-OneSearch-Site-URL', 'https://brand.example.com' );
 		$request->set_header( 'X-OneSearch-Token', 'brand-key' );
 
 		$data = $this->server->dispatch( $request )->get_data();
 
 		$this->assertContains( Utils::get_current_site_url(), $data['available_sites'] );
 		$this->assertContains( 'https://brand.example.com/', $data['available_sites'] );
+	}
+
+	/**
+	 * A brand in a sub-directory is identified by the X-OneSearch-Site-URL path, since Origin drops it.
+	 */
+	public function test_get_brand_config_identifies_sub_directory_brand_from_site_url_header(): void {
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Sibling',
+					'url'     => 'https://example.com/sibling',
+					'api_key' => 'sibling-key',
+				],
+				[
+					'name'    => 'Brand',
+					'url'     => 'https://example.com/brand',
+					'api_key' => 'brand-key',
+				],
+			]
+		);
+
+		$request = new WP_REST_Request( 'GET', '/onesearch/v1/brand-config' );
+		$request->set_header( 'X-OneSearch-Site-URL', 'https://example.com/brand/' );
+		$request->set_header( 'X-OneSearch-Token', 'brand-key' );
+
+		$this->assertSame( 200, $this->server->dispatch( $request )->get_status() );
+
+		// The sibling's key must not authenticate the brand's path.
+		$request->set_header( 'X-OneSearch-Token', 'sibling-key' );
+		$this->assertGreaterThanOrEqual( 400, $this->server->dispatch( $request )->get_status() );
 	}
 }

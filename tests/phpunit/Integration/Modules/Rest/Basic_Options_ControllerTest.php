@@ -253,25 +253,26 @@ class Basic_Options_ControllerTest extends TestCase {
 	}
 
 	/**
-	 * Returns success response.
+	 * Only a governing site with this site's key can health-check it, so a logged-in admin (from set_up) is refused.
 	 */
-	public function test_health_check_returns_success(): void {
-		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/health-check' );
-		$response = $this->server->dispatch( $request );
-		$data     = $response->get_data();
+	public function test_health_check_refuses_an_admin_without_the_key(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
 
-		$this->assertTrue( $data['success'] );
-		$this->assertArrayHasKey( 'message', $data );
+		$request = new WP_REST_Request( 'GET', '/onesearch/v1/health-check' );
+		$request->set_header( 'X-OneSearch-Site-URL', 'https://governing.example.com' );
+
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 403, $response->get_status() );
+		$this->assertNull( Settings::get_parent_site_url() );
 	}
 
 	/**
-	 * Consumer health-check over token auth with no Origin: the X-OneSearch-Site-URL
-	 * fallback authorizes the request and records the sender as the governing site.
-	 * The user is logged out so success can only come from token auth, not the
-	 * manage_options fallback — mirroring the subdirectory-multisite case where the
-	 * browser omits Origin for same-host fetches.
+	 * The first health-check with this site's key connects it to the sender, identified by
+	 * X-OneSearch-Site-URL. The user is logged out so success can only come from the key.
 	 */
-	public function test_health_check_via_token_sets_parent_site_url_without_origin(): void {
+	public function test_health_check_with_the_key_connects_the_sender(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
 		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
 		$api_key = Settings::get_api_key();
@@ -285,6 +286,45 @@ class Basic_Options_ControllerTest extends TestCase {
 		$response = $this->server->dispatch( $request );
 
 		$this->assertTrue( $response->get_data()['success'] );
+		$this->assertSame( 'https://governing.example.com', Settings::get_parent_site_url() );
+	}
+
+	/**
+	 * A brand that is already connected refuses to be repointed to a different governing site.
+	 */
+	public function test_health_check_rejects_a_different_governing_site_when_connected(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+		$api_key = Settings::get_api_key();
+		wp_set_current_user( 0 );
+
+		$request = new WP_REST_Request( 'GET', '/onesearch/v1/health-check' );
+		$request->set_header( 'X-OneSearch-Token', $api_key );
+		$request->set_header( 'X-OneSearch-Site-URL', 'https://other.example.com' );
+
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 409, $response->get_status() );
+		$this->assertSame( 'onesearch_already_connected', $response->get_data()['code'] );
+		$this->assertSame( 'https://governing.example.com', Settings::get_parent_site_url() );
+	}
+
+	/**
+	 * The same governing site, with or without a trailing slash, can health-check again.
+	 */
+	public function test_health_check_accepts_the_same_governing_site_when_connected(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+		$api_key = Settings::get_api_key();
+		wp_set_current_user( 0 );
+
+		$request = new WP_REST_Request( 'GET', '/onesearch/v1/health-check' );
+		$request->set_header( 'X-OneSearch-Token', $api_key );
+		$request->set_header( 'X-OneSearch-Site-URL', 'https://governing.example.com/' );
+
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
 		$this->assertSame( 'https://governing.example.com', Settings::get_parent_site_url() );
 	}
 
