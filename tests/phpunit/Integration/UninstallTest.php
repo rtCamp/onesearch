@@ -40,7 +40,7 @@ final class UninstallTest extends TestCase {
 			static function ( $preempt, array $args, string $url ) use ( &$sent ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
 				$sent[] = [ $args['method'] ?? 'GET', $url, $args['headers']['X-OneSearch-Token'] ?? null ];
 
-				if ( str_ends_with( $url, '/brand-config' ) ) {
+				if ( str_ends_with( $url, '/brand-site/config' ) ) {
 					return new \WP_Error( 'http_request_failed', 'cURL error 7' );
 				}
 
@@ -49,7 +49,7 @@ final class UninstallTest extends TestCase {
 						'code'    => 200,
 						'message' => 'OK',
 					],
-					'body'     => '{"success":true}',
+					'body'     => '',
 					'headers'  => [],
 					'cookies'  => [],
 				];
@@ -68,7 +68,7 @@ final class UninstallTest extends TestCase {
 		// The records are deleted while the governing site still recognizes this site.
 		$this->assertSame(
 			[
-				[ 'GET', 'https://governing.example.com/wp-json/onesearch/v1/brand-config', $api_key ],
+				[ 'GET', 'https://governing.example.com/wp-json/onesearch/v1/brand-site/config', $api_key ],
 				[ 'DELETE', 'https://governing.example.com/wp-json/onesearch/v1/brand-site', $api_key ],
 			],
 			$sent

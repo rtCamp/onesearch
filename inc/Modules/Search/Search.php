@@ -10,7 +10,7 @@ declare(strict_types = 1);
 namespace OneSearch\Modules\Search;
 
 use OneSearch\Contracts\Interfaces\Registrable;
-use OneSearch\Modules\Rest\Governing_Data_Handler;
+use OneSearch\Modules\Rest\Remote_Client;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Utils;
@@ -668,7 +668,7 @@ final class Search implements Registrable {
 
 			$search_config = $all_sites[ Utils::get_current_site_url() ] ?? null;
 		} else {
-			$brand_config  = Governing_Data_Handler::get_brand_config();
+			$brand_config  = Remote_Client::get_brand_config();
 			$search_config = is_array( $brand_config ) && ! empty( $brand_config['search_settings'] ) ? $brand_config['search_settings'] : null;
 		}
 
@@ -816,7 +816,7 @@ final class Search implements Registrable {
 		}
 
 		// Brand: intersect local selection with governing-available sites.
-		$brand_config = Governing_Data_Handler::get_brand_config();
+		$brand_config = Remote_Client::get_brand_config();
 
 		return is_array( $brand_config ) && ! empty( $brand_config['search_settings']['searchable_sites'] ) ? $brand_config['search_settings']['searchable_sites'] : [];
 	}

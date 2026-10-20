@@ -11,7 +11,7 @@ namespace OneSearch\Modules\Search;
 
 use OneSearch\Algolia\Connection;
 use OneSearch\Algolia\Index;
-use OneSearch\Modules\Rest\Governing_Data_Handler;
+use OneSearch\Modules\Rest\Remote_Client;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Utils;
@@ -79,7 +79,7 @@ final class Indexer {
 			return is_array( $post_types ) ? array_values( array_unique( array_map( 'strval', $post_types ) ) ) : [];
 		}
 
-		$config = Governing_Data_Handler::get_brand_config();
+		$config = Remote_Client::get_brand_config();
 		if ( is_wp_error( $config ) ) {
 			return $config;
 		}
@@ -432,7 +432,7 @@ final class Indexer {
 			return Search_Settings::get_algolia_credentials();
 		}
 
-		$config = Governing_Data_Handler::get_brand_config();
+		$config = Remote_Client::get_brand_config();
 		if ( is_wp_error( $config ) ) {
 			return $config;
 		}

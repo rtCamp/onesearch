@@ -4,7 +4,7 @@
 /**
  * External dependencies
  */
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { __, sprintf } from '@wordpress/i18n';
 import { Notice, Snackbar } from '@wordpress/components';
 import apiFetch from '@wordpress/api-fetch';
@@ -64,7 +64,7 @@ const disconnectRemovedBrandSite = async (
 
 	try {
 		const response = await fetch(
-			`${ siteUrl }wp-json/${ REST_NAMESPACE }/brand-site`,
+			`${ siteUrl }wp-json/${ REST_NAMESPACE }/governing-site`,
 			{
 				method: 'DELETE',
 				headers: {
@@ -116,30 +116,15 @@ const disconnectRemovedBrandSite = async (
 const SettingsPage = () => {
 	const [ showModal, setShowModal ] = useState( false );
 	const [ editingIndex, setEditingIndex ] = useState< EditingIndex >( null );
-	const [ sites, setSites ] = useState< BrandSite[] >( [] );
+	const [ sites, setSites ] = useState< BrandSite[] >(
+		( window.OneSearchSettings.sharedSites ?? [] ) as BrandSite[]
+	);
 	const [ formData, setFormData ] = useState< BrandSite >( defaultBrandSite );
 	const [ notice, setNotice ] = useState< NoticeType | null >( null );
 	// Kept until dismissed, since each one asks the admin to finish disconnecting a brand site.
 	const [ disconnectNotices, setDisconnectNotices ] = useState<
 		NoticeType[]
 	>( [] );
-
-	useEffect( () => {
-		apiFetch< { shared_sites?: BrandSite[] } >( {
-			path: SHARED_SITES_ENDPOINT,
-		} )
-			.then( ( data ) => {
-				if ( data?.shared_sites ) {
-					setSites( data?.shared_sites );
-				}
-			} )
-			.catch( () => {
-				setNotice( {
-					type: 'error',
-					message: __( 'Error fetching settings data.', 'onesearch' ),
-				} );
-			} );
-	}, [] ); // Empty dependency array to run only once on mount
 
 	const handleFormSubmit = async (): Promise< boolean > => {
 		const updated: BrandSite[] =

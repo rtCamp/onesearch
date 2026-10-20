@@ -15,6 +15,7 @@ import {
  */
 import { useState, useEffect, useCallback } from 'react';
 import { __ } from '@wordpress/i18n';
+import apiFetch from '@wordpress/api-fetch';
 
 /**
  * Internal dependencies
@@ -39,23 +40,15 @@ interface SiteIndexableEntitiesProps {
 	setSaving: ( saving: boolean ) => void;
 }
 
-interface IndexableEntitiesResponse {
-	indexableEntities: {
-		entities: EntitiesMap;
-	};
-}
-
-interface SaveEntitiesResponse {
-	success: boolean;
-	message?: string;
-	data?: {
-		status?: number;
+interface IndexableEntitiesSettings {
+	onesearch_indexable_entities?: {
+		entities?: EntitiesMap;
 	};
 }
 
 interface ReIndexResponse {
-	success: boolean;
 	message?: string;
+	errors?: Array< { site_url: string; message: string } >;
 	data?: {
 		status?: number;
 	};
@@ -110,19 +103,11 @@ const SiteIndexableEntities = ( {
 
 	const getIndexableEntities = useCallback( async () => {
 		try {
-			const response = await fetch(
-				`${ API_NAMESPACE }/indexable-entities`,
-				{
-					headers: {
-						'Content-Type': 'application/json',
-						'X-WP-Nonce': NONCE,
-					},
-				}
-			);
-
-			const data: IndexableEntitiesResponse = await response.json();
+			const settings = await apiFetch< IndexableEntitiesSettings >( {
+				path: '/wp/v2/settings',
+			} );
 			const incoming: EntitiesMap =
-				data.indexableEntities?.entities || {};
+				settings?.onesearch_indexable_entities?.entities || {};
 			setSelectedEntities( incoming );
 			setSavedEntities( normalizeEntities( incoming ) );
 		} catch {
@@ -158,49 +143,22 @@ const SiteIndexableEntities = ( {
 	): Promise< boolean > => {
 		try {
 			setSaving( true );
-			const response = await fetch(
-				`${ API_NAMESPACE }/indexable-entities`,
-				{
-					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json',
-						'X-WP-Nonce': NONCE,
-					},
-					body: JSON.stringify( { entities } ),
-				}
-			);
+			await apiFetch( {
+				path: '/wp/v2/settings',
+				method: 'POST',
+				data: { onesearch_indexable_entities: { entities } },
+			} );
 
-			if ( ! response.ok ) {
-				throw new Error(
-					__( 'Network response was not ok.', 'onesearch' )
-				);
-			}
-
-			const data: SaveEntitiesResponse = await response.json();
-
-			if ( data.success ) {
-				setSavedEntities( normalizeEntities( entities ) );
-				onEntitiesSaved?.();
-				// Re-index selected entities.
-				await handleReIndex();
-				return true;
-			} else if ( data.data?.status === 500 ) {
-				setNotice( {
-					message: __( 'Internal server error.', 'onesearch' ),
-					type: 'error',
-				} );
-			} else {
-				setNotice( {
-					message:
-						data.message || __( 'Unknown error.', 'onesearch' ),
-					type: 'error',
-				} );
-			}
+			setSavedEntities( normalizeEntities( entities ) );
+			onEntitiesSaved?.();
+			// Re-index selected entities.
+			await handleReIndex();
+			return true;
 		} catch ( error: unknown ) {
-			const message =
-				error instanceof Error ? error.message : String( error );
 			setNotice( {
-				message,
+				message:
+					( error as { message?: string } )?.message ||
+					__( 'Unknown error.', 'onesearch' ),
 				type: 'error',
 			} );
 		} finally {
@@ -222,7 +180,7 @@ const SiteIndexableEntities = ( {
 			} );
 
 			const data: ReIndexResponse = await response.json();
-			if ( data.success ) {
+			if ( response.ok && ! data.errors?.length ) {
 				setNotice( {
 					message:
 						data.message ||

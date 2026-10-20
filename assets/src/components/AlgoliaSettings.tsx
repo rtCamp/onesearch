@@ -4,7 +4,7 @@
 /**
  * External dependencies
  */
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
 	Button,
 	CardBody,
@@ -26,11 +26,6 @@ interface AlgoliaCredentials {
 	write_key: string;
 }
 
-const EMPTY_CREDENTIALS: AlgoliaCredentials = {
-	app_id: '',
-	write_key: '',
-};
-
 const CREDENTIALS_ENDPOINT = '/onesearch/v1/algolia-credentials';
 
 const AlgoliaSettings = ( {
@@ -38,46 +33,18 @@ const AlgoliaSettings = ( {
 }: {
 	setNotice: ( notice: NoticeType ) => void;
 } ) => {
-	const [ algoliaCreds, setAlgoliaCreds ] =
-		useState< AlgoliaCredentials >( EMPTY_CREDENTIALS );
-	const [ initial, setInitial ] = useState< AlgoliaCredentials | null >(
-		null
-	);
+	// The write key never leaves the server, so it's typed in again to save.
+	const [ algoliaCreds, setAlgoliaCreds ] = useState< AlgoliaCredentials >( {
+		app_id: window.OneSearchSettings.algoliaAppId ?? '',
+		write_key: '',
+	} );
+	const [ initial, setInitial ] =
+		useState< AlgoliaCredentials >( algoliaCreds );
 	const [ saving, setSaving ] = useState( false );
 
-	useEffect( () => {
-		apiFetch< AlgoliaCredentials >( {
-			path: CREDENTIALS_ENDPOINT,
-		} )
-			.then( ( data ) => {
-				if ( data?.app_id && data?.write_key ) {
-					const cleanCreds = {
-						app_id: data.app_id.trim(),
-						write_key: data.write_key.trim(),
-					};
-
-					setAlgoliaCreds( cleanCreds );
-					setInitial( cleanCreds );
-				} else {
-					// No credentials saved yet, set initial as empty
-					setInitial( EMPTY_CREDENTIALS );
-				}
-			} )
-			.catch( () => {
-				setNotice( {
-					type: 'error',
-					message: __(
-						'Error fetching Algolia credentials.',
-						'onesearch'
-					),
-				} );
-			} );
-	}, [ setNotice ] );
-
 	const hasChanges =
-		!! initial &&
-		( algoliaCreds.app_id !== initial.app_id ||
-			algoliaCreds.write_key !== initial.write_key );
+		algoliaCreds.app_id !== initial.app_id ||
+		algoliaCreds.write_key !== initial.write_key;
 
 	// Validate that required fields are filled
 	const isValid = !! (
@@ -88,16 +55,12 @@ const AlgoliaSettings = ( {
 
 	const onSave = async () => {
 		setSaving( true );
-		apiFetch< { success: boolean } >( {
+		apiFetch( {
 			path: CREDENTIALS_ENDPOINT,
 			method: 'POST',
 			data: algoliaCreds,
 		} )
-			.then( ( data ) => {
-				if ( ! data.success ) {
-					// Will be handled by the catch block
-					throw new Error( 'Invalid response data' );
-				}
+			.then( () => {
 				setInitial( algoliaCreds );
 
 				setNotice( {
@@ -129,9 +92,7 @@ const AlgoliaSettings = ( {
 				<Button
 					variant="primary"
 					onClick={ onSave }
-					disabled={
-						! hasChanges || saving || ! initial || ! isValid
-					}
+					disabled={ ! hasChanges || saving || ! isValid }
 					isBusy={ saving }
 				>
 					{ __( 'Save Credentials', 'onesearch' ) }
@@ -161,10 +122,17 @@ const AlgoliaSettings = ( {
 					/>
 					<TextControl
 						label={ __( 'Write API Key*', 'onesearch' ) }
-						placeholder={ __(
-							'Enter your Algolia Write API Key',
-							'onesearch'
-						) }
+						placeholder={
+							window.OneSearchSettings.hasAlgoliaCredentials
+								? __(
+										'A key is saved. Enter it again to save changes.',
+										'onesearch'
+								  )
+								: __(
+										'Enter your Algolia Write API Key',
+										'onesearch'
+								  )
+						}
 						help={ __(
 							"This key is usable for write operations and it's also able to list the indices you've got access to.",
 							'onesearch'

@@ -9,7 +9,7 @@ declare(strict_types = 1);
 
 namespace OneSearch\Tests\Integration\Modules\Search;
 
-use OneSearch\Modules\Rest\Governing_Data_Handler;
+use OneSearch\Modules\Rest\Remote_Client;
 use OneSearch\Modules\Search\Post_Record;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Search\Watcher;
@@ -169,7 +169,7 @@ final class WatcherTest extends TestCase {
 	public function test_on_after_insert_post_consumer_site_checks_brand_config(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
 		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
-		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
+		delete_transient( Remote_Client::TRANSIENT_KEY );
 
 		$post    = self::factory()->post->create_and_get();
 		$watcher = new Watcher();
@@ -643,7 +643,7 @@ final class WatcherTest extends TestCase {
 			'available_sites'     => [],
 		];
 
-		$method = new \ReflectionMethod( Governing_Data_Handler::class, 'set_brand_config_cache' );
+		$method = new \ReflectionMethod( Remote_Client::class, 'set_brand_config_cache' );
 		$method->invoke( null, $cached_config );
 	}
 

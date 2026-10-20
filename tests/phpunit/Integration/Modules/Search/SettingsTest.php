@@ -9,7 +9,7 @@ declare(strict_types = 1);
 
 namespace OneSearch\Tests\Integration\Modules\Search;
 
-use OneSearch\Modules\Rest\Governing_Data_Handler;
+use OneSearch\Modules\Rest\Remote_Client;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
@@ -118,6 +118,31 @@ final class SettingsTest extends TestCase {
 			],
 			get_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES )
 		);
+	}
+
+	/**
+	 * The indexable entities are read and saved through /wp/v2/settings, which doesn't expose the encrypted credentials.
+	 */
+	public function test_indexable_entities_round_trip_through_the_rest_settings(): void {
+		( new Search_Settings() )->register_settings();
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
+
+		$entities = [
+			'entities' => [
+				'https://site-a.example.com/' => [ 'post', 'page' ],
+			],
+		];
+
+		$request = new \WP_REST_Request( 'POST', '/wp/v2/settings' );
+		$request->set_body_params( [ Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES => $entities ] );
+		$saved = rest_do_request( $request );
+
+		$read = rest_do_request( new \WP_REST_Request( 'GET', '/wp/v2/settings' ) )->get_data();
+
+		$this->assertSame( 200, $saved->get_status() );
+		$this->assertSame( $entities, get_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES ) );
+		$this->assertSame( $entities, $read[ Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES ] );
+		$this->assertArrayNotHasKey( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS, $read );
 	}
 
 	/**
@@ -405,13 +430,13 @@ final class SettingsTest extends TestCase {
 	 * Adding or updating an unrelated option does not purge the brand config cache.
 	 */
 	public function test_unrelated_option_does_not_purge_cache(): void {
-		set_transient( Governing_Data_Handler::TRANSIENT_KEY, [ 'test' => true ], 3600 );
+		set_transient( Remote_Client::TRANSIENT_KEY, [ 'test' => true ], 3600 );
 		( new Search_Settings() )->register_hooks();
 
 		add_option( 'some_unrelated_option', 'first' );
 		update_option( 'some_unrelated_option', 'second' );
 
-		$this->assertNotFalse( get_transient( Governing_Data_Handler::TRANSIENT_KEY ) );
+		$this->assertNotFalse( get_transient( Remote_Client::TRANSIENT_KEY ) );
 	}
 
 	/**
@@ -432,7 +457,7 @@ final class SettingsTest extends TestCase {
 
 		$purges = [];
 		$filter = static function ( $preempt, $args, $url ) use ( &$purges ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-			if ( str_contains( $url, '/brand-config' ) && 'DELETE' === $args['method'] ) {
+			if ( str_contains( $url, '/governing-site/config' ) && 'DELETE' === $args['method'] ) {
 				$purges[] = $url;
 			}
 
@@ -452,7 +477,7 @@ final class SettingsTest extends TestCase {
 
 		remove_filter( 'pre_http_request', $filter );
 
-		$this->assertSame( [ 'https://brand.example.com/wp-json/onesearch/v1/brand-config' ], $purges );
+		$this->assertSame( [ 'https://brand.example.com/wp-json/onesearch/v1/governing-site/config' ], $purges );
 	}
 
 	/**

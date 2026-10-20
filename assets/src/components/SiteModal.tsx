@@ -109,11 +109,11 @@ const SiteModal = ( {
 		setShowNotice( false );
 
 		try {
-			// Perform health-check
-			const healthCheck = await fetch(
-				`${ formData.url }/wp-json/onesearch/v1/health-check`,
+			// Connect the brand site to this governing site
+			const connectResponse = await fetch(
+				`${ formData.url }/wp-json/onesearch/v1/governing-site`,
 				{
-					method: 'GET',
+					method: 'POST',
 					headers: {
 						'Content-Type': 'application/json',
 						'X-OneSearch-Token': formData.api_key,
@@ -123,12 +123,11 @@ const SiteModal = ( {
 				}
 			);
 
-			const healthCheckData = await healthCheck.json();
-			if ( ! healthCheckData.success ) {
+			if ( ! connectResponse.ok ) {
 				setErrors( {
 					...newErrors,
 					message: __(
-						"Health check failed, please verify API key and make sure there's no governing site connected.",
+						"Couldn't connect to the brand site. Please verify the API key and make sure it isn't connected to another governing site.",
 						'onesearch'
 					),
 				} );

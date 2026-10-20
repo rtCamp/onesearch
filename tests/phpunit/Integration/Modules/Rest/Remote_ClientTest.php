@@ -1,6 +1,6 @@
 <?php
 /**
- * Tests for Governing_Data_Handler.
+ * Tests for Remote_Client.
  *
  * @package OneSearch\Tests\Integration\Modules\Rest
  */
@@ -9,7 +9,7 @@ declare( strict_types = 1 );
 
 namespace OneSearch\Tests\Integration\Modules\Rest;
 
-use OneSearch\Modules\Rest\Governing_Data_Handler;
+use OneSearch\Modules\Rest\Remote_Client;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use OneSearch\Utils;
@@ -18,15 +18,15 @@ use PHPUnit\Framework\Attributes\CoversClass;
 /**
  * Tests for brand config fetching, caching, and cross-site post type retrieval.
  */
-#[CoversClass( Governing_Data_Handler::class )]
-class Governing_Data_HandlerTest extends TestCase {
+#[CoversClass( Remote_Client::class )]
+class Remote_ClientTest extends TestCase {
 	/**
 	 * Returns error when site is not a consumer site.
 	 */
 	public function test_get_brand_config_returns_error_when_not_consumer_site(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
 
-		$result = Governing_Data_Handler::get_brand_config();
+		$result = Remote_Client::get_brand_config();
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'onesearch_unauthorized_site', $result->get_error_code() );
@@ -50,9 +50,9 @@ class Governing_Data_HandlerTest extends TestCase {
 			'indexable_entities'  => [ 'post' ],
 			'available_sites'     => [ 'https://example.com/' ],
 		];
-		set_transient( Governing_Data_Handler::TRANSIENT_KEY, $cached, 3600 );
+		set_transient( Remote_Client::TRANSIENT_KEY, $cached, 3600 );
 
-		$result = Governing_Data_Handler::get_brand_config();
+		$result = Remote_Client::get_brand_config();
 
 		$this->assertIsArray( $result );
 		$this->assertSame( 'CACHED', $result['algolia_credentials']['app_id'] );
@@ -64,9 +64,9 @@ class Governing_Data_HandlerTest extends TestCase {
 	public function test_get_brand_config_returns_error_when_no_parent_configured(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
 		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
-		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
+		delete_transient( Remote_Client::TRANSIENT_KEY );
 
-		$result = Governing_Data_Handler::get_brand_config();
+		$result = Remote_Client::get_brand_config();
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'onesearch_no_parent', $result->get_error_code() );
@@ -78,14 +78,14 @@ class Governing_Data_HandlerTest extends TestCase {
 	public function test_get_brand_config_returns_error_when_no_api_key(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
 		Settings::set_parent_site_url( 'https://governing.example.com' );
-		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
+		delete_transient( Remote_Client::TRANSIENT_KEY );
 
 		// Store a base64 value that decodes to 32 bytes (valid IV length, no warning),
 		// but whose content will never match the encryption salt, so Encryptor::decrypt
 		// returns false and get_api_key() returns an empty string.
 		update_option( Settings::OPTION_CONSUMER_API_KEY, base64_encode( str_repeat( 'x', 32 ) ) );
 
-		$result = Governing_Data_Handler::get_brand_config();
+		$result = Remote_Client::get_brand_config();
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'onesearch_no_key', $result->get_error_code() );
@@ -97,7 +97,7 @@ class Governing_Data_HandlerTest extends TestCase {
 	public function test_get_all_brand_post_types_returns_error_when_not_governing(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
 
-		$result = Governing_Data_Handler::get_all_brand_post_types();
+		$result = Remote_Client::get_all_brand_post_types();
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'onesearch_unauthorized_site', $result->get_error_code() );
@@ -110,7 +110,7 @@ class Governing_Data_HandlerTest extends TestCase {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
 		delete_option( Settings::OPTION_GOVERNING_SHARED_SITES );
 
-		$result = Governing_Data_Handler::get_all_brand_post_types();
+		$result = Remote_Client::get_all_brand_post_types();
 
 		$this->assertIsArray( $result );
 		$this->assertSame( [], $result['sites'] );
@@ -132,7 +132,7 @@ class Governing_Data_HandlerTest extends TestCase {
 			]
 		);
 
-		$result = Governing_Data_Handler::get_all_brand_post_types();
+		$result = Remote_Client::get_all_brand_post_types();
 
 		$this->assertIsArray( $result );
 		$this->assertNotEmpty( $result['errors'] );
@@ -161,7 +161,7 @@ class Governing_Data_HandlerTest extends TestCase {
 		};
 		add_filter( 'pre_http_request', $filter, 10, 3 );
 
-		$result = Governing_Data_Handler::get_all_brand_post_types();
+		$result = Remote_Client::get_all_brand_post_types();
 
 		remove_filter( 'pre_http_request', $filter );
 
@@ -171,34 +171,32 @@ class Governing_Data_HandlerTest extends TestCase {
 	}
 
 	/**
-	 * Deletes transient for non-governing site.
+	 * Deletes the brand site's cached config transient.
 	 */
-	public function test_clear_brand_config_cache_deletes_transient_for_non_governing(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
-		set_transient( Governing_Data_Handler::TRANSIENT_KEY, [ 'data' ], 3600 );
+	public function test_clear_brand_config_cache_deletes_the_transient(): void {
+		set_transient( Remote_Client::TRANSIENT_KEY, [ 'data' ], 3600 );
 
-		Governing_Data_Handler::clear_brand_config_cache();
+		Remote_Client::clear_brand_config_cache();
 
-		$this->assertFalse( get_transient( Governing_Data_Handler::TRANSIENT_KEY ) );
+		$this->assertFalse( get_transient( Remote_Client::TRANSIENT_KEY ) );
 	}
 
 	/**
-	 * Non-governing site cache clear succeeds when transient was already absent.
+	 * Clearing the cache succeeds when the transient was already absent.
 	 */
 	public function test_clear_brand_config_cache_noop_when_no_transient(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
-		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
+		delete_transient( Remote_Client::TRANSIENT_KEY );
 
 		// Should not throw.
-		Governing_Data_Handler::clear_brand_config_cache();
+		Remote_Client::clear_brand_config_cache();
 
-		$this->assertFalse( get_transient( Governing_Data_Handler::TRANSIENT_KEY ) );
+		$this->assertFalse( get_transient( Remote_Client::TRANSIENT_KEY ) );
 	}
 
 	/**
 	 * Governing site clear skips sites with missing url or api_key.
 	 */
-	public function test_clear_brand_config_cache_governing_skips_incomplete_sites(): void {
+	public function test_clear_brand_sites_config_cache_skips_incomplete_sites(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
 		Settings::set_shared_sites(
 			[
@@ -217,7 +215,7 @@ class Governing_Data_HandlerTest extends TestCase {
 		};
 		add_filter( 'pre_http_request', $filter, 10, 3 );
 
-		Governing_Data_Handler::clear_brand_config_cache();
+		Remote_Client::clear_brand_sites_config_cache();
 
 		remove_filter( 'pre_http_request', $filter );
 
@@ -227,7 +225,7 @@ class Governing_Data_HandlerTest extends TestCase {
 	/**
 	 * Governing site targets specific site when site_url provided.
 	 */
-	public function test_clear_brand_config_cache_governing_targets_specific_site(): void {
+	public function test_clear_brand_sites_config_cache_targets_specific_site(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
 		Settings::set_shared_sites(
 			[
@@ -251,7 +249,7 @@ class Governing_Data_HandlerTest extends TestCase {
 		};
 		add_filter( 'pre_http_request', $filter, 10, 3 );
 
-		Governing_Data_Handler::clear_brand_config_cache( 'https://site-a.example.com/' );
+		Remote_Client::clear_brand_sites_config_cache( 'https://site-a.example.com/' );
 
 		remove_filter( 'pre_http_request', $filter );
 
@@ -260,12 +258,12 @@ class Governing_Data_HandlerTest extends TestCase {
 	}
 
 	/**
-	 * Successful brand-config fetch returns sanitized payload and caches it.
+	 * Successful brand-site/config fetch returns sanitized payload and caches it.
 	 */
 	public function test_get_brand_config_returns_payload_on_success(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
 		Settings::set_parent_site_url( 'https://governing.example.com' );
-		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
+		delete_transient( Remote_Client::TRANSIENT_KEY );
 		Settings::regenerate_api_key();
 
 		$payload = [
@@ -283,7 +281,7 @@ class Governing_Data_HandlerTest extends TestCase {
 
 		$sent_site_url = null;
 		$filter        = static function ( $preempt, $args, $url ) use ( $payload, &$sent_site_url ) {
-			if ( false === strpos( $url, '/brand-config' ) ) {
+			if ( false === strpos( $url, '/brand-site/config' ) ) {
 				return $preempt;
 			}
 			$sent_site_url = $args['headers']['X-OneSearch-Site-URL'] ?? null;
@@ -299,7 +297,7 @@ class Governing_Data_HandlerTest extends TestCase {
 		};
 		add_filter( 'pre_http_request', $filter, 10, 3 );
 
-		$result = Governing_Data_Handler::get_brand_config();
+		$result = Remote_Client::get_brand_config();
 
 		remove_filter( 'pre_http_request', $filter );
 
@@ -310,7 +308,7 @@ class Governing_Data_HandlerTest extends TestCase {
 		$this->assertTrue( $result['search_settings']['algolia_enabled'] );
 		$this->assertSame( [ 'post', 'page' ], $result['indexable_entities'] );
 		$this->assertSame( [ 'https://a.example.com/' ], $result['available_sites'] );
-		$this->assertNotFalse( get_transient( Governing_Data_Handler::TRANSIENT_KEY ), 'Successful fetch should populate the cache.' );
+		$this->assertNotFalse( get_transient( Remote_Client::TRANSIENT_KEY ), 'Successful fetch should populate the cache.' );
 	}
 
 	/**
@@ -319,11 +317,11 @@ class Governing_Data_HandlerTest extends TestCase {
 	public function test_get_brand_config_returns_error_on_non_200(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
 		Settings::set_parent_site_url( 'https://governing.example.com' );
-		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
+		delete_transient( Remote_Client::TRANSIENT_KEY );
 		Settings::regenerate_api_key();
 
 		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-			if ( false === strpos( $url, '/brand-config' ) ) {
+			if ( false === strpos( $url, '/brand-site/config' ) ) {
 				return $preempt;
 			}
 			return [
@@ -338,7 +336,7 @@ class Governing_Data_HandlerTest extends TestCase {
 		};
 		add_filter( 'pre_http_request', $filter, 10, 3 );
 
-		$result = Governing_Data_Handler::get_brand_config();
+		$result = Remote_Client::get_brand_config();
 
 		remove_filter( 'pre_http_request', $filter );
 
@@ -352,11 +350,11 @@ class Governing_Data_HandlerTest extends TestCase {
 	public function test_get_brand_config_returns_error_on_invalid_json(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
 		Settings::set_parent_site_url( 'https://governing.example.com' );
-		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
+		delete_transient( Remote_Client::TRANSIENT_KEY );
 		Settings::regenerate_api_key();
 
 		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-			if ( false === strpos( $url, '/brand-config' ) ) {
+			if ( false === strpos( $url, '/brand-site/config' ) ) {
 				return $preempt;
 			}
 			return [
@@ -371,7 +369,7 @@ class Governing_Data_HandlerTest extends TestCase {
 		};
 		add_filter( 'pre_http_request', $filter, 10, 3 );
 
-		$result = Governing_Data_Handler::get_brand_config();
+		$result = Remote_Client::get_brand_config();
 
 		remove_filter( 'pre_http_request', $filter );
 
@@ -385,18 +383,18 @@ class Governing_Data_HandlerTest extends TestCase {
 	public function test_get_brand_config_propagates_wp_error(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
 		Settings::set_parent_site_url( 'https://governing.example.com' );
-		delete_transient( Governing_Data_Handler::TRANSIENT_KEY );
+		delete_transient( Remote_Client::TRANSIENT_KEY );
 		Settings::regenerate_api_key();
 
 		$filter = static function ( $preempt, $args, $url ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-			if ( false === strpos( $url, '/brand-config' ) ) {
+			if ( false === strpos( $url, '/brand-site/config' ) ) {
 				return $preempt;
 			}
 			return new \WP_Error( 'http_request_failed', 'cURL error 7' );
 		};
 		add_filter( 'pre_http_request', $filter, 10, 3 );
 
-		$result = Governing_Data_Handler::get_brand_config();
+		$result = Remote_Client::get_brand_config();
 
 		remove_filter( 'pre_http_request', $filter );
 
@@ -410,7 +408,7 @@ class Governing_Data_HandlerTest extends TestCase {
 	public function test_deregister_from_governing_site_returns_error_when_not_consumer_site(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
 
-		$result = Governing_Data_Handler::deregister_from_governing_site();
+		$result = Remote_Client::deregister_from_governing_site();
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'onesearch_unauthorized_site', $result->get_error_code() );
@@ -435,14 +433,14 @@ class Governing_Data_HandlerTest extends TestCase {
 					'code'    => 200,
 					'message' => 'OK',
 				],
-				'body'     => '{"success":true}',
+				'body'     => '',
 				'headers'  => [],
 				'cookies'  => [],
 			];
 		};
 		add_filter( 'pre_http_request', $filter, 10, 3 );
 
-		$result = Governing_Data_Handler::deregister_from_governing_site();
+		$result = Remote_Client::deregister_from_governing_site();
 
 		remove_filter( 'pre_http_request', $filter );
 
@@ -479,7 +477,7 @@ class Governing_Data_HandlerTest extends TestCase {
 		};
 		add_filter( 'pre_http_request', $filter, 10, 3 );
 
-		$result = Governing_Data_Handler::deregister_from_governing_site();
+		$result = Remote_Client::deregister_from_governing_site();
 
 		remove_filter( 'pre_http_request', $filter );
 
@@ -511,7 +509,7 @@ class Governing_Data_HandlerTest extends TestCase {
 		};
 		add_filter( 'pre_http_request', $filter, 10, 3 );
 
-		$result = Governing_Data_Handler::deregister_from_governing_site();
+		$result = Remote_Client::deregister_from_governing_site();
 
 		remove_filter( 'pre_http_request', $filter );
 
@@ -535,7 +533,7 @@ class Governing_Data_HandlerTest extends TestCase {
 		};
 		add_filter( 'pre_http_request', $filter, 10, 3 );
 
-		$result = Governing_Data_Handler::deregister_from_governing_site();
+		$result = Remote_Client::deregister_from_governing_site();
 
 		remove_filter( 'pre_http_request', $filter );
 
@@ -591,7 +589,7 @@ class Governing_Data_HandlerTest extends TestCase {
 		};
 		add_filter( 'pre_http_request', $filter, 10, 3 );
 
-		$result = Governing_Data_Handler::get_all_brand_post_types();
+		$result = Remote_Client::get_all_brand_post_types();
 
 		remove_filter( 'pre_http_request', $filter );
 
@@ -632,7 +630,7 @@ class Governing_Data_HandlerTest extends TestCase {
 		};
 		add_filter( 'pre_http_request', $filter, 10, 3 );
 
-		$result = Governing_Data_Handler::get_all_brand_post_types();
+		$result = Remote_Client::get_all_brand_post_types();
 
 		remove_filter( 'pre_http_request', $filter );
 
@@ -673,7 +671,7 @@ class Governing_Data_HandlerTest extends TestCase {
 		};
 		add_filter( 'pre_http_request', $filter, 10, 3 );
 
-		$result = Governing_Data_Handler::get_all_brand_post_types();
+		$result = Remote_Client::get_all_brand_post_types();
 
 		remove_filter( 'pre_http_request', $filter );
 

@@ -9,7 +9,7 @@ declare(strict_types = 1);
 
 namespace OneSearch\Tests\Integration\Modules\Search;
 
-use OneSearch\Modules\Rest\Governing_Data_Handler;
+use OneSearch\Modules\Rest\Remote_Client;
 use OneSearch\Modules\Search\Indexer;
 use OneSearch\Modules\Search\Post_Record;
 use OneSearch\Modules\Search\Settings as Search_Settings;
@@ -531,7 +531,7 @@ final class IndexerTest extends TestCase {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
 		update_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL, 'https://governing.example.com' );
 
-		$method = new \ReflectionMethod( Governing_Data_Handler::class, 'set_brand_config_cache' );
+		$method = new \ReflectionMethod( Remote_Client::class, 'set_brand_config_cache' );
 		$method->invoke(
 			null,
 			[

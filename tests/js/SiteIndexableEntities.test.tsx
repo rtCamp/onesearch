@@ -9,7 +9,14 @@ import {
 	within,
 } from '@testing-library/react';
 
+/**
+ * WordPress dependencies
+ */
+import apiFetch from '@wordpress/api-fetch';
+
 import SiteIndexableEntities from '@/components/SiteIndexableEntities';
+
+const mockedApiFetch = apiFetch as jest.MockedFunction< typeof apiFetch >;
 
 const currentSiteUrl = 'https://governing.example.com/';
 const brandSiteUrl = 'https://brand.example.com/';
@@ -20,17 +27,15 @@ const okJson = ( data: unknown ) =>
 		json: jest.fn().mockResolvedValue( data ),
 	} ) as unknown as Response;
 
+const savedEntities = ( entities: Record< string, string[] > ) => ( {
+	onesearch_indexable_entities: { entities },
+} );
+
 describe( 'SiteIndexableEntities', () => {
 	it( 'loads saved entities and enables reindexing when data exists', async () => {
-		global.fetch = jest.fn().mockResolvedValueOnce(
-			okJson( {
-				indexableEntities: {
-					entities: {
-						[ currentSiteUrl ]: [ 'post' ],
-					},
-				},
-			} )
-		) as typeof fetch;
+		mockedApiFetch.mockResolvedValueOnce(
+			savedEntities( { [ currentSiteUrl ]: [ 'post' ] } )
+		);
 
 		render(
 			<SiteIndexableEntities
@@ -55,13 +60,7 @@ describe( 'SiteIndexableEntities', () => {
 	} );
 
 	it( 'shows a message when a brand site has no selectable entities', async () => {
-		global.fetch = jest.fn().mockResolvedValueOnce(
-			okJson( {
-				indexableEntities: {
-					entities: {},
-				},
-			} )
-		) as typeof fetch;
+		mockedApiFetch.mockResolvedValueOnce( savedEntities( {} ) );
 
 		render(
 			<SiteIndexableEntities
@@ -95,22 +94,15 @@ describe( 'SiteIndexableEntities', () => {
 		const onEntitiesSaved = jest.fn();
 		const setSaving = jest.fn();
 
-		global.fetch = jest
-			.fn()
-			.mockResolvedValueOnce(
-				okJson( {
-					indexableEntities: {
-						entities: {},
-					},
-				} )
-			)
-			.mockResolvedValueOnce( okJson( { success: true } ) )
-			.mockResolvedValueOnce(
-				okJson( {
-					success: true,
-					message: 'Reindex complete.',
-				} )
-			) as typeof fetch;
+		mockedApiFetch
+			.mockResolvedValueOnce( savedEntities( {} ) )
+			.mockResolvedValueOnce( {} );
+		global.fetch = jest.fn().mockResolvedValueOnce(
+			okJson( {
+				message: 'Reindex complete.',
+				errors: [],
+			} )
+		) as typeof fetch;
 
 		render(
 			<SiteIndexableEntities
@@ -139,6 +131,16 @@ describe( 'SiteIndexableEntities', () => {
 			expect( onEntitiesSaved ).toHaveBeenCalled();
 		} );
 
+		expect( mockedApiFetch ).toHaveBeenLastCalledWith( {
+			path: '/wp/v2/settings',
+			method: 'POST',
+			data: {
+				onesearch_indexable_entities: {
+					entities: { [ currentSiteUrl ]: [ 'post' ] },
+				},
+			},
+		} );
+
 		expect( setSaving ).toHaveBeenCalledWith( true );
 		expect( setSaving ).toHaveBeenLastCalledWith( false );
 		expect( setNotice ).toHaveBeenCalledWith( {
@@ -149,9 +151,7 @@ describe( 'SiteIndexableEntities', () => {
 
 	it( 'shows a fetch error when loading entities fails', async () => {
 		const setNotice = jest.fn();
-		global.fetch = jest
-			.fn()
-			.mockRejectedValue( new Error( 'load failed' ) ) as typeof fetch;
+		mockedApiFetch.mockRejectedValue( new Error( 'load failed' ) );
 
 		render(
 			<SiteIndexableEntities
@@ -173,23 +173,16 @@ describe( 'SiteIndexableEntities', () => {
 		} );
 	} );
 
-	it( 'shows network error notice when saving entities gets non-ok response', async () => {
+	it( 'shows the error notice when saving entities fails', async () => {
 		const setNotice = jest.fn();
 		const setSaving = jest.fn();
 
-		global.fetch = jest
-			.fn()
-			.mockResolvedValueOnce(
-				okJson( {
-					indexableEntities: {
-						entities: {},
-					},
-				} )
-			)
-			.mockResolvedValueOnce( {
-				ok: false,
-				json: jest.fn(),
-			} ) as typeof fetch;
+		mockedApiFetch
+			.mockResolvedValueOnce( savedEntities( {} ) )
+			.mockRejectedValueOnce( {
+				code: 'rest_invalid_param',
+				message: 'Invalid parameter(s): onesearch_indexable_entities',
+			} );
 
 		render(
 			<SiteIndexableEntities
@@ -216,7 +209,7 @@ describe( 'SiteIndexableEntities', () => {
 
 		await waitFor( () => {
 			expect( setNotice ).toHaveBeenCalledWith( {
-				message: 'Network response was not ok.',
+				message: 'Invalid parameter(s): onesearch_indexable_entities',
 				type: 'error',
 			} );
 		} );
@@ -226,23 +219,15 @@ describe( 'SiteIndexableEntities', () => {
 	it( 'opens and closes re-index modal and handles server errors', async () => {
 		const setNotice = jest.fn();
 
-		global.fetch = jest
-			.fn()
+		// Saved brand entities enable Re-index and leave this site's picker empty.
+		mockedApiFetch
 			.mockResolvedValueOnce(
-				okJson( {
-					indexableEntities: {
-						entities: {
-							[ currentSiteUrl ]: [ 'post' ],
-						},
-					},
-				} )
+				savedEntities( { [ brandSiteUrl ]: [ 'post' ] } )
 			)
-			.mockResolvedValueOnce(
-				okJson( {
-					success: false,
-					data: { status: 500 },
-				} )
-			) as typeof fetch;
+			.mockRejectedValueOnce( {
+				code: 'internal_server_error',
+				message: 'Internal server error.',
+			} );
 
 		render(
 			<SiteIndexableEntities
@@ -277,8 +262,8 @@ describe( 'SiteIndexableEntities', () => {
 
 		global.fetch = jest.fn().mockResolvedValueOnce(
 			okJson( {
-				success: false,
 				message: 'failed',
+				errors: [ { site_url: currentSiteUrl, message: 'timed out' } ],
 			} )
 		) as typeof fetch;
 

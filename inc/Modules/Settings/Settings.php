@@ -88,11 +88,8 @@ final class Settings implements Registrable {
 				'label'             => __( 'Consumer API Key', 'onesearch' ),
 				'description'       => __( 'API key used by governing site to authenticate requests from this consumer site.', 'onesearch' ),
 				'sanitize_callback' => 'sanitize_text_field',
-				'show_in_rest'      => [
-					'schema' => [
-						'type' => 'string',
-					],
-				],
+				// Core would return the encrypted key and save a new one unencrypted, so it's only regenerated through the OneSearch route.
+				'show_in_rest'      => false,
 			],
 			self::OPTION_CONSUMER_PARENT_SITE_URL => [
 				'type'              => 'string',

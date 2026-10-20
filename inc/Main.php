@@ -32,9 +32,13 @@ final class Main {
 		Modules\Search\Search::class,
 		Modules\Search\Settings::class,
 		Modules\Search\Watcher::class,
-		Modules\Rest\Basic_Options_Controller::class,
-		Modules\Rest\Governing_Data_Controller::class,
-		Modules\Rest\Search_Controller::class,
+		Modules\Rest\Algolia_Credentials_Controller::class,
+		Modules\Rest\Brand_Site_Controller::class,
+		Modules\Rest\Governing_Site_Controller::class,
+		Modules\Rest\Post_Types_Controller::class,
+		Modules\Rest\Reindex_Controller::class,
+		Modules\Rest\Secret_Key_Controller::class,
+		Modules\Rest\Shared_Sites_Controller::class,
 	];
 
 	/**

@@ -132,7 +132,7 @@ function cleanup_algolia_index(): void {
 		$is_deleted = $indexer->delete_site_records( [ \OneSearch\Utils::get_current_site_url() ] );
 
 		// Deregister after deletion, or deregistration may fail.
-		$deregistered = \OneSearch\Modules\Rest\Governing_Data_Handler::deregister_from_governing_site();
+		$deregistered = \OneSearch\Modules\Rest\Remote_Client::deregister_from_governing_site();
 
 		if ( is_wp_error( $deregistered ) ) {
 			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Nowhere else to report it during uninstall.

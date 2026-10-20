@@ -82,9 +82,14 @@ jest.mock( '@/components/AlgoliaSettings', () => ( {
 	default: () => <div data-testid="algolia-settings">Algolia Settings</div>,
 } ) );
 
-import SettingsPage from '@/admin/settings/page';
+import SettingsPage, { type BrandSite } from '@/admin/settings/page';
 
 const mockedApiFetch = apiFetch as jest.MockedFunction< typeof apiFetch >;
+
+// The page starts from the brand sites the server localized.
+const setSharedSites = ( sharedSites: BrandSite[] ) => {
+	window.OneSearchSettings = { ...window.OneSearchSettings, sharedSites };
+};
 
 describe( 'SettingsPage', () => {
 	beforeEach( () => {
@@ -92,20 +97,19 @@ describe( 'SettingsPage', () => {
 		window.OneSearchSettings = {
 			...window.OneSearchSettings,
 			siteType: 'governing-site',
+			sharedSites: [],
 		};
 		document.body.className = '';
 	} );
 
 	it( 'loads shared sites and renders the page structure', async () => {
-		mockedApiFetch.mockResolvedValueOnce( {
-			shared_sites: [
-				{
-					name: 'Brand Site',
-					url: 'https://brand.example.com/',
-					api_key: 'key',
-				},
-			],
-		} );
+		setSharedSites( [
+			{
+				name: 'Brand Site',
+				url: 'https://brand.example.com/',
+				api_key: 'key',
+			},
+		] );
 
 		render( <SettingsPage /> );
 
@@ -118,30 +122,16 @@ describe( 'SettingsPage', () => {
 		expect( screen.getByTestId( 'algolia-settings' ) ).toBeInTheDocument();
 	} );
 
-	it( 'shows an error notice when initial data load fails', async () => {
-		mockedApiFetch.mockRejectedValueOnce( new Error( 'load failed' ) );
-
-		render( <SettingsPage /> );
-
-		// Snackbar component renders once (unlike Notice which renders twice for accessibility)
-		const notices = await screen.findAllByText(
-			'Error fetching settings data.'
-		);
-		expect( notices.length ).toBeGreaterThanOrEqual( 1 );
-	} );
-
 	it( 'saves site changes and shows success feedback', async () => {
-		mockedApiFetch
-			.mockResolvedValueOnce( { shared_sites: [] } )
-			.mockResolvedValueOnce( {
-				shared_sites: [
-					{
-						name: 'Brand Site',
-						url: 'https://brand.example.com/',
-						api_key: 'key',
-					},
-				],
-			} );
+		mockedApiFetch.mockResolvedValueOnce( {
+			shared_sites: [
+				{
+					name: 'Brand Site',
+					url: 'https://brand.example.com/',
+					api_key: 'key',
+				},
+			],
+		} );
 
 		render( <SettingsPage /> );
 		fireEvent.click(
@@ -159,9 +149,7 @@ describe( 'SettingsPage', () => {
 	} );
 
 	it( 'shows an error notice when saving fails', async () => {
-		mockedApiFetch
-			.mockResolvedValueOnce( { shared_sites: [] } )
-			.mockRejectedValueOnce( new Error( 'save failed' ) );
+		mockedApiFetch.mockRejectedValueOnce( new Error( 'save failed' ) );
 
 		render( <SettingsPage /> );
 		fireEvent.click(
@@ -179,17 +167,14 @@ describe( 'SettingsPage', () => {
 	} );
 
 	it( 'shows an error when response lacks shared sites', async () => {
-		mockedApiFetch
-			.mockResolvedValueOnce( {
-				shared_sites: [
-					{
-						name: 'Brand Site',
-						url: 'https://brand.example.com/',
-						api_key: 'key',
-					},
-				],
-			} )
-			.mockResolvedValueOnce( {} );
+		setSharedSites( [
+			{
+				name: 'Brand Site',
+				url: 'https://brand.example.com/',
+				api_key: 'key',
+			},
+		] );
+		mockedApiFetch.mockResolvedValueOnce( {} );
 
 		render( <SettingsPage /> );
 		fireEvent.click(
@@ -207,25 +192,22 @@ describe( 'SettingsPage', () => {
 	} );
 
 	it( 'submits edit changes correctly', async () => {
-		mockedApiFetch
-			.mockResolvedValueOnce( {
-				shared_sites: [
-					{
-						name: 'Brand Site',
-						url: 'https://brand.example.com/',
-						api_key: 'key',
-					},
-				],
-			} )
-			.mockResolvedValueOnce( {
-				shared_sites: [
-					{
-						name: 'Edited Brand Site',
-						url: 'https://edited.example.com/',
-						api_key: 'edited-key',
-					},
-				],
-			} );
+		setSharedSites( [
+			{
+				name: 'Brand Site',
+				url: 'https://brand.example.com/',
+				api_key: 'key',
+			},
+		] );
+		mockedApiFetch.mockResolvedValueOnce( {
+			shared_sites: [
+				{
+					name: 'Edited Brand Site',
+					url: 'https://edited.example.com/',
+					api_key: 'edited-key',
+				},
+			],
+		} );
 
 		render( <SettingsPage /> );
 		fireEvent.click(
@@ -255,10 +237,6 @@ describe( 'SettingsPage', () => {
 	} );
 
 	it( 'closes the modal via close action', async () => {
-		mockedApiFetch.mockResolvedValueOnce( {
-			shared_sites: [],
-		} );
-
 		render( <SettingsPage /> );
 		fireEvent.click(
 			await screen.findByRole( 'button', { name: 'Open Modal' } )
@@ -273,17 +251,14 @@ describe( 'SettingsPage', () => {
 	} );
 
 	it( 'shows an error and leaves the brand site alone when deleting fails', async () => {
-		mockedApiFetch
-			.mockResolvedValueOnce( {
-				shared_sites: [
-					{
-						name: 'Brand Site',
-						url: 'https://brand.example.com/',
-						api_key: 'brand-key',
-					},
-				],
-			} )
-			.mockRejectedValueOnce( new Error( 'delete failed' ) );
+		setSharedSites( [
+			{
+				name: 'Brand Site',
+				url: 'https://brand.example.com/',
+				api_key: 'brand-key',
+			},
+		] );
+		mockedApiFetch.mockRejectedValueOnce( new Error( 'delete failed' ) );
 		global.fetch = jest.fn();
 
 		render( <SettingsPage /> );
@@ -300,30 +275,27 @@ describe( 'SettingsPage', () => {
 	} );
 
 	it( 'tells a deleted brand site to disconnect from this site', async () => {
-		mockedApiFetch
-			.mockResolvedValueOnce( {
-				shared_sites: [
-					{
-						name: 'Brand Site',
-						url: 'https://brand.example.com/',
-						api_key: 'brand-key',
-					},
-					{
-						name: 'Remaining Site',
-						url: 'https://remaining.example.com/',
-						api_key: 'other-key',
-					},
-				],
-			} )
-			.mockResolvedValueOnce( {
-				shared_sites: [
-					{
-						name: 'Remaining Site',
-						url: 'https://remaining.example.com/',
-						api_key: 'other-key',
-					},
-				],
-			} );
+		setSharedSites( [
+			{
+				name: 'Brand Site',
+				url: 'https://brand.example.com/',
+				api_key: 'brand-key',
+			},
+			{
+				name: 'Remaining Site',
+				url: 'https://remaining.example.com/',
+				api_key: 'other-key',
+			},
+		] );
+		mockedApiFetch.mockResolvedValueOnce( {
+			shared_sites: [
+				{
+					name: 'Remaining Site',
+					url: 'https://remaining.example.com/',
+					api_key: 'other-key',
+				},
+			],
+		} );
 		global.fetch = jest
 			.fn()
 			.mockResolvedValue( { ok: true, status: 200 } as Response );
@@ -336,7 +308,7 @@ describe( 'SettingsPage', () => {
 
 		await waitFor( () => {
 			expect( global.fetch ).toHaveBeenCalledWith(
-				'https://brand.example.com/wp-json/onesearch/v1/brand-site',
+				'https://brand.example.com/wp-json/onesearch/v1/governing-site',
 				expect.objectContaining( {
 					method: 'DELETE',
 					headers: expect.objectContaining( {
@@ -353,17 +325,14 @@ describe( 'SettingsPage', () => {
 	} );
 
 	it( 'warns when a deleted brand site could not be notified', async () => {
-		mockedApiFetch
-			.mockResolvedValueOnce( {
-				shared_sites: [
-					{
-						name: 'Brand Site',
-						url: 'https://brand.example.com/',
-						api_key: 'brand-key',
-					},
-				],
-			} )
-			.mockResolvedValueOnce( { shared_sites: [] } );
+		setSharedSites( [
+			{
+				name: 'Brand Site',
+				url: 'https://brand.example.com/',
+				api_key: 'brand-key',
+			},
+		] );
+		mockedApiFetch.mockResolvedValueOnce( { shared_sites: [] } );
 		global.fetch = jest
 			.fn()
 			.mockRejectedValue( new TypeError( 'Failed to fetch' ) );
@@ -392,30 +361,27 @@ describe( 'SettingsPage', () => {
 	} );
 
 	it( 'warns when a deleted brand site does not recognize this site', async () => {
-		mockedApiFetch
-			.mockResolvedValueOnce( {
-				shared_sites: [
-					{
-						name: 'Brand Site',
-						url: 'https://brand.example.com/',
-						api_key: 'brand-key',
-					},
-					{
-						name: 'Remaining Site',
-						url: 'https://remaining.example.com/',
-						api_key: 'other-key',
-					},
-				],
-			} )
-			.mockResolvedValueOnce( {
-				shared_sites: [
-					{
-						name: 'Remaining Site',
-						url: 'https://remaining.example.com/',
-						api_key: 'other-key',
-					},
-				],
-			} );
+		setSharedSites( [
+			{
+				name: 'Brand Site',
+				url: 'https://brand.example.com/',
+				api_key: 'brand-key',
+			},
+			{
+				name: 'Remaining Site',
+				url: 'https://remaining.example.com/',
+				api_key: 'other-key',
+			},
+		] );
+		mockedApiFetch.mockResolvedValueOnce( {
+			shared_sites: [
+				{
+					name: 'Remaining Site',
+					url: 'https://remaining.example.com/',
+					api_key: 'other-key',
+				},
+			],
+		} );
 		global.fetch = jest
 			.fn()
 			.mockResolvedValue( { ok: false, status: 401 } as Response );

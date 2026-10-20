@@ -11,7 +11,7 @@ namespace OneSearch\Modules\Search;
 
 use OneSearch\Contracts\Interfaces\Registrable;
 use OneSearch\Encryptor;
-use OneSearch\Modules\Rest\Governing_Data_Handler;
+use OneSearch\Modules\Rest\Remote_Client;
 use OneSearch\Modules\Settings\Settings as Admin_Settings;
 use OneSearch\Utils;
 
@@ -60,8 +60,8 @@ final class Settings implements Registrable {
 			self::OPTION_GOVERNING_INDEXABLE_SITES,
 			self::OPTION_GOVERNING_SEARCH_SETTINGS,
 		] as $option ) {
-			add_action( 'add_option_' . $option, static fn () => Governing_Data_Handler::clear_brand_config_cache() );
-			add_action( 'update_option_' . $option, static fn () => Governing_Data_Handler::clear_brand_config_cache() );
+			add_action( 'add_option_' . $option, static fn () => Remote_Client::clear_brand_sites_config_cache() );
+			add_action( 'update_option_' . $option, static fn () => Remote_Client::clear_brand_sites_config_cache() );
 		}
 	}
 
@@ -85,19 +85,8 @@ final class Settings implements Registrable {
 						'write_key' => isset( $value['write_key'] ) ? sanitize_text_field( $value['write_key'] ) : null,
 					];
 				},
-				'show_in_rest'      => [
-					'schema' => [
-						'type'       => 'object',
-						'properties' => [
-							'app_id'    => [
-								'type' => 'string',
-							],
-							'write_key' => [
-								'type' => 'string',
-							],
-						],
-					],
-				],
+				// Core would return the encrypted write key and save a new one unencrypted, so it's saved through the OneSearch route.
+				'show_in_rest'      => false,
 			],
 			self::OPTION_GOVERNING_INDEXABLE_SITES     => [
 				'type'              => 'object',
@@ -117,7 +106,22 @@ final class Settings implements Registrable {
 
 					return [ 'entities' => $sanitized ];
 				},
-				'show_in_rest'      => true,
+				'show_in_rest'      => [
+					'schema' => [
+						'type'       => 'object',
+						'properties' => [
+							'entities' => [
+								'type'                 => 'object',
+								'additionalProperties' => [
+									'type'  => 'array',
+									'items' => [
+										'type' => 'string',
+									],
+								],
+							],
+						],
+					],
+				],
 			],
 			self::OPTION_GOVERNING_SEARCH_SETTINGS     => [
 				'type'              => 'object',
