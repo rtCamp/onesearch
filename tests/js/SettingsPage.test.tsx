@@ -1,13 +1,21 @@
 /**
  * External dependencies
  */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from '@testing-library/react';
 /**
  * WordPress dependencies
  */
 import apiFetch from '@wordpress/api-fetch';
 
 // Mock child components to isolate SettingsPage behavior
+const mockSubmitResults: unknown[] = [];
+
 jest.mock( '@/components/SiteTable', () => ( {
 	__esModule: true,
 	default: ( {
@@ -58,11 +66,18 @@ jest.mock( '@/components/SiteModal', () => ( {
 		onSubmit,
 		onClose,
 	}: {
-		onSubmit: () => Promise< boolean >;
+		onSubmit: () => Promise< boolean | string >;
 		onClose: () => void;
 	} ) => (
 		<div data-testid="site-modal">
-			<button type="button" onClick={ () => void onSubmit() }>
+			<button
+				type="button"
+				onClick={ () =>
+					void onSubmit().then( ( result ) =>
+						mockSubmitResults.push( result )
+					)
+				}
+			>
 				Submit Modal
 			</button>
 			<button type="button" onClick={ onClose }>
@@ -92,6 +107,11 @@ const setSharedSites = ( sharedSites: BrandSite[] ) => {
 };
 
 describe( 'SettingsPage', () => {
+	// A test that fails while on fake timers would leave them on for the next ones.
+	afterEach( () => {
+		jest.useRealTimers();
+	} );
+
 	beforeEach( () => {
 		mockedApiFetch.mockReset();
 		window.OneSearchSettings = {
@@ -100,6 +120,7 @@ describe( 'SettingsPage', () => {
 			sharedSites: [],
 		};
 		document.body.className = '';
+		mockSubmitResults.length = 0;
 	} );
 
 	it( 'loads shared sites and renders the page structure', async () => {
@@ -148,10 +169,9 @@ describe( 'SettingsPage', () => {
 		expect( notices.length ).toBeGreaterThanOrEqual( 1 );
 	} );
 
-	it( "shows the server's error when saving fails", async () => {
+	it( 'keeps the modal open and returns the server message when saving fails', async () => {
 		mockedApiFetch.mockRejectedValueOnce( {
-			code: 'onesearch_bad_key',
-			message: 'The brand site rejected this API key.',
+			message: 'Invalid site data.',
 		} );
 
 		render( <SettingsPage /> );
@@ -162,19 +182,17 @@ describe( 'SettingsPage', () => {
 			screen.getByRole( 'button', { name: 'Submit Modal' } )
 		);
 
-		// Snackbar renders in both accessibility region and visible content
-		const notices = await screen.findAllByText(
-			'The brand site rejected this API key.'
-		);
-		expect( notices.length ).toBeGreaterThanOrEqual( 1 );
+		await waitFor( () => {
+			expect( mockSubmitResults ).toEqual( [ 'Invalid site data.' ] );
+		} );
+		expect( screen.getByTestId( 'site-modal' ) ).toBeInTheDocument();
 	} );
 
-	it( 'shows an error when response lacks shared sites', async () => {
+	it( 'keeps the modal open when the response lacks shared sites', async () => {
 		setSharedSites( [
 			{
 				name: 'Brand Site',
 				url: 'https://brand.example.com/',
-				api_key: 'key',
 			},
 		] );
 		mockedApiFetch.mockResolvedValueOnce( {} );
@@ -187,11 +205,55 @@ describe( 'SettingsPage', () => {
 			screen.getByRole( 'button', { name: 'Submit Modal' } )
 		);
 
-		// Snackbar renders in both accessibility region and visible content
-		const notices = await screen.findAllByText(
-			'Failed to update shared sites'
+		await waitFor( () => {
+			expect( mockSubmitResults ).toEqual( [ false ] );
+		} );
+		expect( screen.getByTestId( 'site-modal' ) ).toBeInTheDocument();
+	} );
+
+	it( 'gives each notice its own snackbar timer', async () => {
+		jest.useFakeTimers();
+		setSharedSites( [
+			{
+				id: 'one',
+				name: 'Brand Site',
+				url: 'https://brand.example.com/',
+			},
+		] );
+		mockedApiFetch
+			.mockRejectedValueOnce( new Error( 'delete failed' ) )
+			.mockResolvedValueOnce( {
+				shared_sites: [
+					{
+						name: 'Brand Site',
+						url: 'https://brand.example.com/',
+					},
+				],
+			} );
+
+		render( <SettingsPage /> );
+		fireEvent.click(
+			screen.getByRole( 'button', { name: 'Delete Site' } )
 		);
-		expect( notices.length ).toBeGreaterThanOrEqual( 1 );
+		await screen.findAllByText( 'Failed to update shared sites' );
+
+		// The second notice arrives just before the first one's timer ends.
+		act( () => {
+			jest.advanceTimersByTime( 9000 );
+		} );
+		fireEvent.click( screen.getByRole( 'button', { name: 'Open Modal' } ) );
+		fireEvent.click(
+			screen.getByRole( 'button', { name: 'Submit Modal' } )
+		);
+		await screen.findAllByText( 'Brand Site saved successfully.' );
+
+		act( () => {
+			jest.advanceTimersByTime( 2000 );
+		} );
+
+		expect(
+			document.querySelector( '.components-snackbar' )
+		).toHaveTextContent( 'Brand Site saved successfully.' );
 	} );
 
 	it( 'submits edit changes correctly', async () => {

@@ -309,4 +309,41 @@ describe( 'SiteSettings', () => {
 			).not.toBeInTheDocument();
 		} );
 	} );
+
+	it( 'loads once on mount with the nonce only, and does not reload after regenerating', async () => {
+		global.fetch = siteSettingsFetch( {
+			governingSiteUrl: 'https://governing.example.com/',
+			regeneratedKey: 'new-secret',
+		} );
+
+		render( <SiteSettings /> );
+
+		await screen.findByDisplayValue( 'api-key' );
+		expect( global.fetch ).toHaveBeenCalledTimes( 1 );
+		( global.fetch as jest.Mock ).mock.calls.forEach( ( [ , init ] ) => {
+			expect( init?.headers ).not.toHaveProperty( 'X-OneSearch-Token' );
+			expect( init?.headers ).toHaveProperty( 'X-WP-Nonce', 'nonce' );
+		} );
+
+		fireEvent.click(
+			screen.getByRole( 'button', { name: 'Regenerate API Key' } )
+		);
+
+		expect( await screen.findByDisplayValue( 'new-secret' ) ).toBeVisible();
+		// Nothing but the regeneration request was made after the initial load.
+		expect( global.fetch ).toHaveBeenCalledTimes( 2 );
+	} );
+
+	it( 'keeps the key field selectable for a manual copy', async () => {
+		global.fetch = siteSettingsFetch( {
+			governingSiteUrl: 'https://governing.example.com/',
+		} );
+
+		render( <SiteSettings /> );
+
+		const field = await screen.findByDisplayValue( 'api-key' );
+		expect( field ).toBe( screen.getByLabelText( 'API Key' ) );
+		expect( field ).not.toBeDisabled();
+		expect( field ).toHaveAttribute( 'readonly' );
+	} );
 } );

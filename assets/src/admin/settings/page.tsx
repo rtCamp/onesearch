@@ -4,7 +4,7 @@
 /**
  * External dependencies
  */
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { __ } from '@wordpress/i18n';
 import { Notice, Snackbar } from '@wordpress/components';
 import apiFetch from '@wordpress/api-fetch';
@@ -20,6 +20,8 @@ import SiteTypeSettings from '@/components/SiteTypeSettings';
 import type { SiteType } from '@/types/global';
 
 export interface NoticeType {
+	// Set by the settings page, so each notice gets its own Snackbar.
+	id?: number;
 	type: 'success' | 'error' | 'warning' | 'info';
 	message: string;
 }
@@ -61,13 +63,21 @@ const SettingsPage = () => {
 		window.OneSearchSettings.sharedSites ?? []
 	);
 	const [ formData, setFormData ] = useState< BrandSite >( defaultBrandSite );
-	const [ notice, setNotice ] = useState< NoticeType | null >( null );
+	const [ notice, setNoticeState ] = useState< NoticeType | null >( null );
+	const noticeId = useRef( 0 );
+
+	// A new id remounts the Snackbar, which restarts its timer for the new notice.
+	const setNotice = useCallback( ( next: NoticeType | null ) => {
+		noticeId.current += 1;
+		setNoticeState( next ? { ...next, id: noticeId.current } : null );
+	}, [] );
+
 	// Kept until dismissed, since each one asks the admin to finish disconnecting a brand site.
 	const [ disconnectNotices, setDisconnectNotices ] = useState<
 		NoticeType[]
 	>( [] );
 
-	const handleFormSubmit = async (): Promise< boolean > => {
+	const handleFormSubmit = async (): Promise< boolean | string > => {
 		const updated: BrandSite[] =
 			editingIndex !== null
 				? sites.map( ( item, i ) =>
@@ -75,47 +85,36 @@ const SettingsPage = () => {
 				  )
 				: [ ...sites, formData ];
 
-		return apiFetch< { shared_sites?: BrandSite[] } >( {
-			path: SHARED_SITES_ENDPOINT,
-			method: 'POST',
-			data: { sites_data: updated },
-		} )
-			.then( ( data ) => {
-				if ( ! data?.shared_sites ) {
-					throw new Error( 'No shared sites in response' );
-				}
-
-				setSites( data.shared_sites );
-
-				if ( data.shared_sites.length === 0 ) {
-					// Reloading causes the menus etc to reflect the missing sites.
-					window.location.reload();
-				}
-
-				setNotice( {
-					type: 'success',
-					message: __(
-						'Brand Site saved successfully.',
-						'onesearch'
-					),
-				} );
-				return true;
-			} )
-			.catch( ( error: { code?: string; message?: string } ) => {
-				setNotice( {
-					type: 'error',
-					// A REST error has the server's reason, like a brand site that failed its health check.
-					message:
-						( error?.code && error.message ) ||
-						__( 'Failed to update shared sites', 'onesearch' ),
-				} );
-				return false;
-			} )
-			.finally( () => {
-				setFormData( defaultBrandSite );
-				setShowModal( false );
-				setEditingIndex( null );
+		try {
+			const data = await apiFetch< { shared_sites?: BrandSite[] } >( {
+				path: SHARED_SITES_ENDPOINT,
+				method: 'POST',
+				data: { sites_data: updated },
 			} );
+
+			if ( ! data?.shared_sites ) {
+				return false;
+			}
+
+			setSites( data.shared_sites );
+			setFormData( defaultBrandSite );
+			setShowModal( false );
+			setEditingIndex( null );
+
+			if ( data.shared_sites.length === 0 ) {
+				// Reloading causes the menus etc to reflect the missing sites.
+				window.location.reload();
+			}
+
+			setNotice( {
+				type: 'success',
+				message: __( 'Brand Site saved successfully.', 'onesearch' ),
+			} );
+			return true;
+		} catch ( error ) {
+			// The modal stays open with the server's message, so the admin can fix the input and retry.
+			return ( error as { message?: string } )?.message || false;
+		}
 	};
 
 	const handleDelete = async ( index: number | null ): Promise< void > => {
@@ -166,6 +165,7 @@ const SettingsPage = () => {
 		<>
 			{ !! notice && notice?.message?.length > 0 && (
 				<Snackbar
+					key={ notice.id }
 					explicitDismiss={ false }
 					onRemove={ () => setNotice( null ) }
 					className={

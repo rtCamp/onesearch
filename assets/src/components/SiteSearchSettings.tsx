@@ -11,7 +11,7 @@ import {
 	Spinner,
 	ToggleControl,
 } from '@wordpress/components';
-import { __ } from '@wordpress/i18n';
+import { __, sprintf } from '@wordpress/i18n';
 
 /**
  * External dependencies
@@ -50,6 +50,23 @@ interface LocalNoticeType {
 	type: 'success' | 'error' | 'warning';
 	message: string;
 }
+
+// Stable comparison for dirty check
+const normalizeSettings = (
+	settings: Record< string, SiteSearchSetting >
+): string => {
+	const keys = Object.keys( settings ).sort();
+	const normalized: Record< string, SiteSearchSetting > = {};
+	keys.forEach( ( key ) => {
+		normalized[ key ] = {
+			algolia_enabled: settings[ key ]?.algolia_enabled ?? false,
+			searchable_sites: [
+				...( settings[ key ]?.searchable_sites ?? [] ),
+			].sort(),
+		};
+	} );
+	return JSON.stringify( normalized );
+};
 
 const SiteSearchSettings = ( {
 	indexableEntities,
@@ -154,6 +171,21 @@ const SiteSearchSettings = ( {
 		if ( hasChanges ) {
 			setSearchSettings( updatedSettings );
 
+			// Saving now would also save the admin's unsaved edits, so leave it to them.
+			if (
+				normalizeSettings( searchSettings ) !==
+				normalizeSettings( initialSettings )
+			) {
+				setLocalNotice( {
+					type: 'warning',
+					message: __(
+						'Sites without indexable entities have been disabled. Save your settings to apply this.',
+						'onesearch'
+					),
+				} );
+				return;
+			}
+
 			apiFetch< {
 				onesearch_sites_search_settings: Record<
 					string,
@@ -191,7 +223,13 @@ const SiteSearchSettings = ( {
 					} );
 				} );
 		}
-	}, [ indexableEntities, setNotice, siteHasEntities, searchSettings ] );
+	}, [
+		indexableEntities,
+		setNotice,
+		siteHasEntities,
+		searchSettings,
+		initialSettings,
+	] );
 
 	// Load existing search settings
 	useEffect( () => {
@@ -295,7 +333,9 @@ const SiteSearchSettings = ( {
 
 	// Handling bulk toggles.
 	const handleBulkToggle = ( enable: boolean ) => {
-		const newSettings: Record< string, SiteSearchSetting > = {};
+		const newSettings: Record< string, SiteSearchSetting > = {
+			...searchSettings,
+		};
 		let skippedCount = 0;
 
 		allSites.forEach( ( site ) => {
@@ -384,23 +424,6 @@ const SiteSearchSettings = ( {
 				setSaving( false );
 				setReloadKey( ( k ) => k + 1 );
 			} );
-	};
-
-	// Stable comparison for dirty check
-	const normalizeSettings = (
-		settings: Record< string, SiteSearchSetting >
-	): string => {
-		const keys = Object.keys( settings ).sort();
-		const normalized: Record< string, SiteSearchSetting > = {};
-		keys.forEach( ( key ) => {
-			normalized[ key ] = {
-				algolia_enabled: settings[ key ]?.algolia_enabled ?? false,
-				searchable_sites: [
-					...( settings[ key ]?.searchable_sites ?? [] ),
-				].sort(),
-			};
-		} );
-		return JSON.stringify( normalized );
 	};
 
 	const isDirty =
@@ -543,7 +566,18 @@ const SiteSearchSettings = ( {
 
 									<div className="onesearch-site-toggle">
 										<ToggleControl
-											label=""
+											label={
+												<span className="screen-reader-text">
+													{ sprintf(
+														/* translators: %s: site name. */
+														__(
+															'Enable Algolia search for %s',
+															'onesearch'
+														),
+														site.name
+													) }
+												</span>
+											}
 											checked={
 												siteSettings.algolia_enabled
 											}
@@ -639,13 +673,13 @@ const SiteSearchSettings = ( {
 													>
 														<ToggleControl
 															label={
-																<div className="onesearch-searchable-label">
-																	<div className="onesearch-searchable-name">
+																<span className="onesearch-searchable-label">
+																	<span className="onesearch-searchable-name">
 																		{
 																			targetSite.name
 																		}
-																	</div>
-																	<div className="onesearch-searchable-url">
+																	</span>
+																	<span className="onesearch-searchable-url">
 																		{
 																			targetSiteUrl
 																		}
@@ -657,8 +691,8 @@ const SiteSearchSettings = ( {
 																				) }
 																			</span>
 																		) }
-																	</div>
-																</div>
+																	</span>
+																</span>
 															}
 															checked={
 																isChecked ||

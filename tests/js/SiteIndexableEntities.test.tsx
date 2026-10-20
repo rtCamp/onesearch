@@ -27,16 +27,8 @@ const okJson = ( data: unknown ) =>
 		json: jest.fn().mockResolvedValue( data ),
 	} ) as unknown as Response;
 
-const savedEntities = ( entities: Record< string, string[] > ) => ( {
-	onesearch_indexable_entities: { entities },
-} );
-
 describe( 'SiteIndexableEntities', () => {
 	it( 'loads saved entities and enables reindexing when data exists', async () => {
-		mockedApiFetch.mockResolvedValueOnce(
-			savedEntities( { [ currentSiteUrl ]: [ 'post' ] } )
-		);
-
 		render(
 			<SiteIndexableEntities
 				sites={ [] }
@@ -44,6 +36,7 @@ describe( 'SiteIndexableEntities', () => {
 					[ currentSiteUrl ]: [ { slug: 'post', label: 'Posts' } ],
 				} }
 				currentSiteUrl={ currentSiteUrl }
+				indexableEntities={ { [ currentSiteUrl ]: [ 'post' ] } }
 				setNotice={ jest.fn() }
 				onEntitiesSaved={ jest.fn() }
 				saving={ false }
@@ -60,8 +53,6 @@ describe( 'SiteIndexableEntities', () => {
 	} );
 
 	it( 'shows a message when a brand site has no selectable entities', async () => {
-		mockedApiFetch.mockResolvedValueOnce( savedEntities( {} ) );
-
 		render(
 			<SiteIndexableEntities
 				sites={ [
@@ -75,6 +66,7 @@ describe( 'SiteIndexableEntities', () => {
 					[ currentSiteUrl ]: [ { slug: 'post', label: 'Posts' } ],
 				} }
 				currentSiteUrl={ currentSiteUrl }
+				indexableEntities={ {} }
 				setNotice={ jest.fn() }
 				onEntitiesSaved={ jest.fn() }
 				saving={ false }
@@ -94,9 +86,7 @@ describe( 'SiteIndexableEntities', () => {
 		const onEntitiesSaved = jest.fn();
 		const setSaving = jest.fn();
 
-		mockedApiFetch
-			.mockResolvedValueOnce( savedEntities( {} ) )
-			.mockResolvedValueOnce( {} );
+		mockedApiFetch.mockResolvedValueOnce( {} );
 		global.fetch = jest.fn().mockResolvedValueOnce(
 			okJson( {
 				message: 'Reindex complete.',
@@ -111,6 +101,7 @@ describe( 'SiteIndexableEntities', () => {
 					[ currentSiteUrl ]: [ { slug: 'post', label: 'Posts' } ],
 				} }
 				currentSiteUrl={ currentSiteUrl }
+				indexableEntities={ {} }
 				setNotice={ setNotice }
 				onEntitiesSaved={ onEntitiesSaved }
 				saving={ false }
@@ -149,40 +140,64 @@ describe( 'SiteIndexableEntities', () => {
 		} );
 	} );
 
-	it( 'shows a fetch error when loading entities fails', async () => {
-		const setNotice = jest.fn();
-		mockedApiFetch.mockRejectedValue( new Error( 'load failed' ) );
-
+	it( 'shows why post types failed to load for a brand site', () => {
 		render(
 			<SiteIndexableEntities
-				sites={ [] }
-				allPostTypes={ { [ currentSiteUrl ]: [] } }
+				sites={ [ { name: 'Brand Site', url: brandSiteUrl } ] }
+				allPostTypes={ {
+					[ currentSiteUrl ]: [ { slug: 'post', label: 'Posts' } ],
+				} }
 				currentSiteUrl={ currentSiteUrl }
-				setNotice={ setNotice }
-				onEntitiesSaved={ jest.fn() }
+				indexableEntities={ {} }
+				postTypeErrors={ [
+					{ site_url: brandSiteUrl, message: 'Request timed out.' },
+				] }
+				setNotice={ jest.fn() }
 				saving={ false }
 				setSaving={ jest.fn() }
 			/>
 		);
 
-		await waitFor( () => {
-			expect( setNotice ).toHaveBeenCalledWith( {
-				type: 'error',
-				message: 'Error fetching indexable entities.',
-			} );
-		} );
+		expect( screen.getByText( 'Request timed out.' ) ).toBeInTheDocument();
+		expect(
+			screen.queryByText(
+				'No entities to select. Please check site configuration'
+			)
+		).not.toBeInTheDocument();
+	} );
+
+	it( 'disables saving when the saved entities failed to load', () => {
+		render(
+			<SiteIndexableEntities
+				sites={ [] }
+				allPostTypes={ {
+					[ currentSiteUrl ]: [ { slug: 'post', label: 'Posts' } ],
+				} }
+				currentSiteUrl={ currentSiteUrl }
+				indexableEntities={ {} }
+				loadFailed
+				setNotice={ jest.fn() }
+				saving={ false }
+				setSaving={ jest.fn() }
+			/>
+		);
+
+		expect(
+			screen.getByRole( 'button', { name: 'Select entities…' } )
+		).toBeDisabled();
+		expect(
+			screen.getByRole( 'button', { name: 'Save Changes' } )
+		).toBeDisabled();
 	} );
 
 	it( 'shows the error notice when saving entities fails', async () => {
 		const setNotice = jest.fn();
 		const setSaving = jest.fn();
 
-		mockedApiFetch
-			.mockResolvedValueOnce( savedEntities( {} ) )
-			.mockRejectedValueOnce( {
-				code: 'rest_invalid_param',
-				message: 'Invalid parameter(s): onesearch_indexable_entities',
-			} );
+		mockedApiFetch.mockRejectedValueOnce( {
+			code: 'rest_invalid_param',
+			message: 'Invalid parameter(s): onesearch_indexable_entities',
+		} );
 
 		render(
 			<SiteIndexableEntities
@@ -191,6 +206,7 @@ describe( 'SiteIndexableEntities', () => {
 					[ currentSiteUrl ]: [ { slug: 'post', label: 'Posts' } ],
 				} }
 				currentSiteUrl={ currentSiteUrl }
+				indexableEntities={ {} }
 				setNotice={ setNotice }
 				onEntitiesSaved={ jest.fn() }
 				saving={ false }
@@ -219,15 +235,10 @@ describe( 'SiteIndexableEntities', () => {
 	it( 'opens and closes re-index modal and handles server errors', async () => {
 		const setNotice = jest.fn();
 
-		// Saved brand entities enable Re-index and leave this site's picker empty.
-		mockedApiFetch
-			.mockResolvedValueOnce(
-				savedEntities( { [ brandSiteUrl ]: [ 'post' ] } )
-			)
-			.mockRejectedValueOnce( {
-				code: 'internal_server_error',
-				message: 'Internal server error.',
-			} );
+		mockedApiFetch.mockRejectedValueOnce( {
+			code: 'internal_server_error',
+			message: 'Internal server error.',
+		} );
 
 		render(
 			<SiteIndexableEntities
@@ -236,6 +247,7 @@ describe( 'SiteIndexableEntities', () => {
 					[ currentSiteUrl ]: [ { slug: 'post', label: 'Posts' } ],
 				} }
 				currentSiteUrl={ currentSiteUrl }
+				indexableEntities={ { [ currentSiteUrl ]: [ 'post' ] } }
 				setNotice={ setNotice }
 				onEntitiesSaved={ jest.fn() }
 				saving={ false }
