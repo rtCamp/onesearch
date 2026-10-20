@@ -319,7 +319,7 @@ const SiteSearchSettings = ( {
 				? [ ...currentSearchables, targetSiteUrl ]
 				: currentSearchables.filter(
 						( url: string ) => url !== targetSiteUrl
-				  );
+					);
 
 			return {
 				...prev,
@@ -355,9 +355,9 @@ const SiteSearchSettings = ( {
 			};
 			const prevSites = Array.isArray( prev?.searchable_sites )
 				? // Keep only targets that still have entities.
-				  prev.searchable_sites.filter( ( targetUrl: string ) =>
+					prev.searchable_sites.filter( ( targetUrl: string ) =>
 						siteHasEntities( targetUrl )
-				  )
+					)
 				: [];
 
 			let sitesToReturn: string[] = [];
@@ -548,11 +548,11 @@ const SiteSearchSettings = ( {
 												? __(
 														'Algolia search enabled',
 														'onesearch'
-												  )
+													)
 												: __(
 														'Using default WordPress search',
 														'onesearch'
-												  ) }
+													) }
 										</p>
 										{ ! hasEntities && (
 											<p className="onesearch-site-warning">

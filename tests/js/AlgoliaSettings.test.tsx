@@ -1,6 +1,15 @@
 /**
  * External dependencies
  */
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	type MockedFunction,
+	vi,
+} from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 /**
@@ -10,7 +19,7 @@ import apiFetch from '@wordpress/api-fetch';
 
 import AlgoliaSettings from '@/components/AlgoliaSettings';
 
-const mockedApiFetch = apiFetch as jest.MockedFunction< typeof apiFetch >;
+const mockedApiFetch = apiFetch as MockedFunction< typeof apiFetch >;
 
 describe( 'AlgoliaSettings', () => {
 	beforeEach( () => {
@@ -22,11 +31,11 @@ describe( 'AlgoliaSettings', () => {
 	} );
 
 	afterEach( () => {
-		jest.clearAllMocks();
+		vi.clearAllMocks();
 	} );
 
 	it( 'starts from the saved app ID and needs the write key typed in again to save', () => {
-		render( <AlgoliaSettings setNotice={ jest.fn() } /> );
+		render( <AlgoliaSettings setNotice={ vi.fn() } /> );
 
 		const appIdInput = screen.getByRole( 'textbox', {
 			name: /Application ID/i,
@@ -52,7 +61,7 @@ describe( 'AlgoliaSettings', () => {
 	} );
 
 	it( 'saves changed credentials and reports success', async () => {
-		const setNotice = jest.fn();
+		const setNotice = vi.fn();
 
 		mockedApiFetch.mockImplementation( ( params ) => {
 			if (
@@ -104,7 +113,7 @@ describe( 'AlgoliaSettings', () => {
 	} );
 
 	it( 'reports an error when saving fails', async () => {
-		const setNotice = jest.fn();
+		const setNotice = vi.fn();
 
 		mockedApiFetch.mockImplementation( ( params ) => {
 			if (

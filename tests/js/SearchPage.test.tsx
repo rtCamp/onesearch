@@ -1,9 +1,10 @@
 /**
  * External dependencies
  */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 
-jest.mock( '@/components/SiteIndexableEntities', () => ( {
+vi.mock( '@/components/SiteIndexableEntities', () => ( {
 	__esModule: true,
 	default: ( {
 		setNotice,
@@ -38,7 +39,7 @@ jest.mock( '@/components/SiteIndexableEntities', () => ( {
 	),
 } ) );
 
-jest.mock( '@/components/SiteSearchSettings', () => ( {
+vi.mock( '@/components/SiteSearchSettings', () => ( {
 	__esModule: true,
 	default: () => <div data-testid="search-settings" />,
 } ) );
@@ -59,7 +60,7 @@ const mockFetch = ( {
 	allPostTypes?: Record< string, unknown >;
 	entitiesOk?: boolean;
 } = {} ) => {
-	global.fetch = jest.fn( async ( input: RequestInfo | URL ) => {
+	global.fetch = vi.fn( async ( input: RequestInfo | URL ) => {
 		const url = String( input );
 		if ( url.endsWith( '/all-post-types' ) ) {
 			return json( allPostTypes );
@@ -70,20 +71,18 @@ const mockFetch = ( {
 		entitiesOk
 			? Promise.resolve( {
 					onesearch_indexable_entities: { entities: {} },
-			  } )
+				} )
 			: Promise.reject( new Error( 'load failed' ) );
 };
 
-const mountPage = () => {
+const mountPage = async () => {
 	document.body.innerHTML = '<div id="onesearch-search-settings"></div>';
-	jest.isolateModules( () => {
-		// The isolated modules get their own apiFetch mock, which loads the entities from /wp/v2/settings.
-		require( '@wordpress/api-fetch' ).default.mockImplementation(
-			loadEntities
-		);
-		// The entry point mounts itself into the container on import.
-		require( '@/admin/search/index' );
-	} );
+	vi.resetModules();
+	// The fresh modules get their own apiFetch mock, which loads the entities from /wp/v2/settings.
+	const { default: apiFetch } = await import( '@wordpress/api-fetch' );
+	vi.mocked( apiFetch ).mockImplementation( loadEntities );
+	// The entry point mounts itself into the container on import.
+	await import( '@/admin/search/index' );
 };
 
 describe( 'search settings page', () => {
@@ -106,13 +105,13 @@ describe( 'search settings page', () => {
 		( globalThis as Record< string, unknown > )[
 			'IS_REACT_ACT_ENVIRONMENT'
 		] = true;
-		jest.useRealTimers();
+		vi.useRealTimers();
 		document.body.innerHTML = '';
 	} );
 
 	it( 'reads the site type and brand sites from the localized data', async () => {
 		mockFetch();
-		mountPage();
+		await mountPage();
 
 		expect( await screen.findByTestId( 'sites' ) ).toHaveTextContent(
 			'Brand'
@@ -121,7 +120,7 @@ describe( 'search settings page', () => {
 
 	it( 'flags the entities as failed to load after an error response', async () => {
 		mockFetch( { entitiesOk: false } );
-		mountPage();
+		await mountPage();
 
 		await waitFor( () => {
 			expect( screen.getByTestId( 'load-failed' ) ).toHaveTextContent(
@@ -142,7 +141,7 @@ describe( 'search settings page', () => {
 				],
 			},
 		} );
-		mountPage();
+		await mountPage();
 
 		await waitFor( () => {
 			expect( screen.getByTestId( 'errors' ) ).toHaveTextContent(
@@ -157,7 +156,7 @@ describe( 'search settings page', () => {
 			hasAlgoliaCredentials: false,
 		};
 		mockFetch();
-		mountPage();
+		await mountPage();
 
 		expect(
 			await screen.findByRole( 'dialog', { name: 'Setup Required' } )
@@ -166,10 +165,10 @@ describe( 'search settings page', () => {
 
 	it( 'removes the snackbar once it times out', async () => {
 		mockFetch();
-		mountPage();
+		await mountPage();
 
 		const notify = await screen.findByRole( 'button', { name: 'Notify' } );
-		jest.useFakeTimers();
+		vi.useFakeTimers();
 		notify.click();
 		await waitFor( () => {
 			expect(
@@ -177,7 +176,7 @@ describe( 'search settings page', () => {
 			).not.toBeNull();
 		} );
 
-		jest.advanceTimersByTime( 10000 );
+		vi.advanceTimersByTime( 10000 );
 		await waitFor( () => {
 			expect(
 				document.querySelector( '.components-snackbar' )

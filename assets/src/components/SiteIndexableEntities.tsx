@@ -336,7 +336,7 @@ const SiteIndexableEntities = ( {
 											: __(
 													'No entities to select. Please check site configuration',
 													'onesearch'
-											  ) }
+												) }
 									</Text>
 								) : (
 									<div className="onesearch-entity-selector">

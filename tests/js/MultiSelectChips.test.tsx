@@ -1,6 +1,7 @@
 /**
  * External dependencies
  */
+import { describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import MultiSelectChips from '@/components/MultiSelectChips';
@@ -18,7 +19,7 @@ describe( 'MultiSelectChips', () => {
 	} );
 
 	it( 'opens the menu and reports selected values', async () => {
-		const onChange = jest.fn();
+		const onChange = vi.fn();
 
 		render(
 			<MultiSelectChips
@@ -44,7 +45,7 @@ describe( 'MultiSelectChips', () => {
 	} );
 
 	it( 'renders selected chips and lets users remove them', async () => {
-		const onChange = jest.fn();
+		const onChange = vi.fn();
 
 		render(
 			<MultiSelectChips
@@ -101,7 +102,7 @@ describe( 'MultiSelectChips', () => {
 	} );
 
 	it( 'closes the menu and blocks changes when disabled', async () => {
-		const onChange = jest.fn();
+		const onChange = vi.fn();
 		const { rerender } = render(
 			<MultiSelectChips
 				label="Entities"

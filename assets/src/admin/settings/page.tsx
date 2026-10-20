@@ -82,7 +82,7 @@ const SettingsPage = () => {
 			editingIndex !== null
 				? sites.map( ( item, i ) =>
 						i === editingIndex ? formData : item
-				  )
+					)
 				: [ ...sites, formData ];
 
 		try {

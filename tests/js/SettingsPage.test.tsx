@@ -2,6 +2,15 @@
  * External dependencies
  */
 import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	type MockedFunction,
+	vi,
+} from 'vitest';
+import {
 	act,
 	fireEvent,
 	render,
@@ -16,7 +25,7 @@ import apiFetch from '@wordpress/api-fetch';
 // Mock child components to isolate SettingsPage behavior
 const mockSubmitResults: unknown[] = [];
 
-jest.mock( '@/components/SiteTable', () => ( {
+vi.mock( '@/components/SiteTable', () => ( {
 	__esModule: true,
 	default: ( {
 		sites,
@@ -60,7 +69,7 @@ jest.mock( '@/components/SiteTable', () => ( {
 	),
 } ) );
 
-jest.mock( '@/components/SiteModal', () => ( {
+vi.mock( '@/components/SiteModal', () => ( {
 	__esModule: true,
 	default: ( {
 		onSubmit,
@@ -87,19 +96,19 @@ jest.mock( '@/components/SiteModal', () => ( {
 	),
 } ) );
 
-jest.mock( '@/components/SiteSettings', () => ( {
+vi.mock( '@/components/SiteSettings', () => ( {
 	__esModule: true,
 	default: () => <div data-testid="site-settings">Brand Site Settings</div>,
 } ) );
 
-jest.mock( '@/components/AlgoliaSettings', () => ( {
+vi.mock( '@/components/AlgoliaSettings', () => ( {
 	__esModule: true,
 	default: () => <div data-testid="algolia-settings">Algolia Settings</div>,
 } ) );
 
 import SettingsPage, { type BrandSite } from '@/admin/settings/page';
 
-const mockedApiFetch = apiFetch as jest.MockedFunction< typeof apiFetch >;
+const mockedApiFetch = apiFetch as MockedFunction< typeof apiFetch >;
 
 // The page starts from the brand sites the server localized.
 const setSharedSites = ( sharedSites: BrandSite[] ) => {
@@ -109,7 +118,7 @@ const setSharedSites = ( sharedSites: BrandSite[] ) => {
 describe( 'SettingsPage', () => {
 	// A test that fails while on fake timers would leave them on for the next ones.
 	afterEach( () => {
-		jest.useRealTimers();
+		vi.useRealTimers();
 	} );
 
 	beforeEach( () => {
@@ -212,7 +221,7 @@ describe( 'SettingsPage', () => {
 	} );
 
 	it( 'gives each notice its own snackbar timer', async () => {
-		jest.useFakeTimers();
+		vi.useFakeTimers();
 		setSharedSites( [
 			{
 				id: 'one',
@@ -239,7 +248,7 @@ describe( 'SettingsPage', () => {
 
 		// The second notice arrives just before the first one's timer ends.
 		act( () => {
-			jest.advanceTimersByTime( 9000 );
+			vi.advanceTimersByTime( 9000 );
 		} );
 		fireEvent.click( screen.getByRole( 'button', { name: 'Open Modal' } ) );
 		fireEvent.click(
@@ -248,7 +257,7 @@ describe( 'SettingsPage', () => {
 		await screen.findAllByText( 'Brand Site saved successfully.' );
 
 		act( () => {
-			jest.advanceTimersByTime( 2000 );
+			vi.advanceTimersByTime( 2000 );
 		} );
 
 		expect(
@@ -357,7 +366,7 @@ describe( 'SettingsPage', () => {
 		mockedApiFetch.mockResolvedValueOnce( {
 			governing_site_notified: true,
 		} );
-		global.fetch = jest.fn();
+		global.fetch = vi.fn();
 
 		render( <SettingsPage /> );
 
