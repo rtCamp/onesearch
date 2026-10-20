@@ -412,51 +412,57 @@ final class SettingsTest extends TestCase {
 	}
 
 	/**
-	 * Purges cache when algolia credentials option updates.
+	 * Adding or updating an unrelated option does not purge the brand config cache.
 	 */
-	public function test_purge_cache_on_update_clears_cache_for_credentials(): void {
+	public function test_unrelated_option_does_not_purge_cache(): void {
 		set_transient( Governing_Data_Handler::TRANSIENT_KEY, [ 'test' => true ], 3600 );
+		( new Search_Settings() )->register_hooks();
 
-		$settings = new Search_Settings();
-		$settings->purge_cache_on_update( [], [], Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
-
-		$this->assertFalse( get_transient( Governing_Data_Handler::TRANSIENT_KEY ) );
-	}
-
-	/**
-	 * Purges cache when indexable sites option updates.
-	 */
-	public function test_purge_cache_on_update_clears_cache_for_indexable_sites(): void {
-		set_transient( Governing_Data_Handler::TRANSIENT_KEY, [ 'test' => true ], 3600 );
-
-		$settings = new Search_Settings();
-		$settings->purge_cache_on_update( [], [], Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );
-
-		$this->assertFalse( get_transient( Governing_Data_Handler::TRANSIENT_KEY ) );
-	}
-
-	/**
-	 * Purges cache when search settings option updates.
-	 */
-	public function test_purge_cache_on_update_clears_cache_for_search_settings(): void {
-		set_transient( Governing_Data_Handler::TRANSIENT_KEY, [ 'test' => true ], 3600 );
-
-		$settings = new Search_Settings();
-		$settings->purge_cache_on_update( [], [], Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS );
-
-		$this->assertFalse( get_transient( Governing_Data_Handler::TRANSIENT_KEY ) );
-	}
-
-	/**
-	 * Does not purge cache for unknown option.
-	 */
-	public function test_purge_cache_on_update_ignores_unknown_option(): void {
-		set_transient( Governing_Data_Handler::TRANSIENT_KEY, [ 'test' => true ], 3600 );
-
-		$settings = new Search_Settings();
-		$settings->purge_cache_on_update( [], [], 'some_unrelated_option' );
+		add_option( 'some_unrelated_option', 'first' );
+		update_option( 'some_unrelated_option', 'second' );
 
 		$this->assertNotFalse( get_transient( Governing_Data_Handler::TRANSIENT_KEY ) );
+	}
+
+	/**
+	 * The first save of an option goes through add_option(), and still tells the brands to purge their config.
+	 */
+	public function test_first_save_of_indexable_entities_purges_brand_config(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		Settings::set_shared_sites(
+			[
+				[
+					'api_key' => 'brand-key',
+					'url'     => 'https://brand.example.com',
+				],
+			]
+		);
+		delete_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );
+		( new Search_Settings() )->register_hooks();
+
+		$purges = [];
+		$filter = static function ( $preempt, $args, $url ) use ( &$purges ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			if ( str_contains( $url, '/brand-config' ) && 'DELETE' === $args['method'] ) {
+				$purges[] = $url;
+			}
+
+			return [
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
+				],
+				'body'     => '',
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		update_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES, [ 'entities' => [ 'https://brand.example.com/' => [ 'post' ] ] ] );
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertSame( [ 'https://brand.example.com/wp-json/onesearch/v1/brand-config' ], $purges );
 	}
 
 	/**
