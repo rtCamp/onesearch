@@ -12,7 +12,6 @@ namespace OneSearch\Tests\Integration\Algolia;
 use OneSearch\Algolia\Connection;
 use OneSearch\Algolia\Index;
 use OneSearch\Tests\TestCase;
-use OneSearch\Vendor\Algolia\AlgoliaSearch\Algolia as AlgoliaSDK;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 
@@ -34,15 +33,6 @@ final class IndexTest extends TestCase {
 	 * @var array<int, array{path: string, body: string}>
 	 */
 	private array $requests = [];
-
-	/**
-	 * {@inheritDoc}
-	 */
-	protected function tearDown(): void {
-		AlgoliaSDK::resetHttpClient();
-
-		parent::tearDown();
-	}
 
 	/**
 	 * Sends the query along with the search params.

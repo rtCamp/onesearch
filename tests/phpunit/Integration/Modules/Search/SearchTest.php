@@ -14,7 +14,6 @@ use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use OneSearch\Utils;
-use OneSearch\Vendor\Algolia\AlgoliaSearch\Algolia as AlgoliaSDK;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
@@ -22,15 +21,6 @@ use PHPUnit\Framework\Attributes\CoversClass;
  */
 #[CoversClass( \OneSearch\Modules\Search\Search::class )]
 final class SearchTest extends TestCase {
-	/**
-	 * {@inheritDoc}
-	 */
-	protected function tearDown(): void {
-		AlgoliaSDK::resetHttpClient();
-
-		parent::tearDown();
-	}
-
 	/**
 	 * Ensures class can be instantiated.
 	 */

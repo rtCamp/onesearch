@@ -16,7 +16,6 @@ use OneSearch\Modules\Search\Watcher;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use OneSearch\Utils;
-use OneSearch\Vendor\Algolia\AlgoliaSearch\Algolia as AlgoliaSDK;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
@@ -28,8 +27,6 @@ final class WatcherTest extends TestCase {
 	 * {@inheritDoc}
 	 */
 	protected function tearDown(): void {
-		AlgoliaSDK::resetHttpClient();
-
 		// Reset governing site config to avoid polluting other tests.
 		delete_option( Settings::OPTION_SITE_TYPE );
 		delete_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );

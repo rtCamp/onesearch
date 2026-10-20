@@ -14,7 +14,6 @@ use OneSearch\Modules\Rest\Search_Controller;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
-use OneSearch\Vendor\Algolia\AlgoliaSearch\Algolia as AlgoliaSDK;
 use PHPUnit\Framework\Attributes\CoversClass;
 use WP_REST_Request;
 
@@ -467,8 +466,6 @@ class Search_Controller_GoverningSiteTest extends TestCase {
 
 		$succeeded = $this->reindex_with_child_response( [ 'success' => true ] );
 		$failed    = $this->reindex_with_child_response( [ 'success' => false ] );
-
-		AlgoliaSDK::resetHttpClient();
 
 		$this->assertTrue( $succeeded['success'] );
 		$this->assertFalse( $failed['success'] );
