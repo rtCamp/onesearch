@@ -199,8 +199,13 @@ final class Indexer {
 			if ( is_wp_error( $is_saved ) ) {
 				$data = $is_saved->get_error_data();
 
-				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- @todo Surface this better with a Logger class.
-				error_log( sprintf( 'Algolia indexing error: %s %s', $is_saved->get_error_message(), $data['message'] ?? '' ) );
+				Utils::log(
+					sprintf(
+						'Algolia indexing error: %s %s',
+						$is_saved->get_error_message(),
+						is_array( $data ) ? (string) ( $data['message'] ?? '' ) : ''
+					)
+				);
 				$errors->merge_from( $is_saved );
 			}
 		}

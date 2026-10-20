@@ -355,10 +355,9 @@ final class Post_Record {
 			// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- intentionally using the_content.
 			$content = (string) apply_filters( 'the_content', $post->post_content );
 		} catch ( \Throwable $e ) {
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- @todo Surface this better with a Logger class.
-			error_log(
+			Utils::log(
 				sprintf(
-					'Algolia indexing error: Error processing post ID %d content: %s',
+					'Error processing content of post ID %d: %s',
 					$post->ID,
 					$e->getMessage()
 				)
