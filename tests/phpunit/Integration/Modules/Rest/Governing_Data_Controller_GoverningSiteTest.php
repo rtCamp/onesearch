@@ -14,6 +14,7 @@ use OneSearch\Modules\Rest\Governing_Data_Controller;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
+use OneSearch\Utils;
 use OneSearch\Vendor\Algolia\AlgoliaSearch\Algolia as AlgoliaSDK;
 use PHPUnit\Framework\Attributes\CoversClass;
 use WP_REST_Request;
@@ -415,8 +416,32 @@ class Governing_Data_Controller_GoverningSiteTest extends TestCase {
 
 		$this->assertSame( 200, $response->get_status() );
 
-		$site_url = trailingslashit( get_site_url() );
+		$site_url = Utils::get_current_site_url();
 		$this->assertArrayHasKey( $site_url, $data['sites'] );
 		$this->assertNotEmpty( $data['errors'] );
+	}
+
+	/**
+	 * The governing site lists itself in `available_sites` by its normalized identity URL.
+	 */
+	public function test_get_brand_config_lists_the_governing_site_by_its_normalized_url(): void {
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Brand',
+					'url'     => 'https://brand.example.com',
+					'api_key' => 'brand-key',
+				],
+			]
+		);
+
+		$request = new WP_REST_Request( 'GET', '/onesearch/v1/brand-config' );
+		$request->set_header( 'origin', 'https://brand.example.com' );
+		$request->set_header( 'X-OneSearch-Token', 'brand-key' );
+
+		$data = $this->server->dispatch( $request )->get_data();
+
+		$this->assertContains( Utils::get_current_site_url(), $data['available_sites'] );
+		$this->assertContains( 'https://brand.example.com/', $data['available_sites'] );
 	}
 }

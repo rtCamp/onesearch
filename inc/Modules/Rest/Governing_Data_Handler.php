@@ -13,6 +13,7 @@ namespace OneSearch\Modules\Rest;
 
 use OneSearch\Encryptor;
 use OneSearch\Modules\Settings\Settings;
+use OneSearch\Utils;
 
 /**
  * Class - Governing_Data_Handler
@@ -85,7 +86,7 @@ class Governing_Data_Handler {
 				'headers' => [
 					'Accept'            => 'application/json',
 					'Content-Type'      => 'application/json',
-					'Origin'            => get_site_url(),
+					'Origin'            => untrailingslashit( Utils::get_current_site_url() ),
 					'X-OneSearch-Token' => $our_public_key,
 				],
 			]
@@ -199,7 +200,7 @@ class Governing_Data_Handler {
 				'headers' => [
 					'Accept'            => 'application/json',
 					'Content-Type'      => 'application/json',
-					'Origin'            => get_site_url(),
+					'Origin'            => untrailingslashit( Utils::get_current_site_url() ),
 					'X-OneSearch-Token' => $our_public_key,
 				],
 				'timeout' => 15, // phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout -- The governing site purges this site's Algolia records before responding.
@@ -286,7 +287,7 @@ class Governing_Data_Handler {
 					'headers' => [
 						'Accept'            => 'application/json',
 						'Content-Type'      => 'application/json',
-						'Origin'            => get_site_url(),
+						'Origin'            => untrailingslashit( Utils::get_current_site_url() ),
 						'X-OneSearch-Token' => $site_data['api_key'],
 					],
 				]
@@ -384,7 +385,7 @@ class Governing_Data_Handler {
 					'headers'  => [
 						'Accept'            => 'application/json',
 						'Content-Type'      => 'application/json',
-						'Origin'            => get_site_url(),
+						'Origin'            => untrailingslashit( Utils::get_current_site_url() ),
 						'X-OneSearch-Token' => $site_data['api_key'],
 					],
 					// Don't wait to see if the cache flush was successful.

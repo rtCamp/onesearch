@@ -409,7 +409,7 @@ final class IndexerTest extends TestCase {
 		$this->assertTrue( ( new Indexer() )->reindex() );
 		$this->assertSame( self::INDEX_PATH . '/settings', $this->paths[0], 'The index should be set up before anything else.' );
 		$this->assertSame(
-			[ sprintf( 'site_url:"%s"', Utils::normalize_url( get_site_url() ) ) ],
+			[ sprintf( 'site_url:"%s"', Utils::get_current_site_url() ) ],
 			$this->get_delete_filters()
 		);
 		$this->assertSame( [ ( new Post_Record() )->get_site_post_id( $page_id ) ], $this->get_saved_site_post_ids() );
@@ -487,7 +487,7 @@ final class IndexerTest extends TestCase {
 	 */
 	private function set_up_governing_site( array $entities = [ 'post' ] ): void {
 		// Name the index after a known host, since the test site's URL depends on the environment.
-		add_filter( 'option_siteurl', static fn (): string => 'https://governing.example.org', 11 );
+		add_filter( 'option_home', static fn (): string => 'https://governing.example.org', 11 );
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
 		Search_Settings::set_algolia_credentials(
 			[
@@ -499,7 +499,7 @@ final class IndexerTest extends TestCase {
 			Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES,
 			[
 				'entities' => [
-					Utils::normalize_url( get_site_url() ) => $entities,
+					Utils::get_current_site_url() => $entities,
 				],
 			]
 		);

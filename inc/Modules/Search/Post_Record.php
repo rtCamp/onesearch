@@ -138,7 +138,7 @@ final class Post_Record {
 	 * Constructor
 	 */
 	public function __construct() {
-		$this->site_url = Utils::normalize_url( get_site_url() );
+		$this->site_url = Utils::get_current_site_url();
 
 		$this->site_key = sanitize_key( $this->site_url );
 
