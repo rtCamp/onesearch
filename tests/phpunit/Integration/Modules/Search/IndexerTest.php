@@ -9,6 +9,8 @@ declare(strict_types = 1);
 
 namespace OneSearch\Tests\Integration\Modules\Search;
 
+use OneSearch\Jobs\Progress;
+use OneSearch\Jobs\Queue;
 use OneSearch\Modules\Rest\Remote_Client;
 use OneSearch\Modules\Search\Indexer;
 use OneSearch\Modules\Search\Post_Record;
@@ -24,11 +26,6 @@ use PHPUnit\Framework\Attributes\CoversClass;
 #[CoversClass( Indexer::class )]
 final class IndexerTest extends TestCase {
 	/**
-	 * The path of the index named after the governing test site.
-	 */
-	private const INDEX_PATH = '/1/indexes/onesearch_governing_example_org_wp_posts';
-
-	/**
 	 * The paths of the intercepted Algolia requests.
 	 *
 	 * @var array<int, string>
@@ -36,516 +33,681 @@ final class IndexerTest extends TestCase {
 	private array $paths = [];
 
 	/**
-	 * The intercepted Algolia requests.
+	 * The records in the fake index, keyed by object ID.
 	 *
-	 * @var array<int, array{path: string, body: string}>
+	 * @var array<string, array<string, mixed>>
 	 */
-	private array $requests = [];
+	private array $records = [];
 
 	/**
-	 * Credentials are only valid when they grant every permission the indexer uses.
+	 * {@inheritDoc}
 	 */
-	public function test_validate_credentials(): void {
-		$this->mock_api_key_acl( [ 'addObject', 'deleteObject' ] );
-		$this->assertFalse( Indexer::validate_credentials( 'test-app', 'test-key' ) );
+	public function set_up(): void {
+		parent::set_up();
 
-		// Reading the settings needs its own permission.
-		$this->mock_api_key_acl( [ 'search', 'addObject', 'deleteIndex', 'editSettings' ] );
-		$this->assertFalse( Indexer::validate_credentials( 'test-app', 'test-key' ) );
+		$this->paths   = [];
+		$this->records = [];
 
-		$this->mock_api_key_acl( [ 'search', 'addObject', 'deleteIndex', 'settings', 'editSettings' ] );
-		$this->assertTrue( Indexer::validate_credentials( 'test-app', 'test-key' ) );
+		( new Indexer() )->register_hooks();
 	}
 
 	/**
-	 * Governing sites read their indexable post types from their own settings.
+	 * Indexing runs in the background, replaces the site's records with its posts, and counts them as it goes.
+	 *
+	 * The old records stay searchable until the last batch, which deletes the ones it didn't save again.
 	 */
-	public function test_get_indexable_post_types_on_governing_site(): void {
-		$this->set_up_governing_site( [ 'post', 'page', 'post' ] );
-
-		$this->assertSame( [ 'post', 'page' ], Indexer::get_indexable_post_types() );
-	}
-
-	/**
-	 * Brand sites get their indexable post types from the governing site.
-	 */
-	public function test_get_indexable_post_types_on_brand_site(): void {
-		$this->set_up_brand_site( [ 'page' ] );
-
-		$this->assertSame( [ 'page' ], Indexer::get_indexable_post_types() );
-	}
-
-	/**
-	 * Brand sites that can't reach the governing site get an error.
-	 */
-	public function test_get_indexable_post_types_on_brand_site_without_parent(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
-
-		$this->assertWPError( Indexer::get_indexable_post_types() );
-	}
-
-	/**
-	 * Values are quoted, with quotes and backslashes escaped.
-	 */
-	public function test_filter_any_of(): void {
-		$this->assertSame(
-			'post_type:"post" OR post_type:"say \"hi\"" OR post_type:"back\\\\slash"',
-			Indexer::filter_any_of( 'post_type', [ 'post', 'say "hi"', 'back\\slash' ] )
-		);
-	}
-
-	/**
-	 * Operations fail with a known error code when there are no credentials.
-	 */
-	public function test_returns_not_configured_error_without_credentials(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-		$this->mock_algolia_http_client( $this->paths );
-
-		$result = ( new Indexer() )->search( 'hello' );
-
-		$this->assertWPError( $result );
-		$this->assertSame( Indexer::ERROR_NOT_CONFIGURED, $result->get_error_code() );
-		$this->assertSame( [], $this->paths );
-	}
-
-	/**
-	 * Operations fail with a known error code when the governing site is unknown.
-	 */
-	public function test_returns_not_configured_error_without_governing_site(): void {
-		$this->mock_algolia_http_client( $this->paths );
-
-		$result = ( new Indexer() )->delete_posts( [ 1 ] );
-
-		$this->assertWPError( $result );
-		$this->assertSame( Indexer::ERROR_NOT_CONFIGURED, $result->get_error_code() );
-		$this->assertSame( [], $this->paths );
-	}
-
-	/**
-	 * Brand sites use the governing site's index and credentials.
-	 */
-	public function test_brand_site_uses_governing_index(): void {
-		$this->set_up_brand_site();
-		$this->mock_algolia_http_client( $this->paths );
-
-		( new Indexer() )->search( 'hello' );
-
-		$this->assertSame( [ '/1/indexes/onesearch_governing_example_com_wp_posts/query' ], $this->paths );
-	}
-
-	/**
-	 * Searching doesn't touch the index settings.
-	 */
-	public function test_search_does_not_push_settings(): void {
-		$this->set_up_governing_site();
-		$this->mock_algolia_http_client( $this->paths );
-
-		( new Indexer() )->search( 'hello', [ 'hitsPerPage' => 5 ] );
-
-		$this->assertSame( [ self::INDEX_PATH . '/query' ], $this->paths );
-	}
-
-	/**
-	 * Outdated index settings are pushed once, before the first write.
-	 */
-	public function test_pushes_settings_once_before_writing(): void {
-		$this->set_up_governing_site();
-		$this->mock_algolia_http_client( $this->paths, null, null, $this->requests );
-
-		$post    = self::factory()->post->create_and_get();
-		$indexer = new Indexer();
-		$indexer->save_post( $post );
-		$indexer->delete_posts( [ $post->ID ] );
-
-		$this->assertSame(
-			[
-				// Read, and then pushed, since the mock's settings don't match.
-				self::INDEX_PATH . '/settings',
-				self::INDEX_PATH . '/settings',
-				self::INDEX_PATH . '/batch',
-				// Chunks beyond the new count.
-				self::INDEX_PATH . '/deleteByQuery',
-				self::INDEX_PATH . '/deleteByQuery',
-			],
-			$this->paths,
-			'Writes should not poll tasks or read the saved chunks back.'
-		);
-		$this->assertSame( Post_Record::get_index_settings(), json_decode( $this->requests[1]['body'], true ) );
-	}
-
-	/**
-	 * Unchanged index settings aren't pushed again, since that can rebuild the whole index.
-	 */
-	public function test_skips_pushing_unchanged_settings(): void {
-		$this->set_up_governing_site();
-		$this->mock_algolia_http_client(
-			$this->paths,
-			// Algolia returns every setting, and may normalize the values we sent.
-			static fn ( string $path ): string => str_ends_with( $path, '/settings' )
-				? (string) wp_json_encode( [ 'distinct' => 1 ] + Post_Record::get_index_settings() + [ 'hitsPerPage' => 20 ] )
-				: '{"taskID":1,"status":"published"}'
-		);
-
-		( new Indexer() )->save_post( self::factory()->post->create_and_get() );
-
-		$this->assertSame(
-			[ self::INDEX_PATH . '/settings', self::INDEX_PATH . '/batch', self::INDEX_PATH . '/deleteByQuery' ],
-			$this->paths
-		);
-	}
-
-	/**
-	 * Chunks left over from when a post was longer are deleted after it's saved, without reading them back first.
-	 */
-	public function test_save_post_deletes_stale_chunks(): void {
-		$this->set_up_governing_site();
-		$this->mock_algolia_http_client( $this->paths, null, null, $this->requests );
-
-		$post         = self::factory()->post->create_and_get( [ 'post_content' => 'Short.' ] );
-		$site_post_id = ( new Post_Record() )->get_site_post_id( $post->ID );
-
-		$this->assertTrue( ( new Indexer() )->save_post( $post ) );
-		$this->assertSame( [ sprintf( 'site_post_id:"%s" AND chunk_index >= 1', $site_post_id ) ], $this->get_delete_filters() );
-		$this->assertNotContains( self::INDEX_PATH . '/query', $this->paths );
-	}
-
-	/**
-	 * A post whose shared data leaves no room for content can't be saved, and its existing records are left alone.
-	 */
-	public function test_save_post_keeps_the_records_of_a_post_too_big_to_index(): void {
-		$this->set_up_governing_site();
-		$this->mock_algolia_http_client( $this->paths, null, null, $this->requests );
-		add_filter( 'onesearch_algolia_record_size_limit', static fn (): int => 10 );
-
-		$result = ( new Indexer() )->save_post( self::factory()->post->create_and_get() );
-
-		$this->assertWPError( $result );
-		$this->assertSame( 'onesearch_post_too_big', $result->get_error_code() );
-		$this->assertSame( [], $this->get_delete_filters() );
-	}
-
-	/**
-	 * Posts' records are deleted by the `site_post_id` they were saved with.
-	 */
-	public function test_delete_posts(): void {
-		$this->set_up_governing_site();
-		$this->mock_algolia_http_client( $this->paths, null, null, $this->requests );
-
-		$post_record = new Post_Record();
-
-		$this->assertTrue( ( new Indexer() )->delete_posts( [ 42, 43 ] ) );
-		$this->assertSame(
-			[ sprintf( 'site_post_id:"%s" OR site_post_id:"%s"', $post_record->get_site_post_id( 42 ), $post_record->get_site_post_id( 43 ) ) ],
-			$this->get_delete_filters()
-		);
-	}
-
-	/**
-	 * Deleting no posts sends nothing to Algolia.
-	 */
-	public function test_delete_posts_without_posts(): void {
-		$this->set_up_governing_site();
-		$this->mock_algolia_http_client( $this->paths );
-
-		$this->assertTrue( ( new Indexer() )->delete_posts( [] ) );
-		$this->assertSame( [], $this->paths );
-	}
-
-	/**
-	 * Sites' records are deleted by their normalized URLs.
-	 */
-	public function test_delete_site_records(): void {
-		$this->set_up_governing_site();
-		$this->mock_algolia_http_client( $this->paths, null, null, $this->requests );
-
-		$this->assertTrue( ( new Indexer() )->delete_site_records( [ 'https://a.example.com', 'https://b.example.com/' ] ) );
-		$this->assertSame(
-			[ 'site_url:"https://a.example.com/" OR site_url:"https://b.example.com/"' ],
-			$this->get_delete_filters()
-		);
-	}
-
-	/**
-	 * Deleting doesn't touch the index settings, which would create the index if it's missing.
-	 */
-	public function test_deleting_does_not_push_settings(): void {
-		$this->set_up_governing_site();
-		$this->mock_algolia_http_client( $this->paths );
-
-		$indexer = new Indexer();
-		$indexer->delete_posts( [ 42 ] );
-		$indexer->delete_site_records( [ 'https://a.example.com/' ] );
-
-		$this->assertSame( [], array_filter( $this->paths, static fn ( string $path ): bool => str_ends_with( $path, '/settings' ) ) );
-	}
-
-	/**
-	 * Deleting no sites' records doesn't call Algolia.
-	 */
-	public function test_delete_site_records_without_sites(): void {
-		$this->set_up_governing_site();
-		$this->mock_algolia_http_client( $this->paths );
-
-		$this->assertTrue( ( new Indexer() )->delete_site_records( [] ) );
-		$this->assertSame( [], $this->paths );
-	}
-
-	/**
-	 * Deletes the whole index.
-	 */
-	public function test_delete_index(): void {
-		$this->set_up_governing_site();
-		$this->mock_algolia_http_client( $this->paths );
-
-		$this->assertTrue( ( new Indexer() )->delete_index() );
-		$this->assertSame( [ self::INDEX_PATH, self::INDEX_PATH . '/task/1' ], $this->paths );
-	}
-
-	/**
-	 * Fetches every record of the posts, in batches, grouped by post.
-	 */
-	public function test_get_post_records(): void {
-		$this->set_up_governing_site();
-
-		$hits = [
-			[
-				'site_post_id' => 'site_1',
-				'chunk_index'  => 1,
-			],
-			[
-				'site_post_id' => 'site_2',
-				'chunk_index'  => 0,
-			],
-			[
-				'site_post_id' => 'site_1',
-				'chunk_index'  => 0,
-			],
-		];
-		$this->mock_algolia_http_client(
-			$this->paths,
-			static fn (): string => (string) wp_json_encode( [ 'hits' => $hits ] ),
-			null,
-			$this->requests
-		);
-
-		$site_post_ids = array_map( static fn ( int $i ): string => 'site_' . $i, range( 1, 21 ) );
-		$records       = ( new Indexer() )->get_post_records( $site_post_ids );
-
-		$this->assertSame(
-			[
-				'site_1' => [ $hits[0], $hits[2], $hits[0], $hits[2] ],
-				'site_2' => [ $hits[1], $hits[1] ],
-			],
-			$records
-		);
-
-		$queries = array_map( static fn ( array $request ): array => json_decode( $request['body'], true ), $this->requests );
-
-		$this->assertCount( 2, $queries, 'The posts should be fetched in batches of 20.' );
-		$this->assertSame( Indexer::filter_any_of( 'site_post_id', array_slice( $site_post_ids, 0, 20 ) ), $queries[0]['filters'] );
-		$this->assertSame( 'site_post_id:"site_21"', $queries[1]['filters'] );
-		$this->assertFalse( $queries[0]['distinct'] );
-	}
-
-	/**
-	 * Failing to fetch the records returns an error.
-	 */
-	public function test_get_post_records_returns_error_when_request_fails(): void {
-		$this->set_up_governing_site();
-		$this->mock_algolia_http_client( $this->paths, null, '/query' );
-
-		$this->assertWPError( ( new Indexer() )->get_post_records( [ 'site_1' ] ) );
-	}
-
-	/**
-	 * Reindexing replaces the site's records with its indexable posts.
-	 */
-	public function test_reindex(): void {
+	public function test_indexing_replaces_the_site_records_in_the_background(): void {
 		$this->set_up_governing_site( [ 'page' ] );
-		$page_id = self::factory()->post->create( [ 'post_type' => 'page' ] );
+		$page_ids = self::factory()->post->create_many( 101, [ 'post_type' => 'page' ] );
 		self::factory()->post->create( [ 'post_type' => 'post' ] );
 
-		$this->mock_algolia_http_client( $this->paths, null, null, $this->requests );
+		$this->fake_algolia_index();
+		$this->add_old_records();
 
-		$this->assertTrue( ( new Indexer() )->reindex() );
-		$this->assertSame( self::INDEX_PATH . '/settings', $this->paths[0], 'The index should be set up before anything else.' );
-		$this->assertSame(
-			[ sprintf( 'site_url:"%s"', Utils::get_current_site_url() ) ],
-			$this->get_delete_filters()
-		);
-		$this->assertSame( [ ( new Post_Record() )->get_site_post_id( $page_id ) ], $this->get_saved_site_post_ids() );
+		$this->assertTrue( Indexer::start() );
+		$this->assertSame( [], $this->paths, 'Nothing is sent to Algolia until the jobs run.' );
+		$this->assertSame( Progress::STATUS_QUEUED, Indexer::get_all_progress()[ Utils::get_current_site_url() ]['status'] );
+
+		$this->run_next_job();
+
+		$this->assertArrayHasKey( 'gone_post_0', $this->records, 'The old records are still there while indexing runs.' );
+		$this->assertCount( 100, $this->get_fresh_site_post_ids() );
+
+		$this->run_jobs();
+
+		$this->assertEqualsCanonicalizing( $this->site_post_ids( ...$page_ids ), $this->get_fresh_site_post_ids() );
+		$this->assertArrayNotHasKey( 'gone_post_0', $this->records );
+		$this->assertArrayHasKey( 'other_site_post_0', $this->records, "Other sites' records are left alone." );
+
+		$progress = Indexer::get_all_progress()[ Utils::get_current_site_url() ];
+		$this->assertSame( Progress::STATUS_COMPLETED, $progress['status'] );
+		$this->assertSame( 101, $progress['total'] );
+		$this->assertSame( 101, $progress['done'] );
+		$this->assertSame( [], $progress['errors'] );
 	}
 
 	/**
-	 * Re-indexing waits until the site's old records are deleted before it saves the new ones, and keeps checking while the delete is pending.
+	 * Posts that leave the index while indexing runs don't make it skip the posts after them.
 	 */
-	public function test_reindex_waits_for_the_old_records_to_be_deleted(): void {
+	public function test_posts_removed_during_indexing_dont_skip_others(): void {
 		$this->set_up_governing_site();
-		self::factory()->post->create();
+		$post_ids = self::factory()->post->create_many( 110 );
 
-		$task_checks = 0;
+		$this->fake_algolia_index();
+
+		Indexer::start();
+		$this->run_next_job();
+
+		// Unpublish posts the first batch already indexed.
+		foreach ( array_slice( $post_ids, 0, 10 ) as $post_id ) {
+			wp_update_post(
+				[
+					'ID'          => $post_id,
+					'post_status' => 'draft',
+				]
+			);
+		}
+
+		$this->run_jobs();
+
+		$this->assertEmpty( array_diff( $this->site_post_ids( ...array_slice( $post_ids, 100 ) ), $this->get_fresh_site_post_ids() ) );
+	}
+
+	/**
+	 * A batch that fails to save doesn't stop the others, and the indexing run fails with Algolia's reason.
+	 */
+	public function test_a_failed_batch_fails_the_indexing_run(): void {
+		$this->set_up_governing_site();
+		$post_id = self::factory()->post->create();
+
+		$this->fake_algolia_index( '/batch' );
+		$this->add_old_records();
+
+		Indexer::start();
+		$this->run_jobs();
+
+		$progress = Indexer::get_all_progress()[ Utils::get_current_site_url() ];
+		$this->assertSame( Progress::STATUS_FAILED, $progress['status'] );
+		$this->assertSame( 1, $progress['done'] );
+		$this->assertSame( 1, $progress['failed'] );
+		$this->assertSame( [ sprintf( 'Post IDs %1$d to %1$d: Failed to save records to Algolia index. forced test exception', $post_id ) ], $progress['errors'] );
+		$this->assertArrayHasKey( 'gone_post_0', $this->records, 'A failed run deletes nothing.' );
+	}
+
+	/**
+	 * A batch that fails on every Algolia host doesn't fail the batches after it.
+	 */
+	public function test_a_failed_batch_does_not_fail_the_next_ones(): void {
+		$this->set_up_governing_site();
+		self::factory()->post->create_many( 201 );
+
+		$algolia = (object) [ 'fails' => false ];
 		$this->mock_algolia_http_client(
 			$this->paths,
-			static function ( string $path ) use ( &$task_checks ): string {
-				if ( ! str_contains( $path, '/task/' ) ) {
-					return '{"taskID":1}';
+			static function ( string $path ) use ( $algolia ): string {
+				// What the client throws when it can't reach a host, which it then skips.
+				if ( $algolia->fails && str_contains( $path, '/batch' ) ) {
+					throw new \OneSearch\Vendor\Algolia\AlgoliaSearch\Exceptions\RetriableException( 'Unreachable Host' );
 				}
 
-				// Published on the second check.
-				++$task_checks;
-				return 1 === $task_checks ? '{"status":"notPublished"}' : '{"status":"published"}';
+				return str_contains( $path, '/task/' ) ? '{"status":"published","pendingTask":false}' : '{"taskID":1,"updatedAt":"2024-01-01T00:00:00.000Z"}';
 			}
 		);
 
-		$this->assertTrue( ( new Indexer() )->reindex() );
-
-		$delete = array_search( self::INDEX_PATH . '/deleteByQuery', $this->paths, true );
-		$this->assertIsInt( $delete );
-		$this->assertSame(
-			[ self::INDEX_PATH . '/deleteByQuery', self::INDEX_PATH . '/task/1', self::INDEX_PATH . '/task/1', self::INDEX_PATH . '/batch' ],
-			array_slice( $this->paths, $delete, 4 )
+		// Only the second batch fails.
+		add_action(
+			'action_scheduler_after_execute',
+			static function () use ( $algolia ): void {
+				$algolia->fails = true;
+			}
 		);
+		add_action(
+			'action_scheduler_failed_execution',
+			static function () use ( $algolia ): void {
+				$algolia->fails = false;
+			}
+		);
+
+		Indexer::start();
+		$this->run_jobs();
+
+		$progress = Indexer::get_all_progress()[ Utils::get_current_site_url() ];
+		$this->assertSame( 201, $progress['done'] );
+		$this->assertSame( 100, $progress['failed'] );
+		$this->assertCount( 1, $progress['errors'] );
 	}
 
 	/**
-	 * Reindexing leaves out password-protected posts, and media attached to a post that isn't public.
+	 * An indexing run fails when its stale records can't be deleted, and keeps the records it saved.
 	 */
-	public function test_reindex_leaves_out_protected_posts_and_their_media(): void {
-		$this->set_up_governing_site( [ 'post', 'attachment' ] );
-		$public    = self::factory()->post->create();
-		$protected = self::factory()->post->create( [ 'post_password' => 'secret' ] );
-		$draft     = self::factory()->post->create( [ 'post_status' => 'draft' ] );
+	public function test_indexing_fails_when_the_stale_records_cannot_be_deleted(): void {
+		$this->set_up_governing_site();
+		$post_id = self::factory()->post->create();
 
-		$public_media    = self::factory()->attachment->create( [ 'post_parent' => $public ] );
-		$unattached      = self::factory()->attachment->create( [ 'post_parent' => 0 ] );
-		$protected_media = self::factory()->attachment->create( [ 'post_parent' => $protected ] );
-		$draft_media     = self::factory()->attachment->create( [ 'post_parent' => $draft ] );
+		$this->fake_algolia_index( '/deleteByQuery' );
 
-		$this->mock_algolia_http_client( $this->paths, null, null, $this->requests );
+		Indexer::start();
+		$this->run_jobs();
 
-		$this->assertTrue( ( new Indexer() )->reindex() );
-
-		$saved = $this->get_saved_site_post_ids();
-		$ids   = static fn ( int ...$post_ids ): array => array_map( [ new Post_Record(), 'get_site_post_id' ], $post_ids );
-
-		$this->assertEqualsCanonicalizing( $ids( $public, $public_media, $unattached ), $saved );
-		$this->assertSame( [], array_intersect( $ids( $protected, $protected_media, $draft_media ), $saved ) );
+		$this->assertSame( $this->site_post_ids( $post_id ), $this->get_fresh_site_post_ids() );
+		$this->assertSame( Progress::STATUS_FAILED, Indexer::get_all_progress()[ Utils::get_current_site_url() ]['status'] );
 	}
 
 	/**
-	 * Reindexing reports batches that failed to save.
+	 * Starting indexing again replaces the run that's going, whose batches then stop.
 	 */
-	public function test_reindex_returns_error_when_a_batch_fails(): void {
+	public function test_starting_again_replaces_the_run_that_is_going(): void {
 		$this->set_up_governing_site();
 		self::factory()->post->create();
 
-		$this->mock_algolia_http_client( $this->paths, null, '/batch' );
+		$this->fake_algolia_index();
 
-		$result = ( new Indexer() )->reindex();
+		Indexer::start();
+		$replaced = Indexer::get_all_progress()[ Utils::get_current_site_url() ];
+		Indexer::start();
 
-		$this->assertWPError( $result );
-		$this->assertSame( 'onesearch_algolia_save_records_failed', $result->get_error_code() );
+		// A batch of the replaced run that was already running.
+		( new Indexer() )->run_batch( $replaced['id'], 0 );
+		$this->assertSame( [], $this->paths );
+
+		$this->run_jobs();
+
+		$progress = Indexer::get_all_progress()[ Utils::get_current_site_url() ];
+		$this->assertNotSame( $replaced['id'], $progress['id'] );
+		$this->assertSame( Progress::STATUS_COMPLETED, $progress['status'] );
+		$this->assertSame( 1, $progress['done'] );
 	}
 
 	/**
-	 * Mocks Algolia to grant the API key the given permissions.
-	 *
-	 * @param string[] $acl The granted permissions.
+	 * An indexing run whose next batch was cancelled under Tools > Scheduled Actions fails, and says so. A batch that failed before it isn't taken for the reason.
 	 */
-	private function mock_api_key_acl( array $acl ): void {
-		$this->mock_algolia_http_client(
-			$this->paths,
-			static fn (): string => (string) wp_json_encode( [ 'acl' => $acl ] )
+	public function test_a_run_whose_batch_was_cancelled_fails(): void {
+		$this->set_up_governing_site();
+		$post_ids = self::factory()->post->create_many( 101 );
+		$this->fake_algolia_index( '/batch' );
+
+		Indexer::start();
+		$this->run_next_job();
+		( new Queue() )->cancel( Indexer::BATCH_HOOK );
+
+		$progress = Indexer::get_all_progress()[ Utils::get_current_site_url() ];
+		$this->assertSame( Progress::STATUS_FAILED, $progress['status'] );
+		$this->assertSame(
+			[
+				sprintf( 'Post IDs %d to %d: Failed to save records to Algolia index. forced test exception', $post_ids[0], $post_ids[99] ),
+				'Indexing was cancelled.',
+			],
+			$progress['errors']
 		);
 	}
 
 	/**
-	 * Collects the `filters` of every deleteByQuery request.
-	 *
-	 * @return string[]
+	 * An indexing run whose next batch is gone without a trace, e.g. deleted under Tools > Scheduled Actions, fails.
 	 */
-	private function get_delete_filters(): array {
-		$filters = [];
+	public function test_a_run_without_a_batch_left_is_reported_as_failed(): void {
+		$this->set_up_governing_site();
 
-		foreach ( $this->requests as $request ) {
-			if ( str_contains( $request['path'], '/deleteByQuery' ) ) {
-				$filters[] = (string) json_decode( $request['body'], true )['filters'];
-			}
-		}
+		Indexer::start();
+		\ActionScheduler::store()->delete_action( (string) \ActionScheduler::store()->find_action( Indexer::BATCH_HOOK ) );
 
-		return $filters;
+		$progress = Indexer::get_all_progress()[ Utils::get_current_site_url() ];
+		$this->assertSame( Progress::STATUS_FAILED, $progress['status'] );
+		$this->assertSame( [], $progress['errors'] );
 	}
 
 	/**
-	 * Collects the unique `site_post_id` of every saved record.
-	 *
-	 * @return string[]
+	 * An indexing run whose batch PHP stopped with a fatal error fails with that error.
 	 */
-	private function get_saved_site_post_ids(): array {
-		$ids = [];
+	public function test_a_run_stopped_by_a_fatal_error_fails_with_it(): void {
+		$this->set_up_governing_site();
+		self::factory()->post->create_many( 101 );
+		$this->fake_algolia_index();
 
-		foreach ( $this->requests as $request ) {
-			if ( ! str_contains( $request['path'], '/batch' ) ) {
-				continue;
-			}
+		Indexer::start();
+		$this->run_next_job();
 
-			foreach ( json_decode( $request['body'], true )['requests'] as $operation ) {
-				$ids[] = (string) $operation['body']['site_post_id'];
-			}
-		}
+		$batch_id = (int) \ActionScheduler::store()->find_action( Indexer::BATCH_HOOK, [ 'status' => \ActionScheduler_Store::STATUS_PENDING ] );
+		$this->fail_job_with_fatal_error( $batch_id, 'Allowed memory size exhausted' );
 
-		return array_values( array_unique( $ids ) );
+		$progress = Indexer::get_all_progress()[ Utils::get_current_site_url() ];
+		$this->assertSame( Progress::STATUS_FAILED, $progress['status'] );
+		$this->assertSame( 100, $progress['done'] );
+		$this->assertSame( [ 'Indexing stopped: unexpected shutdown: PHP Fatal error Allowed memory size exhausted in render.php on line 3' ], $progress['errors'] );
 	}
 
 	/**
-	 * Configures the current site as a governing site with credentials and indexable entities.
-	 *
-	 * @param string[] $entities The indexable post types.
+	 * A governing site tells each brand site to re-index itself in the background, and a brand site it can't reach fails with the reason.
 	 */
-	private function set_up_governing_site( array $entities = [ 'post' ] ): void {
-		// Name the index after a known host, since the test site's URL depends on the environment.
-		add_filter( 'option_home', static fn (): string => 'https://governing.example.org', 11 );
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-		Search_Settings::set_algolia_credentials(
+	public function test_governing_site_reindexes_its_brand_sites(): void {
+		$this->set_up_governing_site();
+		Settings::set_shared_sites(
 			[
-				'app_id'    => 'test-app',
-				'write_key' => 'test-key',
-			]
-		);
-		update_option(
-			Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES,
-			[
-				'entities' => [
-					Utils::get_current_site_url() => $entities,
+				[
+					'name'    => 'Brand A',
+					'url'     => 'https://brand-a.example.com/',
+					'api_key' => 'key-a',
+				],
+				[
+					'name'    => 'Brand B',
+					'url'     => 'https://brand-b.example.com/',
+					'api_key' => 'key-b',
 				],
 			]
 		);
+
+		$this->fake_algolia_index();
+
+		$sent = [];
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, array $args, string $url ) use ( &$sent ) {
+				if ( ! str_ends_with( $url, '/indexer' ) ) {
+					return $preempt;
+				}
+
+				$sent[] = [ $args['method'], $url, $args['headers']['X-OneSearch-Token'] ];
+
+				return str_contains( $url, 'brand-b' )
+					? new \WP_Error( 'http_request_failed', 'cURL error 7' )
+					: [
+						'response' => [
+							'code'    => 200,
+							'message' => 'OK',
+						],
+						'body'     => '{}',
+					];
+			},
+			10,
+			3
+		);
+
+		Indexer::start();
+
+		$all_progress = Indexer::get_all_progress();
+		$this->assertSame( [ Utils::get_current_site_url(), 'https://brand-a.example.com/', 'https://brand-b.example.com/' ], array_keys( $all_progress ) );
+		$this->assertSame( Progress::STATUS_QUEUED, $all_progress['https://brand-a.example.com/']['status'] );
+		$this->assertSame( [], $sent, 'The brand sites are told in the background.' );
+
+		$this->run_jobs();
+
+		$this->assertEqualsCanonicalizing(
+			[
+				[ 'POST', 'https://brand-a.example.com/wp-json/onesearch/v1/indexer', 'key-a' ],
+				[ 'POST', 'https://brand-b.example.com/wp-json/onesearch/v1/indexer', 'key-b' ],
+			],
+			$sent
+		);
+
+		$all_progress = Indexer::get_all_progress();
+		$this->assertSame( Progress::STATUS_COMPLETED, $all_progress[ Utils::get_current_site_url() ]['status'] );
+		// Brand A has started, and is asked for its progress as it runs.
+		$this->assertTrue( Progress::is_active( $all_progress['https://brand-a.example.com/'] ) );
+		$this->assertSame( [], $all_progress['https://brand-a.example.com/']['errors'] );
+		$this->assertSame( Progress::STATUS_FAILED, $all_progress['https://brand-b.example.com/']['status'] );
+		$this->assertSame( [ 'cURL error 7' ], $all_progress['https://brand-b.example.com/']['errors'] );
 	}
 
 	/**
-	 * Configures the current site as a brand site with a cached brand config.
-	 *
-	 * @param string[] $entities The indexable post types.
+	 * A brand site indexes with the governing site's latest config.
 	 */
-	private function set_up_brand_site( array $entities = [ 'post' ] ): void {
+	public function test_brand_site_indexes_with_the_governing_sites_latest_config(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
-		update_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL, 'https://governing.example.com' );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
 
-		$method = new \ReflectionMethod( Remote_Client::class, 'set_brand_config_cache' );
-		$method->invoke(
-			null,
-			[
-				'algolia_credentials' => [
-					'app_id'    => 'test-app',
-					'write_key' => 'test-key',
+		// An outdated config, from before the governing site chose to index posts.
+		set_transient( Remote_Client::TRANSIENT_KEY, [ 'indexable_entities' => [] ], HOUR_IN_SECONDS );
+
+		$post_id = self::factory()->post->create();
+		$this->fake_algolia_index();
+
+		add_filter(
+			'pre_http_request',
+			static fn () => [
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
 				],
-				'search_settings'     => [
-					'algolia_enabled'  => true,
-					'searchable_sites' => [],
-				],
-				'indexable_entities'  => $entities,
-				'available_sites'     => [],
+				'body'     => wp_json_encode(
+					[
+						'algolia_credentials' => [
+							'app_id'    => 'test-app',
+							'write_key' => 'test-key',
+						],
+						'indexable_entities'  => [ 'post' ],
+					]
+				),
 			]
 		);
+
+		Indexer::start();
+		$this->run_jobs();
+
+		$this->assertSame( $this->site_post_ids( $post_id ), $this->get_fresh_site_post_ids() );
+		$this->assertSame( Progress::STATUS_COMPLETED, Indexer::get_all_progress()[ Utils::get_current_site_url() ]['status'] );
+	}
+
+	/**
+	 * While a brand site indexes, the governing site shows the progress the brand site gives when asked.
+	 */
+	public function test_governing_site_shows_the_progress_of_a_brand_site_that_runs(): void {
+		$brand = $this->add_running_brand_site_a();
+
+		Indexer::start();
+		$this->run_jobs();
+
+		Indexer::get_all_progress();
+		$this->run_jobs();
+
+		$this->assertSame( $brand->progress, Indexer::get_all_progress()['https://brand-a.example.com/'] );
+
+		$brand->progress['status'] = Progress::STATUS_COMPLETED;
+		$brand->progress['done']   = 10;
+
+		Indexer::get_all_progress();
+		$this->run_jobs();
+
+		$this->assertSame( $brand->progress, Indexer::get_all_progress()['https://brand-a.example.com/'] );
+	}
+
+	/**
+	 * A brand site whose run was cut short shows as failed, with the reason the brand site gives.
+	 */
+	public function test_a_brand_site_whose_run_was_cut_short_shows_as_failed(): void {
+		$brand = $this->add_running_brand_site_a();
+
+		Indexer::start();
+		$this->run_jobs();
+
+		$brand->progress['status'] = Progress::STATUS_FAILED;
+		$brand->progress['errors'] = [ 'Indexing was cancelled.' ];
+
+		Indexer::get_all_progress();
+		$this->run_jobs();
+
+		$reported = Indexer::get_all_progress()['https://brand-a.example.com/'];
+		$this->assertSame( Progress::STATUS_FAILED, $reported['status'] );
+		$this->assertSame( [ 'Indexing was cancelled.' ], $reported['errors'] );
+	}
+
+	/**
+	 * A brand site that couldn't be reached is asked again on the next check, and shows its progress once it answers.
+	 */
+	public function test_a_brand_site_that_could_not_be_reached_is_asked_again(): void {
+		$brand = $this->add_running_brand_site_a();
+
+		Indexer::start();
+		$this->run_jobs();
+
+		$progress        = $brand->progress;
+		$brand->progress = null;
+
+		Indexer::get_all_progress();
+		$this->run_jobs();
+
+		$brand->progress = $progress;
+
+		Indexer::get_all_progress();
+		$this->run_jobs();
+
+		$this->assertSame( $progress, Indexer::get_all_progress()['https://brand-a.example.com/'] );
+	}
+
+	/**
+	 * Indexing that starts again while a brand site is asked for its progress isn't replaced by the answer about the run before.
+	 */
+	public function test_starting_again_while_a_brand_site_is_asked_keeps_the_new_run(): void {
+		$brand = $this->add_running_brand_site_a();
+
+		Indexer::start();
+		$this->run_jobs();
+
+		// The admin starts indexing again while the brand site finishes the run before.
+		$asked = (object) [ 'count' => 0 ];
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, array $args, string $url ) use ( $asked, $brand ) {
+				if ( 'GET' === $args['method'] && str_starts_with( $url, 'https://brand-a.example.com/' ) && 0 === $asked->count++ ) {
+					Indexer::start();
+					$brand->progress['status'] = Progress::STATUS_COMPLETED;
+				}
+
+				return $preempt;
+			},
+			9,
+			3
+		);
+
+		Indexer::get_all_progress();
+		$this->run_jobs();
+
+		$reported = Indexer::get_all_progress()['https://brand-a.example.com/'];
+		$this->assertSame( Progress::STATUS_QUEUED, $reported['status'] );
+		$this->assertNotSame( $brand->progress['id'], $reported['id'] );
+	}
+
+	/**
+	 * A brand site that's removed from the governing site loses its stored progress.
+	 */
+	public function test_removing_a_brand_site_deletes_its_progress(): void {
+		$this->add_brand_site_a();
+		( new Search_Settings() )->register_hooks();
+
+		Indexer::start();
+		$this->assertNotNull( Indexer::get_all_progress()['https://brand-a.example.com/'] );
+
+		Settings::remove_shared_site( 'https://brand-a.example.com/' );
+		$this->add_brand_site_a();
+
+		$this->assertNull( Indexer::get_all_progress()['https://brand-a.example.com/'] );
+	}
+
+	/**
+	 * Makes this site a governing site with one brand site.
+	 */
+	private function add_brand_site_a(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Brand A',
+					'url'     => 'https://brand-a.example.com/',
+					'api_key' => 'key-a',
+				],
+			]
+		);
+	}
+
+	/**
+	 * Makes this site a governing site with one brand site, which takes the request to start indexing, and answers with `$brand->progress` when asked for its progress, or fails when it's null.
+	 *
+	 * @return object{progress: ?array<string, mixed>}
+	 */
+	private function add_running_brand_site_a(): object {
+		$this->set_up_governing_site();
+		$this->add_brand_site_a();
+		$this->fake_algolia_index();
+
+		$brand = (object) [
+			'progress' => [
+				'id'         => 'brand-run',
+				'status'     => Progress::STATUS_RUNNING,
+				'total'      => 10,
+				'done'       => 5,
+				'failed'     => 0,
+				'errors'     => [],
+				'started_at' => time(),
+			],
+		];
+
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, array $args, string $url ) use ( $brand ) {
+				if ( 'https://brand-a.example.com/wp-json/onesearch/v1/indexer' !== $url || 'key-a' !== $args['headers']['X-OneSearch-Token'] ) {
+					return $preempt;
+				}
+
+				if ( 'GET' === $args['method'] && null === $brand->progress ) {
+					return new \WP_Error( 'http_request_failed', 'cURL error 7' );
+				}
+
+				return [
+					'response' => [
+						'code'    => 200,
+						'message' => 'OK',
+					],
+					'body'     => 'GET' === $args['method'] ? wp_json_encode( [ 'sites' => [ 'https://brand-a.example.com/' => $brand->progress ] ] ) : '{}',
+				];
+			},
+			10,
+			3
+		);
+
+		return $brand;
+	}
+
+	/**
+	 * Runs the job that's next in the queue.
+	 */
+	private function run_next_job(): void {
+		$action_ids = as_get_scheduled_actions(
+			[
+				'group'    => 'onesearch',
+				'status'   => \ActionScheduler_Store::STATUS_PENDING,
+				'per_page' => 1,
+			],
+			'ids'
+		);
+
+		\ActionScheduler::runner()->process_action( (int) reset( $action_ids ), 'PHPUnit' );
+	}
+
+	/**
+	 * Fakes an Algolia index that keeps its records in `$this->records`, and understands the filters the plugin deletes by.
+	 *
+	 * @param ?string $fail_path A path segment whose requests fail.
+	 */
+	private function fake_algolia_index( ?string $fail_path = null ): void {
+		$records = &$this->records;
+		$paths   = &$this->paths;
+
+		$http_client = new class( $records, $paths, $fail_path ) implements \OneSearch\Vendor\Algolia\AlgoliaSearch\Http\HttpClientInterface {
+			/** @var array<string, array<string, mixed>> */
+			private array $records;
+
+			/** @var array<int, string> */
+			private array $paths;
+
+			/** @var ?string */
+			private ?string $fail_path;
+
+			/**
+			 * @param array<string, array<string, mixed>> $records   The records.
+			 * @param array<int, string>                  $paths     The request paths.
+			 * @param ?string                             $fail_path A path segment whose requests fail.
+			 */
+			public function __construct( array &$records, array &$paths, ?string $fail_path ) {
+				$this->records   = &$records;
+				$this->paths     = &$paths;
+				$this->fail_path = $fail_path;
+			}
+
+			/**
+			 * {@inheritDoc}
+			 *
+			 * @param \OneSearch\Vendor\Psr\Http\Message\RequestInterface $request         The PSR-7 request.
+			 * @param mixed                                               $timeout         Request timeout.
+			 * @param mixed                                               $connect_timeout Connection timeout.
+			 * @throws \RuntimeException When the request should fail.
+			 */
+			public function sendRequest( \OneSearch\Vendor\Psr\Http\Message\RequestInterface $request, mixed $timeout, mixed $connect_timeout ): \OneSearch\Vendor\Psr\Http\Message\ResponseInterface { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+				$path          = $request->getUri()->getPath();
+				$body          = json_decode( (string) $request->getBody(), true );
+				$this->paths[] = $path;
+
+				if ( null !== $this->fail_path && str_contains( $path, $this->fail_path ) ) {
+					throw new \RuntimeException( 'forced test exception' );
+				}
+
+				if ( str_ends_with( $path, '/batch' ) ) {
+					foreach ( $body['requests'] as $operation ) {
+						$this->records[ $operation['body']['objectID'] ] = $operation['body'];
+					}
+				} elseif ( str_ends_with( $path, '/deleteByQuery' ) ) {
+					$this->records = array_filter( $this->records, fn ( array $record ): bool => ! $this->matches( $record, $body['filters'] ) );
+				}
+
+				$response = str_contains( $path, '/task/' ) ? '{"status":"published"}' : '{"taskID":1}';
+
+				// @phpstan-ignore return.type
+				return new \OneSearch\Vendor\Algolia\AlgoliaSearch\Http\Psr7\Response( 200, [], $response );
+			}
+
+			/**
+			 * Whether a record matches a filter of `attribute:"value"` and `attribute < number` terms, joined with OR inside AND.
+			 *
+			 * @param array<string, mixed> $record  The record.
+			 * @param string               $filters The filter.
+			 */
+			private function matches( array $record, string $filters ): bool {
+				foreach ( explode( ' AND ', $filters ) as $clause ) {
+					$any = false;
+
+					foreach ( explode( ' OR ', $clause ) as $term ) {
+						if ( preg_match( '/^(\w+):"(.*)"$/', $term, $m ) ) {
+							$any = $any || (string) ( $record[ $m[1] ] ?? '' ) === stripslashes( $m[2] );
+						} elseif ( preg_match( '/^(\w+) (<|>=) (\d+)$/', $term, $m ) && isset( $record[ $m[1] ] ) ) {
+							$any = $any || ( '<' === $m[2] ? $record[ $m[1] ] < (int) $m[3] : $record[ $m[1] ] >= (int) $m[3] );
+						}
+					}
+
+					if ( ! $any ) {
+						return false;
+					}
+				}
+
+				return true;
+			}
+		};
+
+		add_filter( 'onesearch_algolia_http_client', static fn () => $http_client );
+	}
+
+	/**
+	 * Adds records saved before indexing: one of a post that left the site's index, and one of another site.
+	 */
+	private function add_old_records(): void {
+		$this->records['gone_post_0']       = [
+			'objectID'   => 'gone_post_0',
+			'site_url'   => Utils::get_current_site_url(),
+			'indexed_at' => time() - HOUR_IN_SECONDS,
+		];
+		$this->records['other_site_post_0'] = [
+			'objectID'   => 'other_site_post_0',
+			'site_url'   => 'https://other.example.com/',
+			'indexed_at' => time() - HOUR_IN_SECONDS,
+		];
+	}
+
+	/**
+	 * Gets the `site_post_id`s of the site's records in the fake index that the latest indexing run saved.
+	 *
+	 * @return string[]
+	 */
+	private function get_fresh_site_post_ids(): array {
+		$started_at = Indexer::get_all_progress()[ Utils::get_current_site_url() ]['started_at'];
+		$fresh      = array_filter( $this->records, static fn ( array $record ): bool => isset( $record['site_post_id'] ) && $record['indexed_at'] >= $started_at );
+
+		return array_values( array_unique( array_column( $fresh, 'site_post_id' ) ) );
+	}
+
+	/**
+	 * Gets the `site_post_id`s of the given posts.
+	 *
+	 * @param int ...$post_ids The post IDs.
+	 *
+	 * @return string[]
+	 */
+	private function site_post_ids( int ...$post_ids ): array {
+		return array_map( [ new Post_Record(), 'get_site_post_id' ], $post_ids );
 	}
 }

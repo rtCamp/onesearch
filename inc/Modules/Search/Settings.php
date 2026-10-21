@@ -201,7 +201,7 @@ final class Settings implements Registrable {
 			return;
 		}
 
-		( new Indexer() )->delete_index();
+		( new Search_Index() )->delete_index();
 	}
 
 	/**
@@ -236,7 +236,11 @@ final class Settings implements Registrable {
 
 		$removed_sites = array_values( $removed_sites );
 
-		$is_deleted = ( new Indexer() )->delete_site_records( $removed_sites );
+		foreach ( $removed_sites as $site_url ) {
+			Indexer::delete_brand_progress( $site_url );
+		}
+
+		$is_deleted = ( new Search_Index() )->delete_site_records( $removed_sites );
 
 		if ( is_wp_error( $is_deleted ) ) {
 			Utils::log( sprintf( 'Failed to delete the records of removed sites: %s', $is_deleted->get_error_message() ) );

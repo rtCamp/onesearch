@@ -1,6 +1,6 @@
 <?php
 /**
- * Watches for object changes to reindex in Algolia.
+ * Watches for content changes to sync to Algolia.
  *
  * @package OneSearch\Modules\Search
  */
@@ -17,9 +17,9 @@ use OneSearch\Utils;
  */
 final class Watcher implements Registrable {
 	/**
-	 * The indexer, once instantiated.
+	 * The search index, once instantiated.
 	 */
-	private ?Indexer $indexer = null;
+	private ?Search_Index $search_index = null;
 
 	/**
 	 * The media to sync at the end of the request, keyed by ID.
@@ -89,7 +89,7 @@ final class Watcher implements Registrable {
 		if ( $is_public ) {
 			$this->pending_media += array_fill_keys( $attachment_ids, true );
 		} else {
-			$this->log_error( $post->ID, $this->get_indexer()->delete_posts( $attachment_ids ) );
+			$this->log_error( $post->ID, $this->get_search_index()->delete_posts( $attachment_ids ) );
 		}
 	}
 
@@ -197,7 +197,7 @@ final class Watcher implements Registrable {
 			return;
 		}
 
-		$this->log_error( (int) $post_id, $this->get_indexer()->delete_posts( [ (int) $post_id ] ) );
+		$this->log_error( (int) $post_id, $this->get_search_index()->delete_posts( [ (int) $post_id ] ) );
 	}
 
 	/**
@@ -209,9 +209,9 @@ final class Watcher implements Registrable {
 	 */
 	private function sync( \WP_Post $post, array $post_types, bool $was_indexed ): void {
 		if ( $this->is_indexable( $post, $post_types ) ) {
-			$this->log_error( (int) $post->ID, $this->get_indexer()->save_post( $post ) );
+			$this->log_error( (int) $post->ID, $this->get_search_index()->save_post( $post ) );
 		} elseif ( $was_indexed ) {
-			$this->log_error( (int) $post->ID, $this->get_indexer()->delete_posts( [ (int) $post->ID ] ) );
+			$this->log_error( (int) $post->ID, $this->get_search_index()->delete_posts( [ (int) $post->ID ] ) );
 		}
 	}
 
@@ -233,7 +233,7 @@ final class Watcher implements Registrable {
 	 * @return string[]
 	 */
 	private function get_indexed_post_types(): array {
-		$post_types = Indexer::get_indexable_post_types();
+		$post_types = Search_Index::get_indexable_post_types();
 
 		return is_wp_error( $post_types ) ? [] : $post_types;
 	}
@@ -252,7 +252,7 @@ final class Watcher implements Registrable {
 				'post_type'      => 'attachment',
 				'post_status'    => 'inherit',
 				'fields'         => 'ids',
-				 // phpcs:ignore WordPress.WP.PostsPerPage.posts_per_page_posts_per_page -- Additional will be caught on reindex.
+				 // phpcs:ignore WordPress.WP.PostsPerPage.posts_per_page_posts_per_page -- The next indexing run catches the rest.
 				'posts_per_page' => 999,
 				'no_found_rows'  => true,
 			]
@@ -265,14 +265,14 @@ final class Watcher implements Registrable {
 	}
 
 	/**
-	 * Gets the indexer, instantiating it if needed.
+	 * Gets the search index, instantiating it if needed.
 	 */
-	private function get_indexer(): Indexer {
-		if ( ! $this->indexer instanceof Indexer ) {
-			$this->indexer = new Indexer();
+	private function get_search_index(): Search_Index {
+		if ( ! $this->search_index instanceof Search_Index ) {
+			$this->search_index = new Search_Index();
 		}
 
-		return $this->indexer;
+		return $this->search_index;
 	}
 
 	/**
@@ -283,7 +283,7 @@ final class Watcher implements Registrable {
 	 */
 	private function log_error( int $post_id, bool|\WP_Error $result ): void {
 		// @todo this class shouldn't run if the Algolia config isn't good.
-		if ( ! is_wp_error( $result ) || Indexer::ERROR_NOT_CONFIGURED === $result->get_error_code() ) {
+		if ( ! is_wp_error( $result ) || Search_Index::ERROR_NOT_CONFIGURED === $result->get_error_code() ) {
 			return;
 		}
 

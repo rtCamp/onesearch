@@ -28,6 +28,7 @@ final class Main {
 		Modules\Settings\Admin::class,
 		Modules\Settings\Settings::class,
 		Modules\Search\Admin::class,
+		Modules\Search\Indexer::class,
 		Modules\Search\Search::class,
 		Modules\Search\Settings::class,
 		Modules\Search\Watcher::class,
@@ -35,7 +36,7 @@ final class Main {
 		Modules\Rest\Brand_Site_Controller::class,
 		Modules\Rest\Governing_Site_Controller::class,
 		Modules\Rest\Post_Types_Controller::class,
-		Modules\Rest\Reindex_Controller::class,
+		Modules\Rest\Indexer_Controller::class,
 		Modules\Rest\Secret_Key_Controller::class,
 		Modules\Rest\Shared_Sites_Controller::class,
 	];

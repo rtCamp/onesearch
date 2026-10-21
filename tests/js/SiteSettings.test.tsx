@@ -1,10 +1,24 @@
 /**
  * External dependencies
  */
-import { describe, expect, it, type Mock, vi } from 'vitest';
+import {
+	describe,
+	expect,
+	it,
+	type Mock,
+	type MockedFunction,
+	vi,
+} from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+/**
+ * WordPress dependencies
+ */
+import apiFetch from '@wordpress/api-fetch';
+
 import SiteSettings from '@/components/SiteSettings';
+
+const mockedApiFetch = apiFetch as MockedFunction< typeof apiFetch >;
 
 const okJson = ( data: unknown ) =>
 	( {
@@ -378,5 +392,45 @@ describe( 'SiteSettings', () => {
 		expect( field ).toBe( screen.getByLabelText( 'API Key' ) );
 		expect( field ).not.toBeDisabled();
 		expect( field ).toHaveAttribute( 'readonly' );
+	} );
+
+	it( "shows the site's own indexing progress once it's connected, and that the governing site re-indexes it", async () => {
+		global.fetch = siteSettingsFetch( {
+			governingSiteUrl: 'https://governing.example.com/',
+		} );
+		mockedApiFetch.mockResolvedValueOnce( {
+			sites: {
+				[ window.OneSearchSettings.currentSiteUrl ]: {
+					id: 'run-id',
+					status: 'failed',
+					total: 10,
+					done: 10,
+					failed: 0,
+					errors: [ 'No governing site is configured.' ],
+					started_at: 1767225600,
+				},
+			},
+		} );
+
+		render( <SiteSettings /> );
+
+		expect( await screen.findByText( 'Index Status' ) ).toBeInTheDocument();
+		expect(
+			await screen.findByText( 'No governing site is configured.' )
+		).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				"Indexing didn't finish, so search may show outdated or missing content. Re-index from the governing site to try again."
+			)
+		).toBeInTheDocument();
+	} );
+
+	it( 'hides the index status while the site is not connected', async () => {
+		global.fetch = siteSettingsFetch( {} );
+
+		render( <SiteSettings /> );
+
+		await screen.findByDisplayValue( 'api-key' );
+		expect( screen.queryByText( 'Index Status' ) ).not.toBeInTheDocument();
 	} );
 } );

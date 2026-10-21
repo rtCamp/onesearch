@@ -260,7 +260,7 @@ final class SettingsTest extends TestCase {
 	 * Only a governing site becoming a consumer deletes the index.
 	 */
 	public function test_on_site_type_change_skips_other_changes(): void {
-		$this->set_up_governing_credentials();
+		$this->set_up_governing_site();
 
 		$recorded_paths = [];
 		$this->mock_algolia_http_client( $recorded_paths );
@@ -279,7 +279,7 @@ final class SettingsTest extends TestCase {
 	 * The hook runs before the new site type is saved, so the index still resolves as the governing site's.
 	 */
 	public function test_switching_governing_site_to_consumer_deletes_its_index(): void {
-		$this->set_up_governing_credentials();
+		$this->set_up_governing_site();
 
 		$recorded_paths = [];
 		$this->mock_algolia_http_client( $recorded_paths );
@@ -403,7 +403,7 @@ final class SettingsTest extends TestCase {
 	 * Removing shared sites stops them from being indexed.
 	 */
 	public function test_on_shared_sites_change_removes_removed_sites_entities(): void {
-		$this->set_up_governing_credentials();
+		$this->set_up_governing_site();
 
 		$recorded_paths = [];
 		$this->mock_algolia_http_client( $recorded_paths );
@@ -442,7 +442,7 @@ final class SettingsTest extends TestCase {
 	 * Removing shared sites deletes their records with a valid filter.
 	 */
 	public function test_on_shared_sites_change_deletes_removed_sites_records(): void {
-		$this->set_up_governing_credentials();
+		$this->set_up_governing_site();
 
 		$recorded_paths    = [];
 		$recorded_requests = [];
@@ -520,20 +520,5 @@ final class SettingsTest extends TestCase {
 		remove_filter( 'pre_http_request', $filter );
 
 		$this->assertSame( [ 'https://brand.example.com/wp-json/onesearch/v1/governing-site/config' ], $purges );
-	}
-
-	/**
-	 * Configures the current site as a governing site with Algolia credentials.
-	 */
-	private function set_up_governing_credentials(): void {
-		// Name the index after a known host, since the test site's URL depends on the environment.
-		add_filter( 'option_home', static fn (): string => 'https://governing.example.org', 11 );
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-		Search_Settings::set_algolia_credentials(
-			[
-				'app_id'    => 'test-app',
-				'write_key' => 'test-key',
-			]
-		);
 	}
 }

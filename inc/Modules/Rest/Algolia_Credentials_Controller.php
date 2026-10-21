@@ -9,7 +9,7 @@ declare(strict_types = 1);
 
 namespace OneSearch\Modules\Rest;
 
-use OneSearch\Modules\Search\Indexer;
+use OneSearch\Modules\Search\Search_Index;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use WP_REST_Server;
@@ -70,7 +70,7 @@ class Algolia_Credentials_Controller extends Abstract_REST_Controller {
 			);
 		}
 
-		if ( ! Indexer::validate_credentials( $app_id, $write_key ) ) {
+		if ( ! Search_Index::validate_credentials( $app_id, $write_key ) ) {
 			return new \WP_Error(
 				'onesearch_algolia_credentials_invalid',
 				__( 'The provided Algolia credentials are invalid or lack necessary permissions.', 'onesearch' ),

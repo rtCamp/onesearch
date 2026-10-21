@@ -171,6 +171,22 @@ final class Queue {
 	}
 
 	/**
+	 * Starts Action Scheduler's runner at the end of the request, so jobs someone is waiting on don't wait for WP-Cron. Hook it to `shutdown` after queueing them.
+	 *
+	 * Action Scheduler only does this itself on admin screens, at most once a minute. Starting it holds the request for about a second, since WordPress waits at least that long for the runner's request.
+	 *
+	 * @internal Hook callback
+	 */
+	public static function start_runner(): void {
+		// Action Scheduler unhooks its own check once the runner is started, so it starts once per request.
+		if ( false === has_action( 'shutdown', [ \ActionScheduler_QueueRunner::instance(), 'maybe_dispatch_async_request' ] ) ) {
+			return;
+		}
+
+		( new \ActionScheduler_AsyncRequest_QueueRunner( \ActionScheduler::store() ) )->maybe_dispatch();
+	}
+
+	/**
 	 * Gets the last line Action Scheduler logged for a job.
 	 *
 	 * @param int $action_id The job's action ID.

@@ -167,7 +167,7 @@ class Remote_ClientTest extends TestCase {
 
 		$this->assertIsArray( $result );
 		$this->assertNotEmpty( $result['errors'] );
-		$this->assertStringContainsString( 'Invalid response received', $result['errors'][0]['message'] );
+		$this->assertSame( 'cURL error 6: Could not resolve host', $result['errors'][0]['message'] );
 	}
 
 	/**

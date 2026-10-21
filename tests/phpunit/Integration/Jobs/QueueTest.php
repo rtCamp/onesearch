@@ -204,4 +204,27 @@ final class QueueTest extends TestCase {
 
 		$this->assertSame( [], $queue->get_failures( self::HOOK, 0 ) );
 	}
+
+	/**
+	 * The runner is started with a request to admin-ajax.php, as Action Scheduler does.
+	 */
+	public function test_start_runner_requests_the_runner(): void {
+		( new Queue() )->add( self::HOOK, [ 1 ] );
+
+		$requests = [];
+		add_filter( 'action_scheduler_allow_async_request_runner', '__return_true', 11 );
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, array $args, string $url ) use ( &$requests ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+				$requests[] = $url;
+				return new \WP_Error( 'blocked', 'Blocked in tests.' );
+			},
+			10,
+			3
+		);
+
+		Queue::start_runner();
+
+		$this->assertNotEmpty( preg_grep( '/admin-ajax\.php\?action=as_async_request_queue_runner/', $requests ) );
+	}
 }

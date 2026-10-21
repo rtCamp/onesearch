@@ -145,10 +145,7 @@ final class WatcherTest extends TestCase {
 	 * A post moving to a status that isn't indexed, like trash, has its records deleted, not saved.
 	 */
 	public function test_on_after_insert_post_does_not_reindex_disallowed_status(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
-		update_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL, 'https://governing.example.com' );
-
-		$this->set_consumer_brand_config_cache();
+		$this->set_up_brand_site();
 
 		$recorded_paths = [];
 		$requests       = [];
@@ -184,10 +181,7 @@ final class WatcherTest extends TestCase {
 	 * Consumer site with cached brand config recognizes indexable post types.
 	 */
 	public function test_on_after_insert_post_consumer_with_cached_config(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
-		update_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL, 'https://governing.example.com' );
-
-		$this->set_consumer_brand_config_cache( 'test-app', 'test-key' );
+		$this->set_up_brand_site();
 
 		$post    = self::factory()->post->create_and_get( [ 'post_status' => 'publish' ] );
 		$watcher = new Watcher();
@@ -241,10 +235,7 @@ final class WatcherTest extends TestCase {
 	 * are resolved from the governing site's brand config cache.
 	 */
 	public function test_on_after_insert_post_triggers_algolia_reindex_consumer_site(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
-		update_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL, 'https://governing.example.com' );
-
-		$this->set_consumer_brand_config_cache( 'test-app', 'test-key' );
+		$this->set_up_brand_site();
 
 		$recorded_paths = [];
 		$this->mock_algolia_http_client( $recorded_paths );
@@ -649,30 +640,6 @@ final class WatcherTest extends TestCase {
 	}
 
 	/**
-	 * Prime the consumer brand config cache used by Watcher guards.
-	 *
-	 * @param string $app_id    Algolia app ID.
-	 * @param string $write_key Algolia write key.
-	 */
-	private function set_consumer_brand_config_cache( string $app_id = 'TEST_APP', string $write_key = 'TEST_KEY' ): void {
-		$cached_config = [
-			'algolia_credentials' => [
-				'app_id'    => $app_id,
-				'write_key' => $write_key,
-			],
-			'search_settings'     => [
-				'algolia_enabled'  => true,
-				'searchable_sites' => [],
-			],
-			'indexable_entities'  => [ 'post' ],
-			'available_sites'     => [],
-		];
-
-		$method = new \ReflectionMethod( Remote_Client::class, 'set_brand_config_cache' );
-		$method->invoke( null, $cached_config );
-	}
-
-	/**
 	 * Collects every record that was saved.
 	 *
 	 * @param array<int, array{path: string, body: string}> $requests The intercepted requests.
@@ -744,28 +711,5 @@ final class WatcherTest extends TestCase {
 		}
 
 		return $filters;
-	}
-
-	/**
-	 * Configures the current site as a governing site with credentials and indexable entities.
-	 *
-	 * @param string[] $entities The indexable post types.
-	 */
-	private function set_up_governing_site( array $entities = [ 'post' ] ): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-		Search_Settings::set_algolia_credentials(
-			[
-				'app_id'    => 'test-app',
-				'write_key' => 'test-key',
-			]
-		);
-		update_option(
-			Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES,
-			[
-				'entities' => [
-					Utils::get_current_site_url() => $entities,
-				],
-			]
-		);
 	}
 }

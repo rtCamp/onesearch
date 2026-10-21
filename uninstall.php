@@ -46,6 +46,7 @@ function run_uninstaller(): void {
  * The (site-specific) uninstall function.
  */
 function uninstall(): void {
+	delete_pending_jobs_and_brand_progress();
 	cleanup_algolia_index();
 	delete_proxy_attachment();
 
@@ -90,6 +91,9 @@ function delete_options(): void {
 		PLUGIN_PREFIX . 'parent_site_url',
 		PLUGIN_PREFIX . 'consumer_api_key',
 
+		// The progress of the site's latest indexing run.
+		PLUGIN_PREFIX . 'index_progress',
+
 		// 1.1.x and earlier: the shared proxy attachment used for remote post thumbnails.
 		PLUGIN_PREFIX . 'proxy_attachment_id',
 	];
@@ -114,6 +118,21 @@ function delete_transients(): void {
 }
 
 /**
+ * Deletes the plugin's pending background jobs, and the indexing progress of a governing site's brand sites.
+ */
+function delete_pending_jobs_and_brand_progress(): void {
+	if ( ! load_dependencies() ) {
+		return;
+	}
+
+	( new \OneSearch\Jobs\Queue() )->delete_pending();
+
+	foreach ( array_keys( \OneSearch\Modules\Settings\Settings::get_shared_sites() ) as $site_url ) {
+		\OneSearch\Modules\Search\Indexer::delete_brand_progress( $site_url );
+	}
+}
+
+/**
  * Cleans up entries from the Algolia index, or the index itself if governing site.
  */
 function cleanup_algolia_index(): void {
@@ -122,7 +141,7 @@ function cleanup_algolia_index(): void {
 		return;
 	}
 
-	$indexer = new \OneSearch\Modules\Search\Indexer();
+	$search_index = new \OneSearch\Modules\Search\Search_Index();
 
 	// The index is shared by all sites, so brand sites only delete their own records.
 	if ( \OneSearch\Modules\Settings\Settings::is_governing_site() ) {
@@ -131,10 +150,10 @@ function cleanup_algolia_index(): void {
 			\OneSearch\Modules\Rest\Remote_Client::disconnect_brand_site( $site_data );
 		}
 
-		$is_deleted = $indexer->delete_index();
+		$is_deleted = $search_index->delete_index();
 	} else {
 		// Consumer sites need to delete their own records, and deregister from the governing site.
-		$is_deleted = $indexer->delete_site_records( [ \OneSearch\Utils::get_current_site_url() ] );
+		$is_deleted = $search_index->delete_site_records( [ \OneSearch\Utils::get_current_site_url() ] );
 
 		// Deregister after deletion, or deregistration may fail.
 		$deregistered = \OneSearch\Modules\Rest\Remote_Client::deregister_from_governing_site();

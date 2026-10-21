@@ -9,6 +9,10 @@ declare( strict_types = 1 );
 
 namespace OneSearch\Tests;
 
+use OneSearch\Modules\Rest\Remote_Client;
+use OneSearch\Modules\Search\Settings as Search_Settings;
+use OneSearch\Modules\Settings\Settings;
+use OneSearch\Utils;
 use WP_UnitTestCase;
 
 /**
@@ -204,6 +208,58 @@ abstract class TestCase extends WP_UnitTestCase {
 				'message' => $message,
 				'file'    => 'render.php',
 				'line'    => 3,
+			]
+		);
+	}
+
+	/**
+	 * Configures the current site as a governing site with credentials and indexable entities.
+	 *
+	 * @param string[] $entities The indexable post types.
+	 */
+	protected function set_up_governing_site( array $entities = [ 'post' ] ): void {
+		// Name the index after a known host, since the test site's URL depends on the environment.
+		add_filter( 'option_home', static fn (): string => 'https://governing.example.org', 11 );
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		Search_Settings::set_algolia_credentials(
+			[
+				'app_id'    => 'test-app',
+				'write_key' => 'test-key',
+			]
+		);
+		update_option(
+			Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES,
+			[
+				'entities' => [
+					Utils::get_current_site_url() => $entities,
+				],
+			]
+		);
+	}
+
+	/**
+	 * Configures the current site as a brand site with a cached brand config.
+	 *
+	 * @param string[] $entities The indexable post types.
+	 */
+	protected function set_up_brand_site( array $entities = [ 'post' ] ): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		update_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL, 'https://governing.example.com' );
+
+		$method = new \ReflectionMethod( Remote_Client::class, 'set_brand_config_cache' );
+		$method->invoke(
+			null,
+			[
+				'algolia_credentials' => [
+					'app_id'    => 'test-app',
+					'write_key' => 'test-key',
+				],
+				'search_settings'     => [
+					'algolia_enabled'  => true,
+					'searchable_sites' => [],
+				],
+				'indexable_entities'  => $entities,
+				'available_sites'     => [],
 			]
 		);
 	}

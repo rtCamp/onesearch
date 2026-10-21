@@ -49,6 +49,21 @@ final class PostRecordTest extends TestCase {
 	}
 
 	/**
+	 * Posts are rendered for a logged-out visitor, whoever is logged in, and the user is back afterwards.
+	 */
+	public function test_records_are_rendered_logged_out(): void {
+		$post     = self::factory()->post->create_and_get( [ 'post_content' => '<!-- wp:loginout /-->' ] );
+		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		wp_set_current_user( $admin_id );
+
+		$content = implode( ' ', array_column( ( new Post_Record() )->to_records( $post ), 'content' ) );
+
+		$this->assertStringContainsString( 'Log in', $content );
+		$this->assertStringNotContainsString( 'Log out', $content );
+		$this->assertSame( $admin_id, get_current_user_id() );
+	}
+
+	/**
 	 * The `site_post_id` written to records must come from get_site_post_id().
 	 */
 	public function test_records_are_written_with_get_site_post_id(): void {
@@ -137,7 +152,7 @@ final class PostRecordTest extends TestCase {
 			]
 		);
 
-		$posts   = Post_Record::get_indexable_posts( [ 'post' ], 1, 10 );
+		$posts   = Post_Record::get_indexable_posts( [ 'post' ], 10 );
 		$records = ( new Post_Record() )->to_records( $posts[0] );
 
 		$this->assertSame( $category->term_id, $records[0]['taxonomies']['category'][0]['term_id'] );
@@ -145,21 +160,21 @@ final class PostRecordTest extends TestCase {
 	}
 
 	/**
-	 * Tests that get_indexable_posts sets paged when batching.
+	 * Batches of indexable posts continue after the last post of the batch before, in ID order.
 	 */
-	public function test_get_indexable_posts_sets_paged_when_batching(): void {
-		$paged    = null;
-		$callback = static function ( \WP_Query $query ) use ( &$paged ): void {
-			$paged = $query->query_vars['paged'] ?? null;
-		};
+	public function test_get_indexable_posts_continues_after_the_given_post(): void {
+		$post_ids = self::factory()->post->create_many( 5 );
+		self::factory()->post->create( [ 'post_status' => 'draft' ] );
+		sort( $post_ids );
 
-		add_action( 'pre_get_posts', $callback );
+		$first  = Post_Record::get_indexable_posts( [ 'post' ], 2 );
+		$second = Post_Record::get_indexable_posts( [ 'post' ], 2, end( $first )->ID );
+		$rest   = Post_Record::get_indexable_posts( [ 'post' ], 10, end( $second )->ID );
 
-		Post_Record::get_indexable_posts( [ 'post' ], 3, 5 );
-
-		remove_action( 'pre_get_posts', $callback );
-
-		$this->assertSame( 3, $paged );
+		$this->assertSame( array_slice( $post_ids, 0, 2 ), wp_list_pluck( $first, 'ID' ) );
+		$this->assertSame( array_slice( $post_ids, 2, 2 ), wp_list_pluck( $second, 'ID' ) );
+		$this->assertSame( array_slice( $post_ids, 4 ), wp_list_pluck( $rest, 'ID' ) );
+		$this->assertSame( 5, Post_Record::count_indexable_posts( [ 'post' ] ) );
 	}
 
 	/**
