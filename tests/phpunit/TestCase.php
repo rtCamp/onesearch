@@ -157,5 +157,56 @@ abstract class TestCase extends WP_UnitTestCase {
 		add_filter( 'onesearch_algolia_http_client', static fn () => $http_client );
 	}
 
+	/**
+	 * Runs the plugin's queued jobs the way Action Scheduler does, along with the jobs they queue.
+	 */
+	protected function run_jobs(): void {
+		// Enough rounds for any chain the tests queue.
+		for ( $round = 0; $round < 50; ++$round ) {
+			$action_ids = as_get_scheduled_actions(
+				[
+					'group'    => 'onesearch',
+					'status'   => \ActionScheduler_Store::STATUS_PENDING,
+					'per_page' => -1,
+					'orderby'  => 'date',
+					'order'    => 'ASC',
+				],
+				'ids'
+			);
+
+			if ( [] === $action_ids ) {
+				return;
+			}
+
+			foreach ( $action_ids as $action_id ) {
+				\ActionScheduler::runner()->process_action( (int) $action_id, 'PHPUnit' );
+			}
+		}
+
+		$this->fail( 'The jobs kept queueing more jobs.' );
+	}
+
+	/**
+	 * Fails a queued job the way Action Scheduler does when PHP stops it with a fatal error.
+	 *
+	 * @param int    $action_id The job's action ID.
+	 * @param string $message   The fatal error's message.
+	 */
+	protected function fail_job_with_fatal_error( int $action_id, string $message ): void {
+		\ActionScheduler::store()->mark_failure( $action_id );
+
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Action Scheduler's own action.
+		do_action(
+			'action_scheduler_unexpected_shutdown',
+			$action_id,
+			[
+				'type'    => E_ERROR,
+				'message' => $message,
+				'file'    => 'render.php',
+				'line'    => 3,
+			]
+		);
+	}
+
 	// Add any common setup or utility methods for tests here.
 }

@@ -87,6 +87,9 @@ Code contributions, bug reports, and feature requests are welcome! The following
 │   │   │   └── Registrable.php
 │   │   └── Traits/
 │   │       └── Singleton.php
+│   ├── Jobs/ # Background jobs on Action Scheduler.
+│   │   ├── Progress.php # The stored progress of a job that runs in batches.
+│   │   └── Queue.php
 │   ├── Modules/
 │   │   ├── Core/
 │   │   │   └── Assets.php  # JS/CSS asset loader.
