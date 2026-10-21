@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: OneSearch - Localhost Helper
- * Description: Rewrites localhost URLs to host.docker.internal for inter-container HTTP requests in wp-env Docker environments. Only affects URLs containing "onesearch/v1".
+ * Description: Rewrites localhost URLs to host.docker.internal for inter-container HTTP requests in wp-env Docker environments. Only affects OneSearch routes and the WP-Cron and Action Scheduler loopbacks.
  * Version: 1.0.0
  * Author: rtCamp
  * License: GPL-2.0-or-later
@@ -31,11 +31,15 @@ add_filter( // phpcs:ignore WordPressVIPMinimum.Hooks.RestrictedHooks.http_reque
 	2,
 );
 
-// Reroute localhost requests to host.docker.internal for onesearch endpoints.
+// Reroute localhost requests to host.docker.internal for OneSearch routes and the WP-Cron and Action Scheduler loopbacks.
 add_filter(
 	'pre_http_request',
 	static function ( $preempt, array $args, string $url ) {
-		if ( false === strpos( $url, 'onesearch/v1' ) || false === strpos( $url, '://localhost' ) ) {
+		if ( false === strpos( $url, '://localhost' ) ) {
+			return $preempt;
+		}
+
+		if ( false === strpos( $url, 'onesearch/v1' ) && false === strpos( $url, '/wp-cron.php' ) && false === strpos( $url, '/wp-admin/admin-ajax.php' ) ) {
 			return $preempt;
 		}
 
