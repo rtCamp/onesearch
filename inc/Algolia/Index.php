@@ -208,7 +208,7 @@ final class Index {
 
 		// retryUntil() swallows getTask() exceptions and returns null.
 		if ( null === $task ) {
-			throw new \RuntimeException( sprintf( 'Failed to confirm Algolia task %d was applied.', $task_id ) );
+			throw new \RuntimeException( sprintf( 'Failed to confirm Algolia task %d was applied.', (int) $task_id ) );
 		}
 	}
 }
