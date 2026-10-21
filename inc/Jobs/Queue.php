@@ -204,8 +204,17 @@ final class Queue {
 	 * @param ?\ActionScheduler_LogEntry $log The line.
 	 */
 	private function get_error( ?\ActionScheduler_LogEntry $log ): string {
+		if ( null === $log ) {
+			return '';
+		}
+
+		// Cleanup Action Scheduler failure prefix.
+		// phpcs:ignore WordPress.WP.I18n.TextDomainMismatch, WordPress.WP.I18n.MissingTranslatorsComment -- Action Scheduler's own string.
+		$format  = preg_quote( __( 'action failed via %1$s: %2$s', 'action-scheduler' ), '/' );
+		$message = preg_replace( '/^' . str_replace( [ '%1\$s', '%2\$s' ], [ '.+?', '(.*)' ], $format ) . '$/s', '$1', $log->get_message() );
+
 		// Exceptions are escaped when they're thrown, and whoever shows the error escapes it again.
-		return null !== $log ? wp_specialchars_decode( $log->get_message(), ENT_QUOTES ) : '';
+		return wp_specialchars_decode( (string) $message, ENT_QUOTES );
 	}
 
 	/**

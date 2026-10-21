@@ -66,7 +66,11 @@ const SiteIndexableEntities = ( {
 	const [ savedEntities, setSavedEntities ] = useState< EntitiesMap >( {} );
 	const [ isReindexPending, setIsReindexPending ] = useState( false );
 	const [ showReindexModal, setShowReindexModal ] = useState( false );
-	const { sites: indexProgress, start: startReindex } = useIndexProgress();
+	const {
+		sites: indexProgress,
+		start: startReindex,
+		isActive: isIndexing,
+	} = useIndexProgress();
 
 	const controlsDisabled = saving || isReindexPending;
 	const entitiesDisabled = controlsDisabled || loadFailed;
@@ -357,6 +361,14 @@ const SiteIndexableEntities = ( {
 					shouldCloseOnClickOutside={ false }
 					size="medium"
 				>
+					{ isIndexing && (
+						<p>
+							{ __(
+								'Indexing is already running. Re-indexing will start it over.',
+								'onesearch'
+							) }
+						</p>
+					) }
 					<p>
 						{ __(
 							'Re-indexing will only index the entities you have previously saved. To re-index modified entities, please make sure you have saved them.',

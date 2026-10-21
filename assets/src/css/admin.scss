@@ -319,10 +319,13 @@
 	p {
 		margin: 4px 0;
 	}
-}
 
-.onesearch-index-progress-bar {
-	max-width: 320px;
+	// Nested to beat the width the ProgressBar's own styles set.
+	.onesearch-index-progress-bar {
+		width: 100%;
+		max-width: 320px;
+		margin: 12px 0 8px;
+	}
 }
 
 .onesearch-index-progress-failed {

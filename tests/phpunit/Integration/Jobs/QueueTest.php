@@ -130,7 +130,7 @@ final class QueueTest extends TestCase {
 		$failures = $queue->get_failures( self::HOOK, 0 );
 		$this->assertSame( [ [ 3 ], [ 2 ], [ 1 ] ], array_column( $failures, 'args' ) );
 		$this->assertSame( 'unexpected shutdown: PHP Fatal error Allowed memory size exhausted in render.php on line 3', $failures[0]['error'] );
-		$this->assertStringEndsWith( "Algolia's hosts are unreachable.", $failures[1]['error'] );
+		$this->assertSame( "Algolia's hosts are unreachable.", $failures[1]['error'] );
 
 		$job->fails = false;
 		$queue->add( self::HOOK, [ 1 ] );

@@ -301,6 +301,43 @@ describe( 'SiteIndexableEntities', () => {
 		vi.useRealTimers();
 	} );
 
+	it( 'says that re-indexing starts over a run that is going', async () => {
+		mockApi( {
+			'GET /onesearch/v1/indexer': {
+				sites: {
+					[ currentSiteUrl ]: progress( {
+						status: 'running',
+						total: 200,
+						done: 100,
+					} ),
+				},
+			},
+		} );
+
+		render(
+			<SiteIndexableEntities
+				sites={ [] }
+				allPostTypes={ {
+					[ currentSiteUrl ]: [ { slug: 'post', label: 'Posts' } ],
+				} }
+				currentSiteUrl={ currentSiteUrl }
+				indexableEntities={ { [ currentSiteUrl ]: [ 'post' ] } }
+				setNotice={ vi.fn() }
+				saving={ false }
+				setSaving={ vi.fn() }
+			/>
+		);
+
+		await screen.findByText( 'Indexing… 100 of 200 items.' );
+		fireEvent.click( screen.getByRole( 'button', { name: 'Re-index' } ) );
+
+		expect(
+			within( await screen.findByRole( 'dialog' ) ).getByText(
+				'Indexing is already running. Re-indexing will start it over.'
+			)
+		).toBeInTheDocument();
+	} );
+
 	it( "shows that a failed index didn't finish, without announcing it when the screen loads", async () => {
 		mockApi( {
 			'GET /onesearch/v1/indexer': {
