@@ -856,6 +856,17 @@ final class SearchTest extends TestCase {
 	}
 
 	/**
+	 * A remote post of a post type that isn't registered on this site is mocked as a post, so the Post Date block can render it.
+	 */
+	public function test_remote_post_of_unregistered_post_type_renders_its_date(): void {
+		$result = $this->run_search( new Search(), [ 'hits' => [ self::get_remote_hit( [ 'post_type' => 'event' ] ) ] ] );
+
+		$date = ( new \WP_Block( [ 'blockName' => 'core/post-date' ], [ 'postId' => $result[0]->ID ] ) )->render();
+
+		$this->assertStringContainsString( 'datetime="2024-03-09T16:00:00+00:00"', $date );
+	}
+
+	/**
 	 * A remote post split into chunks gets its full content, and keeps the highlights of the chunk that matched.
 	 */
 	public function test_get_algolia_results_joins_chunked_remote_posts(): void {
