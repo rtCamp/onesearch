@@ -28,8 +28,6 @@ Code contributions, bug reports, and feature requests are welcome! The following
   - [PHPUnit](#phpunit)
   - [Vitest (JavaScript Unit Tests)](#vitest-javascript-unit-tests)
     - [Running Tests](#running-tests-1)
-    - [Test Location](#test-location)
-    - [Writing Tests](#writing-tests)
   - [Playwright](#playwright)
   - [GitHub Workflows](#github-workflows)
 - [Internationalization](#internationalization)
