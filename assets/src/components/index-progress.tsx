@@ -14,14 +14,18 @@ import { __, _n, sprintf } from '@wordpress/i18n';
  */
 import {
 	isIndexActive,
+	type FailedJob,
 	type IndexProgressData,
 	type IndexProgressMap,
 } from '@/js/use-index-progress';
 
 interface IndexProgressProps {
 	progress: IndexProgressData | null | undefined;
+	failedJobs?: FailedJob[] | undefined;
 	// False on a brand site, which is re-indexed from its governing site.
 	canReindex?: boolean;
+	// False for a brand site's row on the governing site, which doesn't know which of the brand site's changes failed to sync.
+	isCurrentSite?: boolean;
 }
 
 const ErrorList = ( { errors }: { errors: string[] } ) =>
@@ -34,13 +38,78 @@ const ErrorList = ( { errors }: { errors: string[] } ) =>
 	) : null;
 
 /**
+ * Says which of a site's jobs failed, and how to fix them.
+ *
+ * @param {Object}      props            The props.
+ * @param {FailedJob[]} props.failedJobs The site's failed jobs.
+ * @param {boolean}     props.canReindex Whether the site can be re-indexed here.
+ */
+const FailedJobs = ( {
+	failedJobs,
+	canReindex,
+}: {
+	failedJobs: FailedJob[];
+	canReindex: boolean;
+} ) => {
+	const syncErrors = failedJobs.flatMap( ( failedJob ) =>
+		failedJob.job === 'onesearch_sync_post'
+			? [
+					sprintf(
+						/* translators: 1: post ID. 2: error message. */
+						__( 'Post %1$d: %2$s', 'onesearch' ),
+						failedJob.args[ 0 ],
+						failedJob.error
+					),
+				]
+			: []
+	);
+
+	const syncMessage = canReindex
+		? sprintf(
+				/* translators: %d: number of changes. */
+				_n(
+					'%d change failed to sync. Re-index to fix it.',
+					'%d changes failed to sync. Re-index to fix them.',
+					syncErrors.length,
+					'onesearch'
+				),
+				syncErrors.length
+			)
+		: sprintf(
+				/* translators: %d: number of changes. */
+				_n(
+					'%d change failed to sync. Re-index from the governing site to fix it.',
+					'%d changes failed to sync. Re-index from the governing site to fix them.',
+					syncErrors.length,
+					'onesearch'
+				),
+				syncErrors.length
+			);
+
+	return (
+		<>
+			{ syncErrors.length > 0 && (
+				<>
+					<p className="onesearch-index-progress-failed">
+						{ syncMessage }
+					</p>
+					<ErrorList errors={ syncErrors } />
+				</>
+			) }
+		</>
+	);
+};
+
+/**
  * Shows how a site's latest indexing run is going, or how it went.
  *
  * @param {IndexProgressProps} props The props.
  */
 const IndexProgress = ( {
 	progress,
+	failedJobs = [],
 	canReindex = true,
+	isCurrentSite = true,
 }: IndexProgressProps ) => {
 	const content = ( () => {
 		// Not loaded yet.
@@ -106,7 +175,10 @@ const IndexProgress = ( {
 			}
 
 			case 'completed':
-				return <p>{ __( 'Search is up to date.', 'onesearch' ) }</p>;
+				// The failed jobs say what's still out of date.
+				return isCurrentSite && failedJobs.length === 0 ? (
+					<p>{ __( 'Search is up to date.', 'onesearch' ) }</p>
+				) : null;
 
 			default:
 				return (
@@ -129,7 +201,17 @@ const IndexProgress = ( {
 		}
 	} )();
 
-	return <div className="onesearch-index-progress">{ content }</div>;
+	return (
+		<div className="onesearch-index-progress">
+			{ content }
+			{ ! isIndexActive( progress ) && (
+				<FailedJobs
+					failedJobs={ failedJobs }
+					canReindex={ canReindex }
+				/>
+			) }
+		</div>
+	);
 };
 
 /**

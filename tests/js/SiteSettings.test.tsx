@@ -425,6 +425,55 @@ describe( 'SiteSettings', () => {
 		).toBeInTheDocument();
 	} );
 
+	it( 'says which changes failed to sync since the last indexing run, and why', async () => {
+		global.fetch = siteSettingsFetch( {
+			governingSiteUrl: 'https://governing.example.com/',
+		} );
+		mockedApiFetch.mockResolvedValueOnce( {
+			sites: {
+				[ window.OneSearchSettings.currentSiteUrl ]: {
+					id: 'run-id',
+					status: 'completed',
+					total: 10,
+					done: 10,
+					failed: 0,
+					errors: [],
+					started_at: 1767225600,
+				},
+			},
+			failed_jobs: {
+				[ window.OneSearchSettings.currentSiteUrl ]: [
+					{
+						job: 'onesearch_sync_post',
+						args: [ 12 ],
+						error: 'Failed to save records to Algolia index. Unreachable hosts',
+					},
+					{
+						job: 'onesearch_sync_post',
+						args: [ 10 ],
+						error: 'unexpected shutdown: PHP Fatal error Allowed memory size exhausted in render.php on line 3',
+					},
+				],
+			},
+		} );
+
+		render( <SiteSettings /> );
+
+		expect(
+			await screen.findByText(
+				'2 changes failed to sync. Re-index from the governing site to fix them.'
+			)
+		).toBeInTheDocument();
+		expect(
+			screen.queryByText( 'Search is up to date.' )
+		).not.toBeInTheDocument();
+		expect(
+			screen.getByText(
+				'Post 10: unexpected shutdown: PHP Fatal error Allowed memory size exhausted in render.php on line 3'
+			)
+		).toBeInTheDocument();
+	} );
+
 	it( 'hides the index status while the site is not connected', async () => {
 		global.fetch = siteSettingsFetch( {} );
 

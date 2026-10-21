@@ -159,6 +159,30 @@ final class Indexer implements Registrable {
 	}
 
 	/**
+	 * Gets the jobs that failed, keyed by the URL of the site they're about.
+	 *
+	 * An indexing run fixes them, so a site's post syncs only count from its latest indexing run on.
+	 *
+	 * @param array<string, ?ProgressData> $progress The progress of each site's latest indexing run, keyed by site URL.
+	 *
+	 * @return array<string, list<array{job: string, args: array<int, mixed>, error: string}>>
+	 */
+	public static function get_failed_jobs( array $progress ): array {
+		$site_url = Utils::get_current_site_url();
+		$failed   = [];
+
+		foreach ( ( new Queue() )->get_failures( Watcher::SYNC_HOOK, (int) ( $progress[ $site_url ]['started_at'] ?? 0 ) ) as $failure ) {
+			$failed[ $site_url ][] = [
+				'job'   => Watcher::SYNC_HOOK,
+				'args'  => $failure['args'],
+				'error' => $failure['error'],
+			];
+		}
+
+		return $failed;
+	}
+
+	/**
 	 * Gets the progress of a brand site's latest indexing run, as this site last heard it.
 	 *
 	 * While the run is going, this queues a job that asks the brand site for its progress.

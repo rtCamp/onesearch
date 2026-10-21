@@ -254,6 +254,43 @@ describe( 'SiteIndexableEntities', () => {
 		vi.useRealTimers();
 	} );
 
+	it( "says search is up to date only for this site, since it doesn't know which of a brand site's changes failed to sync", async () => {
+		mockApi( {
+			'GET /onesearch/v1/indexer': {
+				sites: {
+					[ currentSiteUrl ]: progress( {
+						status: 'completed',
+						total: 200,
+						done: 200,
+					} ),
+					[ brandSiteUrl ]: progress( {
+						status: 'completed',
+						total: 50,
+						done: 50,
+					} ),
+				},
+			},
+		} );
+
+		render(
+			<SiteIndexableEntities
+				sites={ [ { name: 'Brand Site', url: brandSiteUrl } ] }
+				allPostTypes={ {
+					[ currentSiteUrl ]: [ { slug: 'post', label: 'Posts' } ],
+				} }
+				currentSiteUrl={ currentSiteUrl }
+				indexableEntities={ { [ currentSiteUrl ]: [ 'post' ] } }
+				setNotice={ vi.fn() }
+				saving={ false }
+				setSaving={ vi.fn() }
+			/>
+		);
+
+		expect(
+			await screen.findAllByText( 'Search is up to date.' )
+		).toHaveLength( 1 );
+	} );
+
 	it( "keeps checking when the progress doesn't load", async () => {
 		vi.useFakeTimers();
 

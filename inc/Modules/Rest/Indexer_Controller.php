@@ -41,12 +41,15 @@ class Indexer_Controller extends Abstract_REST_Controller {
 	}
 
 	/**
-	 * Gets the progress of the latest indexing run of the site, and of a governing site's brand sites.
+	 * Gets the progress of the latest indexing run of the site, and of a governing site's brand sites, along with the jobs that failed for each site.
 	 */
 	public function get_progress(): \WP_REST_Response {
+		$sites = Indexer::get_all_progress();
+
 		return rest_ensure_response(
 			[
-				'sites' => Indexer::get_all_progress(),
+				'sites'       => $sites,
+				'failed_jobs' => Indexer::get_failed_jobs( $sites ),
 			]
 		);
 	}

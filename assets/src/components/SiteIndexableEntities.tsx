@@ -68,6 +68,7 @@ const SiteIndexableEntities = ( {
 	const [ showReindexModal, setShowReindexModal ] = useState( false );
 	const {
 		sites: indexProgress,
+		failedJobs,
 		start: startReindex,
 		isActive: isIndexing,
 	} = useIndexProgress();
@@ -263,6 +264,7 @@ const SiteIndexableEntities = ( {
 							</p>
 							<IndexProgress
 								progress={ indexProgress[ currentSiteUrl ] }
+								failedJobs={ failedJobs[ currentSiteUrl ] }
 							/>
 						</div>
 						<div className="onesearch-entity-selector">
@@ -312,6 +314,8 @@ const SiteIndexableEntities = ( {
 									</p>
 									<IndexProgress
 										progress={ indexProgress[ siteKey ] }
+										failedJobs={ failedJobs[ siteKey ] }
+										isCurrentSite={ false }
 									/>
 								</div>
 								{ ! allPostTypes?.[ siteKey ] ? (

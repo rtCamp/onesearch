@@ -37,7 +37,7 @@ const SiteSettings = () => {
 	const [ governingSite, setGoverningSite ] = useState( '' );
 	const [ showDisconnectionModal, setShowDisconnectionModal ] =
 		useState( false );
-	const { sites: indexProgress } = useIndexProgress();
+	const { sites: indexProgress, failedJobs } = useIndexProgress();
 
 	// The admin nonce authenticates these same-site requests.
 	const regenerateApiKey = useCallback( async () => {
@@ -283,6 +283,11 @@ const SiteSettings = () => {
 						<IndexProgress
 							progress={
 								indexProgress[
+									withTrailingSlash( CURRENT_SITE_URL )
+								]
+							}
+							failedJobs={
+								failedJobs[
 									withTrailingSlash( CURRENT_SITE_URL )
 								]
 							}

@@ -28,8 +28,19 @@ export interface IndexProgressData {
 // Keyed by site URL. Null for a site that hasn't been indexed yet.
 export type IndexProgressMap = Record< string, IndexProgressData | null >;
 
+// A job that failed, with the hook and args Action Scheduler ran it with.
+export type FailedJob = {
+	job: 'onesearch_sync_post';
+	args: [ number ];
+	error: string;
+};
+
+// Keyed by the URL of the site they're about.
+export type FailedJobsMap = Record< string, FailedJob[] >;
+
 interface IndexerResponse {
 	sites?: IndexProgressMap;
+	failed_jobs?: FailedJobsMap;
 }
 
 const INDEXER_PATH = '/onesearch/v1/indexer';
@@ -46,26 +57,34 @@ export const isIndexActive = (
  */
 export const useIndexProgress = () => {
 	const [ sites, setSites ] = useState< IndexProgressMap >( {} );
+	const [ failedJobs, setFailedJobs ] = useState< FailedJobsMap >( {} );
+
+	const update = useCallback( ( data: IndexerResponse | undefined ) => {
+		setSites( data?.sites ?? {} );
+		setFailedJobs( data?.failed_jobs ?? {} );
+	}, [] );
 
 	const load = useCallback( async () => {
 		try {
-			const data = await apiFetch< IndexerResponse >( {
-				path: INDEXER_PATH,
-			} );
-			setSites( data?.sites ?? {} );
+			update(
+				await apiFetch< IndexerResponse >( {
+					path: INDEXER_PATH,
+				} )
+			);
 		} catch {
 			// Keep showing the last progress, and try again on the next check.
 		}
-	}, [] );
+	}, [ update ] );
 
 	// Throws when indexing can't be started, so the caller can tell the admin why.
 	const start = useCallback( async () => {
-		const data = await apiFetch< IndexerResponse >( {
-			path: INDEXER_PATH,
-			method: 'POST',
-		} );
-		setSites( data?.sites ?? {} );
-	}, [] );
+		update(
+			await apiFetch< IndexerResponse >( {
+				path: INDEXER_PATH,
+				method: 'POST',
+			} )
+		);
+	}, [ update ] );
 
 	useEffect( () => {
 		load();
@@ -84,5 +103,5 @@ export const useIndexProgress = () => {
 		return () => clearInterval( timer );
 	}, [ isLoaded, isActive, load ] );
 
-	return { sites, start, isActive };
+	return { sites, failedJobs, start, isActive };
 };
