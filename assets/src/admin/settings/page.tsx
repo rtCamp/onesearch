@@ -159,6 +159,10 @@ const SettingsPage = () => {
 				disconnectNotice,
 			] );
 		}
+
+		if ( response?.governing_site_notified && response.message ) {
+			setNotice( { type: 'success', message: response.message } );
+		}
 	};
 
 	return (
