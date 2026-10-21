@@ -42,6 +42,7 @@ final class Watcher implements Registrable {
 		add_action( 'wp_after_insert_post', [ $this, 'on_after_insert_post' ], 10, 4 );
 		add_action( 'added_post_meta', [ $this, 'on_post_meta_saved' ], 10, 3 );
 		add_action( 'updated_post_meta', [ $this, 'on_post_meta_saved' ], 10, 3 );
+		add_action( 'delete_post_meta', [ $this, 'on_delete_post_meta' ], 10, 3 );
 		add_action( 'before_delete_post', [ $this, 'on_before_delete_post' ] );
 		add_action( 'deleted_post', [ $this, 'on_deleted_post' ], 10, 2 );
 		add_action( 'shutdown', [ $this, 'sync_pending_media' ] );
@@ -109,7 +110,31 @@ final class Watcher implements Registrable {
 	}
 
 	/**
-	 * Syncs the media queued during the request.
+	 * Queues the posts using a featured image that's being deleted.
+	 *
+	 * @internal Hook callback
+	 *
+	 * @param string[] $meta_ids  The meta IDs being deleted.
+	 * @param int      $object_id The post ID, or 0 when the meta is deleted from every post.
+	 * @param string   $meta_key  The meta key.
+	 */
+	public function on_delete_post_meta( $meta_ids, $object_id, $meta_key ): void {
+		// A featured image removed from a single post is synced when that post is saved.
+		if ( '_thumbnail_id' !== $meta_key || 0 !== (int) $object_id ) {
+			return;
+		}
+
+		foreach ( $meta_ids as $meta_id ) {
+			$meta = get_metadata_by_mid( 'post', (int) $meta_id );
+
+			if ( $meta ) {
+				$this->pending_media[ (int) $meta->post_id ] = true;
+			}
+		}
+	}
+
+	/**
+	 * Syncs the posts queued during the request.
 	 *
 	 * @internal Hook callback
 	 */

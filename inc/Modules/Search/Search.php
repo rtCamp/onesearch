@@ -934,8 +934,10 @@ final class Search implements Registrable {
 		}
 
 		// Mock the WP_Post object.
-		$post      = new \WP_Post( new \stdClass() );
-		$post_type = $record['post_type'] ?? '';
+		$post = new \WP_Post( new \stdClass() );
+
+		// Core can't check capabilities against a post type that isn't registered on this site, so those results are mocked as posts.
+		$post_type = ! empty( $record['post_type'] ) && post_type_exists( $record['post_type'] ) ? $record['post_type'] : 'post';
 
 		$post->ID                = $this->next_remote_id++; // @phpstan-ignore assign.propertyType (Synthetic IDs are far above what core stubs consider possible.)
 		$post->filter            = 'raw';
@@ -945,7 +947,7 @@ final class Search implements Registrable {
 		$post->post_name         = $record['post_name'] ?? '';
 		$post->post_status       = 'publish';
 		$post->post_title        = wp_kses_post( $record['post_title'] ?? '' );
-		$post->post_type         = $post_type; // @phpstan-ignore assign.propertyType (Partial records may not have a post_type.)
+		$post->post_type         = $post_type;
 		$post->post_date_gmt     = isset( $record['post_date_gmt'] ) ? gmdate( 'Y-m-d H:i:s', (int) $record['post_date_gmt'] ) : '';
 		$post->post_modified_gmt = isset( $record['post_modified_gmt'] ) ? gmdate( 'Y-m-d H:i:s', (int) $record['post_modified_gmt'] ) : '';
 
