@@ -18,6 +18,13 @@ describe( 'utils', () => {
 		expect( isValidUrl( 'not-a-url' ) ).toBe( false );
 	} );
 
+	it( 'only accepts http and https urls', () => {
+		expect( isValidUrl( 'http://localhost:8890' ) ).toBe( true );
+		expect( isValidUrl( 'ftp://example.com' ) ).toBe( false );
+		expect( isValidUrl( 'javascript:alert(1)' ) ).toBe( false );
+		expect( isValidUrl( 'mailto:a@b.c' ) ).toBe( false );
+	} );
+
 	it( 'adds a trailing slash only when needed', () => {
 		expect( withTrailingSlash( '' ) ).toBe( '' );
 		expect( withTrailingSlash( 'https://example.com' ) ).toBe(

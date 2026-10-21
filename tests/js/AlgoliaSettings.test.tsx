@@ -112,7 +112,7 @@ describe( 'AlgoliaSettings', () => {
 		);
 	} );
 
-	it( 'reports an error when saving fails', async () => {
+	it( "shows the server's reason when saving fails", async () => {
 		const setNotice = vi.fn();
 
 		mockedApiFetch.mockImplementation( ( params ) => {
@@ -121,7 +121,12 @@ describe( 'AlgoliaSettings', () => {
 				typeof params === 'object' &&
 				( params as Record< string, unknown > )[ 'method' ] === 'POST'
 			) {
-				return Promise.reject( new Error( 'save failed' ) );
+				return Promise.reject( {
+					code: 'onesearch_algolia_credentials_invalid',
+					message:
+						'The provided Algolia credentials are invalid or lack necessary permissions.',
+					data: { status: 400 },
+				} );
 			}
 			return Promise.resolve( {} );
 		} );
@@ -136,14 +141,11 @@ describe( 'AlgoliaSettings', () => {
 		);
 
 		await waitFor( () => {
-			expect( setNotice ).toHaveBeenCalledWith(
-				expect.objectContaining( {
-					type: 'error',
-					message: expect.stringMatching(
-						/Error saving Algolia credentials/i
-					),
-				} )
-			);
+			expect( setNotice ).toHaveBeenCalledWith( {
+				type: 'error',
+				message:
+					'The provided Algolia credentials are invalid or lack necessary permissions.',
+			} );
 		} );
 	} );
 } );

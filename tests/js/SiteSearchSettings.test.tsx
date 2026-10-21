@@ -408,6 +408,101 @@ describe( 'SiteSearchSettings', () => {
 		} );
 	} );
 
+	it( 'keeps the Search from sites after disabling and enabling all', async () => {
+		const savedSettings = {
+			[ currentSiteUrl ]: {
+				algolia_enabled: true,
+				searchable_sites: [ currentSiteUrl, brandSiteUrl ],
+			},
+			[ brandSiteUrl ]: {
+				algolia_enabled: true,
+				searchable_sites: [ brandSiteUrl, currentSiteUrl ],
+			},
+		};
+		let stored: unknown = {
+			onesearch_sites_search_settings: savedSettings,
+		};
+
+		mockedApiFetch.mockImplementation( ( options ) => {
+			if ( 'POST' === options.method ) {
+				stored = options.data;
+			}
+			return Promise.resolve( stored );
+		} );
+
+		render(
+			<SiteSearchSettings
+				indexableEntities={ defaultEntities }
+				allPostTypes={ defaultPostTypes }
+				setNotice={ vi.fn() }
+				isIndexableEntitiesSaving={ false }
+			/>
+		);
+
+		await screen.findByText( 'Site Search Configuration' );
+
+		fireEvent.click(
+			screen.getByRole( 'button', { name: 'Disable All' } )
+		);
+		fireEvent.click(
+			screen.getByRole( 'button', { name: 'Save Settings' } )
+		);
+		await waitFor( () =>
+			expect(
+				screen.getByRole( 'button', { name: 'Enable All' } )
+			).toBeEnabled()
+		);
+
+		fireEvent.click( screen.getByRole( 'button', { name: 'Enable All' } ) );
+		fireEvent.click(
+			screen.getByRole( 'button', { name: 'Save Settings' } )
+		);
+		await waitFor( () =>
+			expect(
+				screen.getByRole( 'button', { name: 'Disable All' } )
+			).toBeEnabled()
+		);
+
+		expect( stored ).toEqual( {
+			onesearch_sites_search_settings: savedSettings,
+		} );
+		screen
+			.getAllByRole( 'checkbox', { name: /^(Governing|Brand) Site/ } )
+			.forEach( ( checkbox ) => expect( checkbox ).toBeChecked() );
+	} );
+
+	it( 'keeps the Search from sites after turning a site off and on', async () => {
+		mockedApiFetch.mockResolvedValueOnce( {
+			onesearch_sites_search_settings: {
+				[ currentSiteUrl ]: {
+					algolia_enabled: true,
+					searchable_sites: [ currentSiteUrl, brandSiteUrl ],
+				},
+			},
+		} );
+
+		render(
+			<SiteSearchSettings
+				indexableEntities={ defaultEntities }
+				allPostTypes={ defaultPostTypes }
+				setNotice={ vi.fn() }
+				isIndexableEntitiesSaving={ false }
+			/>
+		);
+
+		await screen.findByText( 'Site Search Configuration' );
+
+		const siteToggle = screen.getByRole( 'checkbox', {
+			name: 'Enable Algolia search for Governing Site',
+		} );
+		fireEvent.click( siteToggle );
+		fireEvent.click( siteToggle );
+
+		expect(
+			screen.getByRole( 'checkbox', { name: /^Brand Site/ } )
+		).toBeChecked();
+	} );
+
 	it( 'disables buttons while entities are saving', async () => {
 		mockedApiFetch.mockResolvedValueOnce( {
 			onesearch_sites_search_settings: {},

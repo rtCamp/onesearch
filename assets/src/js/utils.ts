@@ -1,5 +1,5 @@
 /**
- * Validates if a given string is a valid URL.
+ * Validates if a given string is a valid http or https URL.
  *
  * @param {string} url - The URL string to validate.
  *
@@ -7,8 +7,7 @@
  */
 export const isValidUrl = ( url: string ): boolean => {
 	try {
-		new URL( url );
-		return true;
+		return [ 'http:', 'https:' ].includes( new URL( url ).protocol );
 	} catch {
 		return false;
 	}

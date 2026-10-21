@@ -365,6 +365,7 @@ describe( 'SettingsPage', () => {
 		] );
 		mockedApiFetch.mockResolvedValueOnce( {
 			governing_site_notified: true,
+			message: 'Brand site removed successfully.',
 		} );
 		global.fetch = vi.fn();
 
@@ -384,6 +385,10 @@ describe( 'SettingsPage', () => {
 			method: 'DELETE',
 		} );
 		expect( global.fetch ).not.toHaveBeenCalled();
+		const notices = await screen.findAllByText(
+			'Brand site removed successfully.'
+		);
+		expect( notices.length ).toBeGreaterThanOrEqual( 1 );
 		expect(
 			screen.queryByText( /was removed, but/, {
 				selector: '.components-notice__content',
