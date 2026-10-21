@@ -417,6 +417,31 @@ final class WatcherTest extends TestCase {
 	}
 
 	/**
+	 * Deleting a featured image removes it from the records of the post that used it.
+	 */
+	public function test_deleting_a_featured_image_removes_it_from_the_post(): void {
+		$this->set_up_governing_site();
+
+		$post_id  = self::factory()->post->create( [ 'post_status' => 'publish' ] );
+		$image_id = self::factory()->attachment->create_upload_object( DIR_TESTDATA . '/images/canola.jpg' );
+		set_post_thumbnail( $post_id, $image_id );
+
+		$paths    = [];
+		$requests = [];
+		$this->mock_algolia_http_client( $paths, null, null, $requests );
+
+		$watcher = new Watcher();
+		$watcher->register_hooks();
+
+		wp_delete_attachment( $image_id, true );
+		$watcher->sync_pending_media();
+
+		$records = $this->get_saved_records( $requests );
+		$this->assertSame( [ $post_id ], array_column( $records, 'post_id' ) );
+		$this->assertSame( [], $records[0]['thumbnail'] );
+	}
+
+	/**
 	 * A post a save_post callback updates again is indexed as it was saved last.
 	 */
 	public function test_indexes_a_post_updated_again_while_it_is_saved(): void {
