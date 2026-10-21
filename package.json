@@ -46,11 +46,11 @@
 		"wp-env:test": "wp-env --config=.wp-env.test.json"
 	},
 	"dependencies": {
-		"@wordpress/api-fetch": "^7.48.0",
-		"@wordpress/components": "^30.9.0",
-		"@wordpress/element": "^6.46.0",
-		"@wordpress/i18n": "^6.21.0",
-		"@wordpress/icons": "^14.0.0",
+		"@wordpress/api-fetch": "~7.33.1",
+		"@wordpress/components": "~30.6.5",
+		"@wordpress/element": "~6.33.1",
+		"@wordpress/i18n": "~6.6.1",
+		"@wordpress/icons": "^19.0.0",
 		"react": "^18.3.1",
 		"react-dom": "^18.3.1"
 	},
@@ -78,7 +78,7 @@
 		"rimraf": "^6.1.3",
 		"typescript": "^6.0.3",
 		"typescript-eslint": "^8.72.0",
-		"vite": "^8.3.4",
+		"vite": "^8.3.5",
 		"vitest": "^5.0.5",
 		"webpack-remove-empty-scripts": "^1.1.1"
 	},
@@ -93,6 +93,6 @@
 		"webpack-dev-server@<5.2.1": "^5.2.1"
 	},
 	"allowScripts": {
-		"lefthook@2.2.1": true
+		"lefthook@2.2.2": true
 	}
 }

@@ -5,9 +5,9 @@ import { type Mock, vi } from 'vitest';
 /**
  * WordPress dependencies
  */
-import type { ApiFetch } from '@wordpress/api-fetch';
+import type realApiFetch from '@wordpress/api-fetch';
 
-const apiFetch = vi.fn() as Mock & ApiFetch;
+const apiFetch = vi.fn() as Mock & typeof realApiFetch;
 
 apiFetch.use = vi.fn();
 apiFetch.createNonceMiddleware = vi.fn( () => {
