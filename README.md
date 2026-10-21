@@ -48,7 +48,7 @@ Managing content across multiple brands, regions, or business units often result
 
 | Requirement | Version |
 | ----------- | ------- |
-| WordPress   | >= 6.8  |
+| WordPress   | >= 6.9  |
 | PHP         | >= 8.2  |
 
 - Stored API keys are encrypted with a key derived from your WordPress salts, so rotating the salts empties them. To keep them when you rotate salts, define `ONEPRESS_ENCRYPTION_KEY` and `ONEPRESS_ENCRYPTION_SALT` in `wp-config.php`. Define them before you add any keys, or enter the keys again after you do.

@@ -58,3 +58,32 @@ updates:
       npm-prod-minor-patch:
         dependency-type: 'production'
         update-types: [minor, patch]
+    # @wordpress/dependency-extraction-webpack-plugin externalizes certain WordPress packages, so they shouldn't be autoupdated without a min WordPress version bump too.
+    allow:
+      # Development dependencies should be updated freely.
+      - dependency-type: 'development'
+      # Locked to patch updates, so only fixes that don't break compatibility are allowed.
+      - dependency-name: '@wordpress/*'
+        dependency-type: 'production'
+        update-types: ['version-update:semver-patch']
+      - dependency-name: 'react'
+        update-types: ['version-update:semver-patch']
+      - dependency-name: 'react-dom'
+        update-types: ['version-update:semver-patch']
+      # Production dependencies that WordPress bundles.
+      # Keep in sync with https://github.com/WordPress/gutenberg/blob/%40wordpress/dependency-extraction-webpack-plugin%407.0.0/packages/dependency-extraction-webpack-plugin/lib/util.js#L2
+      - dependency-name: '@wordpress/admin-ui'
+      - dependency-name: '@wordpress/dataviews'
+      - dependency-name: '@wordpress/fields'
+      - dependency-name: '@wordpress/global-styles-engine'
+      - dependency-name: '@wordpress/global-styles-ui'
+      - dependency-name: '@wordpress/grid'
+      - dependency-name: '@wordpress/icons'
+      - dependency-name: '@wordpress/interface'
+      - dependency-name: '@wordpress/kebab-case'
+      - dependency-name: '@wordpress/react-inert-value'
+      - dependency-name: '@wordpress/style-runtime'
+      - dependency-name: '@wordpress/sync'
+      - dependency-name: '@wordpress/ui'
+      - dependency-name: '@wordpress/undo-manager'
+      - dependency-name: '@wordpress/views'

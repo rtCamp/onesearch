@@ -1,7 +1,7 @@
 === OneSearch ===
 Contributors: rtcamp, shreya0204, danish17, vishalkakadiya, rishavjeet, vishal4669, up1512001, justlevine, aviral-mittal
 Tags: OnePress, search, algolia, federated search, cross-site search
-Requires at least: 6.8
+Requires at least: 6.9
 Tested up to: 7.1
 <!-- x-release-please-start-version: -->
 Stable tag: 1.1.2
