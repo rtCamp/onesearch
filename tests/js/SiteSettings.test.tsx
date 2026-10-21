@@ -203,6 +203,38 @@ describe( 'SiteSettings', () => {
 		).toBeInTheDocument();
 	} );
 
+	it( 'shows an error notice when the clipboard api is unavailable', async () => {
+		global.fetch = siteSettingsFetch( {
+			governingSiteUrl: 'https://governing.example.com/',
+		} );
+		const clipboard = navigator.clipboard;
+		Object.defineProperty( navigator, 'clipboard', {
+			value: undefined,
+			configurable: true,
+		} );
+
+		try {
+			render( <SiteSettings /> );
+
+			await screen.findByDisplayValue( 'api-key' );
+			fireEvent.click(
+				screen.getByRole( 'button', { name: 'Copy API Key' } )
+			);
+
+			expect(
+				await screen.findByText(
+					'Failed to copy api key. Please try again.',
+					{ selector: '.components-notice__content' }
+				)
+			).toBeInTheDocument();
+		} finally {
+			Object.defineProperty( navigator, 'clipboard', {
+				value: clipboard,
+				configurable: true,
+			} );
+		}
+	} );
+
 	it( 'shows an error notice when disconnecting the governing site fails', async () => {
 		global.fetch = siteSettingsFetch( {
 			governingSiteUrl: 'https://governing.example.com/',

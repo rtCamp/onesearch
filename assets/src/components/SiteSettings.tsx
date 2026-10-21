@@ -179,8 +179,10 @@ const SiteSettings = () => {
 						<Button
 							variant="primary"
 							onClick={ () => {
-								navigator?.clipboard
-									?.writeText( apiKey )
+								(
+									navigator.clipboard?.writeText( apiKey ) ??
+									Promise.reject( '' )
+								)
 									.then( () => {
 										setNotice( {
 											type: 'success',
