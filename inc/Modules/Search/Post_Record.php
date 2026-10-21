@@ -164,7 +164,6 @@ final class Post_Record {
 				'filterOnly(site_post_id)',
 				'filterOnly(site_url)',
 				'filterOnly(post_type)',
-				'filterOnly(post_author_data.display_name)',
 			],
 			'attributesToSnippet'   => [
 				'post_title:20',
