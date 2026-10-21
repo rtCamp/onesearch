@@ -71,13 +71,15 @@ const AlgoliaSettings = ( {
 					),
 				} );
 			} )
-			.catch( () => {
+			.catch( ( error: unknown ) => {
 				setNotice( {
 					type: 'error',
-					message: __(
-						'Error saving Algolia credentials. Please try again later.',
-						'onesearch'
-					),
+					message:
+						( error as { message?: string } )?.message ||
+						__(
+							'Error saving Algolia credentials. Please try again later.',
+							'onesearch'
+						),
 				} );
 			} )
 			.finally( () => {
