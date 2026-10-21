@@ -279,13 +279,18 @@ const SiteSearchSettings = ( {
 			return;
 		}
 
-		setSearchSettings( ( prev: Record< string, SiteSearchSetting > ) => ( {
-			...prev,
-			[ url ]: {
-				algolia_enabled: enabled,
-				searchable_sites: enabled ? [ url ] : [],
-			},
-		} ) );
+		setSearchSettings( ( prev: Record< string, SiteSearchSetting > ) => {
+			const prevSites = prev[ url ]?.searchable_sites ?? [];
+
+			return {
+				...prev,
+				[ url ]: {
+					algolia_enabled: enabled,
+					searchable_sites:
+						enabled && prevSites.length === 0 ? [ url ] : prevSites,
+				},
+			};
+		} );
 	};
 
 	// Toggle searchable sites for a site
@@ -348,7 +353,7 @@ const SiteSearchSettings = ( {
 				skippedCount++;
 			}
 
-			// Preserve previous searchable_sites when enabling.
+			// Preserve previous searchable_sites.
 			const prev = searchSettings[ url ] || {
 				algolia_enabled: false,
 				searchable_sites: [],
@@ -360,10 +365,10 @@ const SiteSearchSettings = ( {
 					)
 				: [];
 
-			let sitesToReturn: string[] = [];
+			let sitesToReturn: string[] = prevSites;
 
-			if ( enable && canEnable ) {
-				sitesToReturn = prevSites.length > 0 ? prevSites : [ url ];
+			if ( enable && canEnable && prevSites.length === 0 ) {
+				sitesToReturn = [ url ];
 			}
 
 			newSettings[ url ] = {
