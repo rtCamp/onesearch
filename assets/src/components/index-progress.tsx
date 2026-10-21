@@ -1,7 +1,7 @@
 /**
  * External dependencies
  */
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 
 /**
  * WordPress dependencies
@@ -96,8 +96,48 @@ const FailedJobs = ( {
 					<ErrorList errors={ syncErrors } />
 				</>
 			) }
+			{ failedJobs.map( ( failedJob ) => {
+				const message = getFailedJobMessage( failedJob );
+
+				return message ? (
+					<Fragment
+						key={ failedJob.job + JSON.stringify( failedJob.args ) }
+					>
+						<p className="onesearch-index-progress-failed">
+							{ message }
+						</p>
+						<ErrorList errors={ [ failedJob.error ] } />
+					</Fragment>
+				) : null;
+			} ) }
 		</>
 	);
+};
+
+// What a failed job means for the site, and how to fix it. Null for post syncs, since they're listed together.
+const getFailedJobMessage = ( failedJob: FailedJob ): string | null => {
+	switch ( failedJob.job ) {
+		case 'onesearch_purge_brand_config':
+			return __(
+				'This site may search with outdated settings. Re-index to fix it.',
+				'onesearch'
+			);
+
+		case 'onesearch_delete_site_records':
+			return sprintf(
+				/* translators: %s: comma-separated site URLs. */
+				_n(
+					'Search may still show content from the removed site %s. Re-index to remove it.',
+					'Search may still show content from the removed sites %s. Re-index to remove it.',
+					failedJob.args[ 0 ].length,
+					'onesearch'
+				),
+				failedJob.args[ 0 ].join( ', ' )
+			);
+
+		default:
+			return null;
+	}
 };
 
 /**

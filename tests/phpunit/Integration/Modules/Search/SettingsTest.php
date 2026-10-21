@@ -9,7 +9,7 @@ declare(strict_types = 1);
 
 namespace OneSearch\Tests\Integration\Modules\Search;
 
-use OneSearch\Modules\Rest\Remote_Client;
+use OneSearch\Modules\Search\Indexer;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
@@ -329,44 +329,11 @@ final class SettingsTest extends TestCase {
 	}
 
 	/**
-	 * Removed sites are cleaned out of the settings even when their records could not be deleted from Algolia.
-	 */
-	public function test_on_shared_sites_change_cleans_entities_even_when_delete_fails(): void {
-		$settings = new Search_Settings();
-
-		$initial_entities = [
-			'entities' => [
-				'https://child-a.example.com/' => [ 'post' ],
-				'https://child-b.example.com/' => [ 'post' ],
-			],
-		];
-
-		update_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES, $initial_entities );
-		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
-
-		$old_sites = [
-			[ 'url' => 'https://child-a.example.com/' ],
-			[ 'url' => 'https://child-b.example.com/' ],
-		];
-		$new_sites = [
-			[ 'url' => 'https://child-b.example.com/' ],
-		];
-
-		$settings->on_shared_sites_change( $old_sites, $new_sites );
-
-		$this->assertSame(
-			[ 'entities' => [ 'https://child-b.example.com/' => [ 'post' ] ] ],
-			get_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES )
-		);
-	}
-
-	/**
 	 * A removed site's search settings go, and so does every mention of it as a searchable site.
 	 */
 	public function test_on_shared_sites_change_cleans_search_settings(): void {
 		$settings = new Search_Settings();
 		$settings->register_settings();
-		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
 
 		update_option(
 			Search_Settings::OPTION_GOVERNING_SEARCH_SETTINGS,
@@ -403,11 +370,6 @@ final class SettingsTest extends TestCase {
 	 * Removing shared sites stops them from being indexed.
 	 */
 	public function test_on_shared_sites_change_removes_removed_sites_entities(): void {
-		$this->set_up_governing_site();
-
-		$recorded_paths = [];
-		$this->mock_algolia_http_client( $recorded_paths );
-
 		update_option(
 			Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES,
 			[
@@ -448,6 +410,7 @@ final class SettingsTest extends TestCase {
 		$recorded_requests = [];
 		$this->mock_algolia_http_client( $recorded_paths, null, null, $recorded_requests );
 
+		( new Indexer() )->register_hooks();
 		( new Search_Settings() )->on_shared_sites_change(
 			[
 				[ 'url' => 'https://child-a.example.com' ],
@@ -459,6 +422,9 @@ final class SettingsTest extends TestCase {
 			]
 		);
 
+		$this->assertSame( [], $recorded_paths, 'The records are deleted in the background.' );
+		$this->run_jobs();
+
 		$delete_requests = array_values( array_filter( $recorded_requests, static fn ( array $request ) => str_contains( $request['path'], '/deleteByQuery' ) ) );
 
 		$this->assertCount( 1, $delete_requests );
@@ -466,19 +432,6 @@ final class SettingsTest extends TestCase {
 			'site_url:"https://child-a.example.com/" OR site_url:"https://child-b.example.com/"',
 			json_decode( $delete_requests[0]['body'], true )['filters']
 		);
-	}
-
-	/**
-	 * Adding or updating an unrelated option does not purge the brand config cache.
-	 */
-	public function test_unrelated_option_does_not_purge_cache(): void {
-		set_transient( Remote_Client::TRANSIENT_KEY, [ 'test' => true ], 3600 );
-		( new Search_Settings() )->register_hooks();
-
-		add_option( 'some_unrelated_option', 'first' );
-		update_option( 'some_unrelated_option', 'second' );
-
-		$this->assertNotFalse( get_transient( Remote_Client::TRANSIENT_KEY ) );
 	}
 
 	/**
@@ -496,6 +449,7 @@ final class SettingsTest extends TestCase {
 		);
 		delete_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES );
 		( new Search_Settings() )->register_hooks();
+		( new Indexer() )->register_hooks();
 
 		$purges = [];
 		$filter = static function ( $preempt, $args, $url ) use ( &$purges ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
@@ -516,6 +470,9 @@ final class SettingsTest extends TestCase {
 		add_filter( 'pre_http_request', $filter, 10, 3 );
 
 		update_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES, [ 'entities' => [ 'https://brand.example.com/' => [ 'post' ] ] ] );
+		$this->assertSame( [], $purges, 'The brand sites are told in the background.' );
+
+		$this->run_jobs();
 
 		remove_filter( 'pre_http_request', $filter );
 

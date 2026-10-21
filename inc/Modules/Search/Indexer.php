@@ -38,6 +38,16 @@ final class Indexer implements Registrable {
 	public const BRAND_PROGRESS_HOOK = 'onesearch_check_brand_index_progress';
 
 	/**
+	 * The job that tells a brand site to purge its cached config.
+	 */
+	public const PURGE_BRAND_CONFIG_HOOK = 'onesearch_purge_brand_config';
+
+	/**
+	 * The job that deletes the records of removed brand sites.
+	 */
+	public const DELETE_SITE_RECORDS_HOOK = 'onesearch_delete_site_records';
+
+	/**
 	 * The option holding the progress of this site's indexing run.
 	 */
 	public const OPTION_PROGRESS = 'onesearch_index_progress';
@@ -59,6 +69,8 @@ final class Indexer implements Registrable {
 		add_action( self::BATCH_HOOK, [ $this, 'run_batch' ], 10, 2 );
 		add_action( self::BRAND_SITE_HOOK, [ $this, 'reindex_brand_site' ] );
 		add_action( self::BRAND_PROGRESS_HOOK, [ $this, 'check_brand_site_progress' ] );
+		add_action( self::PURGE_BRAND_CONFIG_HOOK, [ $this, 'purge_brand_config' ] );
+		add_action( self::DELETE_SITE_RECORDS_HOOK, [ $this, 'delete_site_records' ] );
 	}
 
 	/**
@@ -91,6 +103,11 @@ final class Indexer implements Registrable {
 			foreach ( array_keys( Settings::get_shared_sites() ) as $site_url ) {
 				self::get_brand_progress( $site_url )->start();
 				$queue->add( self::BRAND_SITE_HOOK, [ $site_url ], true );
+			}
+
+			// Retry the failed deletes of removed sites' records.
+			foreach ( $queue->get_failures( self::DELETE_SITE_RECORDS_HOOK, 0 ) as $failure ) {
+				$queue->add( self::DELETE_SITE_RECORDS_HOOK, $failure['args'], true );
 			}
 		}
 
@@ -161,7 +178,7 @@ final class Indexer implements Registrable {
 	/**
 	 * Gets the jobs that failed, keyed by the URL of the site they're about.
 	 *
-	 * An indexing run fixes them, so a site's post syncs only count from its latest indexing run on.
+	 * An indexing run fixes them, so a site's post syncs and config purges only count from its latest indexing run on. An indexing run only retries the record deletes of removed sites, so those count until one goes through.
 	 *
 	 * @param array<string, ?ProgressData> $progress The progress of each site's latest indexing run, keyed by site URL.
 	 *
@@ -169,11 +186,37 @@ final class Indexer implements Registrable {
 	 */
 	public static function get_failed_jobs( array $progress ): array {
 		$site_url = Utils::get_current_site_url();
+		$queue    = new Queue();
 		$failed   = [];
 
-		foreach ( ( new Queue() )->get_failures( Watcher::SYNC_HOOK, (int) ( $progress[ $site_url ]['started_at'] ?? 0 ) ) as $failure ) {
+		foreach ( $queue->get_failures( Watcher::SYNC_HOOK, (int) ( $progress[ $site_url ]['started_at'] ?? 0 ) ) as $failure ) {
 			$failed[ $site_url ][] = [
 				'job'   => Watcher::SYNC_HOOK,
+				'args'  => $failure['args'],
+				'error' => $failure['error'],
+			];
+		}
+
+		if ( ! Settings::is_governing_site() ) {
+			return $failed;
+		}
+
+		foreach ( $queue->get_failures( self::PURGE_BRAND_CONFIG_HOOK, 0 ) as $failure ) {
+			$brand_url = (string) $failure['args'][0];
+
+			// Removed since, or indexed since, which gets the latest config too.
+			if ( array_key_exists( $brand_url, $progress ) && $failure['failed_at'] >= (int) ( $progress[ $brand_url ]['started_at'] ?? 0 ) ) {
+				$failed[ $brand_url ][] = [
+					'job'   => self::PURGE_BRAND_CONFIG_HOOK,
+					'args'  => $failure['args'],
+					'error' => $failure['error'],
+				];
+			}
+		}
+
+		foreach ( $queue->get_failures( self::DELETE_SITE_RECORDS_HOOK, 0 ) as $failure ) {
+			$failed[ $site_url ][] = [
+				'job'   => self::DELETE_SITE_RECORDS_HOOK,
 				'args'  => $failure['args'],
 				'error' => $failure['error'],
 			];
@@ -299,6 +342,51 @@ final class Indexer implements Registrable {
 		}
 
 		$progress->set( $fetched );
+	}
+
+	/**
+	 * Tells a brand site to purge its cached config.
+	 *
+	 * @internal Hook callback
+	 *
+	 * @param string $site_url The brand site's URL.
+	 *
+	 * @throws \RuntimeException When it fails.
+	 */
+	public function purge_brand_config( $site_url ): void {
+		$site = Settings::get_shared_site_by_url( (string) $site_url );
+
+		// Removed since.
+		if ( null === $site ) {
+			return;
+		}
+
+		$is_purged = Remote_Client::clear_brand_site_config_cache( $site );
+
+		if ( is_wp_error( $is_purged ) ) {
+			throw new \RuntimeException( esc_html( $is_purged->get_error_message() ) );
+		}
+	}
+
+	/**
+	 * Deletes the records of removed brand sites.
+	 *
+	 * @internal Hook callback
+	 *
+	 * @param string[] $site_urls The removed sites' URLs.
+	 *
+	 * @throws \RuntimeException When it fails.
+	 */
+	public function delete_site_records( $site_urls ): void {
+		// Skip sites added back since. Algolia ignores case in site_url.
+		$connected = array_map( 'strtolower', array_keys( Settings::get_shared_sites() ) );
+		$removed   = array_filter( (array) $site_urls, static fn ( string $site_url ): bool => ! in_array( strtolower( $site_url ), $connected, true ) );
+
+		$is_deleted = ( new Search_Index() )->delete_site_records( $removed );
+
+		if ( is_wp_error( $is_deleted ) && Search_Index::ERROR_NOT_CONFIGURED !== $is_deleted->get_error_code() ) {
+			throw new \RuntimeException( esc_html( Search_Index::get_error_message( $is_deleted ) ) );
+		}
 	}
 
 	/**

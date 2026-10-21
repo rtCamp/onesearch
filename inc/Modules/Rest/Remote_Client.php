@@ -174,8 +174,7 @@ class Remote_Client {
 			'brand-site',
 			$our_public_key,
 			[
-				'method'  => \WP_REST_Server::DELETABLE,
-				'timeout' => 15, // phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout -- The governing site purges this site's Algolia records before responding.
+				'method' => \WP_REST_Server::DELETABLE,
 			]
 		);
 
@@ -388,39 +387,16 @@ class Remote_Client {
 	}
 
 	/**
-	 * Tells the brand sites to clear their cached configuration.
+	 * Tells a brand site to clear its cached configuration.
 	 *
-	 * @param ?string $site_url Optional site URL to clear cache for a specific site. If null, clears cache for all shared sites.
+	 * @param array{url: string, api_key: string} $site_data The brand site, with its stored key.
+	 *
+	 * @return true|\WP_Error True if the brand site cleared it.
 	 */
-	public static function clear_brand_sites_config_cache( ?string $site_url = null ): void {
-		if ( ! Settings::is_governing_site() ) {
-			return;
-		}
+	public static function clear_brand_site_config_cache( array $site_data ): true|\WP_Error {
+		$response = self::request_brand_site( $site_data, 'governing-site/config', [ 'method' => \WP_REST_Server::DELETABLE ] );
 
-		$shared_sites = Settings::get_shared_sites();
-
-		// If a specific site URL is provided, we'll just target that one.
-		if ( ! empty( $site_url ) && isset( $shared_sites[ $site_url ] ) ) {
-			$shared_sites = [ $shared_sites[ $site_url ] ];
-		}
-
-		foreach ( $shared_sites as $site_data ) {
-			if ( empty( $site_data['url'] ) || empty( $site_data['api_key'] ) ) {
-				continue;
-			}
-
-			// Clear cache on each shared site.
-			self::request(
-				$site_data['url'],
-				'governing-site/config',
-				$site_data['api_key'],
-				[
-					'method'   => \WP_REST_Server::DELETABLE,
-					// Don't wait to see if the cache flush was successful.
-					'blocking' => false,
-				]
-			);
-		}
+		return is_wp_error( $response ) ? $response : true;
 	}
 
 	/**

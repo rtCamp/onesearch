@@ -29,11 +29,14 @@ export interface IndexProgressData {
 export type IndexProgressMap = Record< string, IndexProgressData | null >;
 
 // A job that failed, with the hook and args Action Scheduler ran it with.
-export type FailedJob = {
-	job: 'onesearch_sync_post';
-	args: [ number ];
-	error: string;
-};
+export type FailedJob =
+	| { job: 'onesearch_sync_post'; args: [ number ]; error: string }
+	| { job: 'onesearch_purge_brand_config'; args: [ string ]; error: string }
+	| {
+			job: 'onesearch_delete_site_records';
+			args: [ string[] ];
+			error: string;
+	  };
 
 // Keyed by the URL of the site they're about.
 export type FailedJobsMap = Record< string, FailedJob[] >;

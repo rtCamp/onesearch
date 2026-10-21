@@ -11,6 +11,7 @@ namespace OneSearch\Tests\Integration\Modules\Rest;
 
 use OneSearch\Modules\Rest\Abstract_REST_Controller;
 use OneSearch\Modules\Rest\Brand_Site_Controller;
+use OneSearch\Modules\Search\Indexer;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
@@ -108,8 +109,9 @@ class Brand_Site_Controller_GoverningSiteTest extends TestCase {
 		$algolia_requests = [];
 		$this->mock_algolia_http_client( $algolia_paths, null, null, $algolia_requests );
 
-		// The shared sites listeners that purge a removed site's search data.
+		// The shared sites listeners that purge a removed site's search data and their associated jobs.
 		( new Search_Settings() )->register_hooks();
+		( new Indexer() )->register_hooks();
 
 		// Keep the cache purge for the remaining brand sites off the network.
 		$block_http = static fn () => new \WP_Error( 'http_request_blocked', 'Blocked in tests.' );
@@ -122,6 +124,7 @@ class Brand_Site_Controller_GoverningSiteTest extends TestCase {
 		$request->set_header( 'X-OneSearch-Token', 'brand-one-key' );
 
 		$response = $this->server->dispatch( $request );
+		$this->run_jobs();
 
 		remove_filter( 'pre_http_request', $block_http );
 

@@ -194,6 +194,165 @@ final class IndexerTest extends TestCase {
 	}
 
 	/**
+	 * Indexing a governing site retries a failed delete of removed sites' records. Once it goes through, it stops showing and isn't retried, even after a failed run.
+	 */
+	public function test_governing_indexing_retries_a_failed_delete_of_removed_sites_records(): void {
+		$this->set_up_governing_site();
+		self::factory()->post->create();
+
+		$this->fail_delete_job( 'https://old.example.com/' );
+
+		$this->fake_algolia_index();
+		$this->add_old_records();
+		$this->add_site_record( 'old_site_post_0', 'https://old.example.com/' );
+
+		$this->assertArrayHasKey( Utils::get_current_site_url(), Indexer::get_failed_jobs( Indexer::get_all_progress() ) );
+
+		Indexer::start();
+		$this->run_jobs();
+
+		$this->assertSame( Progress::STATUS_COMPLETED, Indexer::get_all_progress()[ Utils::get_current_site_url() ]['status'] );
+		$this->assertArrayNotHasKey( 'old_site_post_0', $this->records );
+		$this->assertArrayHasKey( 'other_site_post_0', $this->records, 'Other sites keep their records.' );
+		$this->assertSame( [], Indexer::get_failed_jobs( Indexer::get_all_progress() ) );
+
+		// Records of that URL saved since, e.g. by another network on the same index.
+		$this->add_site_record( 'old_site_post_1', 'https://old.example.com/' );
+
+		Indexer::start();
+		$this->run_jobs();
+
+		$this->assertArrayHasKey( 'old_site_post_1', $this->records, 'A delete that went through is not tried again.' );
+
+		$this->fake_algolia_index( '/batch' );
+		Indexer::start();
+		$this->run_jobs();
+
+		$this->assertSame( Progress::STATUS_FAILED, Indexer::get_all_progress()[ Utils::get_current_site_url() ]['status'] );
+		$this->assertSame( [], Indexer::get_failed_jobs( Indexer::get_all_progress() ), 'A failed run does not bring it back.' );
+	}
+
+	/**
+	 * A removed site that's added back before its records are deleted keeps them, whatever the case of its URL.
+	 */
+	public function test_a_site_added_back_keeps_its_records(): void {
+		$this->set_up_governing_site();
+		$this->fake_algolia_index();
+		$this->add_site_record( 'brand_a_post_0', 'https://brand-a.example.com/' );
+
+		( new Search_Settings() )->register_hooks();
+		$this->add_brand_site_a();
+		Settings::remove_shared_site( 'https://brand-a.example.com/' );
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Brand A',
+					'url'     => 'https://Brand-A.example.com/',
+					'api_key' => 'key-a',
+				],
+			]
+		);
+
+		$this->run_jobs();
+
+		$this->assertArrayHasKey( 'brand_a_post_0', $this->records );
+	}
+
+	/**
+	 * A retried delete that fails again shows the new reason.
+	 */
+	public function test_a_retried_delete_that_fails_again_shows_the_new_reason(): void {
+		$this->set_up_governing_site();
+
+		$this->fail_delete_job( 'https://old.example.com/' );
+		$this->fake_algolia_index( '/deleteByQuery' );
+
+		Indexer::start();
+		$this->run_jobs();
+
+		$this->assertSame(
+			[
+				Utils::get_current_site_url() => [
+					[
+						'job'   => Indexer::DELETE_SITE_RECORDS_HOOK,
+						'args'  => [ [ 'https://old.example.com/' ] ],
+						'error' => 'Failed to delete Algolia records by given args. forced test exception',
+					],
+				],
+			],
+			Indexer::get_failed_jobs( Indexer::get_all_progress() )
+		);
+	}
+
+	/**
+	 * Failed config purges show with their brand site until a later purge or an indexing run of that site, and failed deletes show with this site.
+	 */
+	public function test_failed_jobs_show_with_the_site_they_are_about(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		Settings::set_shared_sites(
+			[
+				[
+					'api_key' => 'brand-key',
+					'url'     => 'https://brand.example.com',
+				],
+			]
+		);
+		( new Search_Settings() )->register_hooks();
+
+		$brand = (object) [ 'is_reachable' => false ];
+		add_filter(
+			'pre_http_request',
+			static fn () => $brand->is_reachable
+				? [
+					'response' => [
+						'code'    => 200,
+						'message' => 'OK',
+					],
+					'body'     => '{}',
+				]
+				: new \WP_Error( 'http_request_failed', 'cURL error 7' )
+		);
+
+		update_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES, [ 'entities' => [ 'https://brand.example.com/' => [ 'post' ] ] ] );
+
+		$queue = new Queue();
+		$queue->add( Indexer::DELETE_SITE_RECORDS_HOOK, [ [ 'https://old.example.com/' ] ] );
+		$this->fail_job_with_fatal_error( (int) \ActionScheduler::store()->find_action( Indexer::DELETE_SITE_RECORDS_HOOK ), 'Allowed memory size exhausted' );
+
+		$this->run_jobs();
+
+		$this->assertSame(
+			[
+				'https://brand.example.com/'  => [
+					[
+						'job'   => Indexer::PURGE_BRAND_CONFIG_HOOK,
+						'args'  => [ 'https://brand.example.com/' ],
+						'error' => 'cURL error 7',
+					],
+				],
+				Utils::get_current_site_url() => [
+					[
+						'job'   => Indexer::DELETE_SITE_RECORDS_HOOK,
+						'args'  => [ [ 'https://old.example.com/' ] ],
+						'error' => 'unexpected shutdown: PHP Fatal error Allowed memory size exhausted in render.php on line 3',
+					],
+				],
+			],
+			Indexer::get_failed_jobs( Indexer::get_all_progress() )
+		);
+
+		// An indexing run of the brand site that started later gets the latest config too.
+		$indexed = [ 'https://brand.example.com/' => [ 'started_at' => time() + 1 ] ];
+		$this->assertSame( [ Utils::get_current_site_url() ], array_keys( Indexer::get_failed_jobs( $indexed ) ) );
+
+		$brand->is_reachable = true;
+		update_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES, [ 'entities' => [ 'https://brand.example.com/' => [ 'page' ] ] ] );
+		$this->run_jobs();
+
+		$this->assertSame( [ Utils::get_current_site_url() ], array_keys( Indexer::get_failed_jobs( Indexer::get_all_progress() ) ) );
+	}
+
+	/**
 	 * Starting indexing again replaces the run that's going, whose batches then stop.
 	 */
 	public function test_starting_again_replaces_the_run_that_is_going(): void {
@@ -502,6 +661,30 @@ final class IndexerTest extends TestCase {
 	}
 
 	/**
+	 * Queues a delete of a removed site's records that fails with a fatal error.
+	 *
+	 * @param string $site_url The removed site's URL.
+	 */
+	private function fail_delete_job( string $site_url ): void {
+		( new Queue() )->add( Indexer::DELETE_SITE_RECORDS_HOOK, [ [ $site_url ] ] );
+		$this->fail_job_with_fatal_error( (int) \ActionScheduler::store()->find_action( Indexer::DELETE_SITE_RECORDS_HOOK, [ 'args' => [ [ $site_url ] ] ] ), 'Allowed memory size exhausted' );
+	}
+
+	/**
+	 * Adds a record of a site to the fake index, saved before indexing.
+	 *
+	 * @param string $object_id The record's object ID.
+	 * @param string $site_url  The site's URL.
+	 */
+	private function add_site_record( string $object_id, string $site_url ): void {
+		$this->records[ $object_id ] = [
+			'objectID'   => $object_id,
+			'site_url'   => $site_url,
+			'indexed_at' => time() - HOUR_IN_SECONDS,
+		];
+	}
+
+	/**
 	 * Makes this site a governing site with one brand site.
 	 */
 	private function add_brand_site_a(): void {
@@ -643,7 +826,7 @@ final class IndexerTest extends TestCase {
 			}
 
 			/**
-			 * Whether a record matches a filter of `attribute:"value"` and `attribute < number` terms, joined with OR inside AND.
+			 * Whether a record matches a filter of `attribute:"value"` and `attribute < number` terms, joined with OR inside AND. Values match case-insensitively, like Algolia's.
 			 *
 			 * @param array<string, mixed> $record  The record.
 			 * @param string               $filters The filter.
@@ -654,7 +837,7 @@ final class IndexerTest extends TestCase {
 
 					foreach ( explode( ' OR ', $clause ) as $term ) {
 						if ( preg_match( '/^(\w+):"(.*)"$/', $term, $m ) ) {
-							$any = $any || (string) ( $record[ $m[1] ] ?? '' ) === stripslashes( $m[2] );
+							$any = $any || 0 === strcasecmp( (string) ( $record[ $m[1] ] ?? '' ), stripslashes( $m[2] ) );
 						} elseif ( preg_match( '/^(\w+) (<|>=) (\d+)$/', $term, $m ) && isset( $record[ $m[1] ] ) ) {
 							$any = $any || ( '<' === $m[2] ? $record[ $m[1] ] < (int) $m[3] : $record[ $m[1] ] >= (int) $m[3] );
 						}

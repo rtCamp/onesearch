@@ -182,6 +182,14 @@ describe( 'SiteIndexableEntities', () => {
 	it( "shows each site's indexing progress, and keeps checking while one runs", async () => {
 		vi.useFakeTimers();
 
+		const failedDelete = {
+			job: 'onesearch_delete_site_records',
+			args: [ [ 'https://old.example.com/' ] ],
+			error: 'Failed to delete Algolia records by given args. Unreachable hosts',
+		};
+		const deleteMessage =
+			'Search may still show content from the removed site https://old.example.com/. Re-index to remove it.';
+
 		mockApi( {
 			'GET /onesearch/v1/indexer': [
 				{
@@ -199,6 +207,16 @@ describe( 'SiteIndexableEntities', () => {
 							errors: [ 'Algolia admin credentials missing.' ],
 						} ),
 					},
+					failed_jobs: {
+						[ currentSiteUrl ]: [ failedDelete ],
+						[ brandSiteUrl ]: [
+							{
+								job: 'onesearch_purge_brand_config',
+								args: [ brandSiteUrl ],
+								error: 'cURL error 7',
+							},
+						],
+					},
 				},
 				{
 					sites: {
@@ -208,6 +226,9 @@ describe( 'SiteIndexableEntities', () => {
 							done: 200,
 						} ),
 						[ brandSiteUrl ]: null,
+					},
+					failed_jobs: {
+						[ currentSiteUrl ]: [ failedDelete ],
 					},
 				},
 			],
@@ -236,6 +257,14 @@ describe( 'SiteIndexableEntities', () => {
 		expect(
 			screen.getByText( "100 items couldn't be indexed." )
 		).toBeInTheDocument();
+		// The jobs that failed show with the site they're about, once that site isn't indexing.
+		expect(
+			screen.getByText(
+				'This site may search with outdated settings. Re-index to fix it.'
+			)
+		).toBeInTheDocument();
+		expect( screen.getByText( 'cURL error 7' ) ).toBeInTheDocument();
+		expect( screen.queryByText( deleteMessage ) ).not.toBeInTheDocument();
 		// One live region for every site, so screen readers don't hear each site's counter.
 		expect( screen.getByRole( 'status' ) ).toHaveTextContent( 'Indexing…' );
 
@@ -243,10 +272,17 @@ describe( 'SiteIndexableEntities', () => {
 			vi.advanceTimersByTime( INDEX_POLL_INTERVAL );
 		} );
 
-		expect(
-			await screen.findByText( 'Search is up to date.' )
-		).toBeInTheDocument();
+		expect( await screen.findByText( deleteMessage ) ).toBeInTheDocument();
 		expect( screen.getByText( 'Not indexed yet.' ) ).toBeInTheDocument();
+		// The failed jobs say what's still out of date.
+		expect(
+			screen.queryByText( 'Search is up to date.' )
+		).not.toBeInTheDocument();
+		expect(
+			screen.getByText(
+				'Failed to delete Algolia records by given args. Unreachable hosts'
+			)
+		).toBeInTheDocument();
 		expect( screen.getByRole( 'status' ) ).toHaveTextContent(
 			'Indexing complete.'
 		);

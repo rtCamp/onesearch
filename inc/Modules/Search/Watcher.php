@@ -192,7 +192,7 @@ final class Watcher implements Registrable {
 				: $search_index->delete_posts( [ (int) $post_id ] );
 		}
 
-		// @todo this class shouldn't run if the Algolia config isn't good.
+		// Without an Algolia config there's no index to update yet, e.g. before Algolia is set up.
 		if ( is_wp_error( $result ) && Search_Index::ERROR_NOT_CONFIGURED !== $result->get_error_code() ) {
 			throw new \RuntimeException( esc_html( Search_Index::get_error_message( $result ) ) );
 		}
