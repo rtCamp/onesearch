@@ -506,6 +506,37 @@ final class WatcherTest extends TestCase {
 	}
 
 	/**
+	 * A sync checks the post as it is now, even when an earlier job cached it before another request protected it.
+	 */
+	public function test_sync_skips_the_cached_copy_of_a_protected_post(): void {
+		global $wpdb;
+
+		$this->set_up_governing_site( [ 'post', 'attachment' ] );
+
+		$post_id       = self::factory()->post->create( [ 'post_status' => 'publish' ] );
+		$attachment_id = self::factory()->attachment->create( [ 'post_parent' => $post_id ] );
+
+		$paths    = [];
+		$requests = [];
+		$this->mock_algolia_http_client( $paths, null, null, $requests );
+
+		// Cache both posts, then protect the post without clearing that cache, the way another request would.
+		get_post( $post_id );
+		get_post( $attachment_id );
+		$wpdb->update( $wpdb->posts, [ 'post_password' => 'secret' ], [ 'ID' => $post_id ] ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+
+		$watcher = new Watcher();
+		$watcher->sync_post( $post_id );
+		$watcher->sync_post( $attachment_id );
+
+		$filters = implode( ' OR ', $this->get_delete_filters( $requests ) );
+
+		$this->assertStringContainsString( sprintf( 'site_post_id:"%s"', ( new Post_Record() )->get_site_post_id( $post_id ) ), $filters );
+		$this->assertStringContainsString( sprintf( 'site_post_id:"%s"', ( new Post_Record() )->get_site_post_id( $attachment_id ) ), $filters );
+		$this->assertSame( [], array_filter( $paths, static fn ( string $path ): bool => str_contains( $path, '/batch' ) ), 'The protected content must not be saved.' );
+	}
+
+	/**
 	 * Ensures a record is purged when wp_delete_post() is used to permanently delete the post directly.
 	 */
 	public function test_deletes_record_when_a_post_is_permanently_deleted(): void {

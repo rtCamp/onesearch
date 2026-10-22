@@ -186,8 +186,17 @@ final class Watcher implements Registrable {
 		} else {
 			// Each sync gets its own client, since the client skips hosts that failed for a few minutes.
 			$search_index = new Search_Index();
-			$post         = get_post( (int) $post_id );
-			$result       = $post instanceof \WP_Post && $this->is_indexable( $post, $post_types )
+
+			// The job runner keeps its cache between jobs, so an earlier job may have cached the post before another request changed it.
+			clean_post_cache( (int) $post_id );
+			$post = get_post( (int) $post_id );
+
+			// Media checks its parent's visibility, so that has to be fresh too.
+			if ( $post instanceof \WP_Post && 'attachment' === $post->post_type && $post->post_parent ) {
+				clean_post_cache( $post->post_parent );
+			}
+
+			$result = $post instanceof \WP_Post && $this->is_indexable( $post, $post_types )
 				? $search_index->save_post( $post )
 				: $search_index->delete_posts( [ (int) $post_id ] );
 		}
