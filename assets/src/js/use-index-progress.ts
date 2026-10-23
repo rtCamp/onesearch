@@ -49,7 +49,7 @@ interface IndexerResponse {
 const INDEXER_PATH = '/onesearch/v1/indexer';
 
 // How often to check on an indexing run that's going, in milliseconds.
-export const INDEX_POLL_INTERVAL = 3000;
+export const INDEX_POLL_INTERVAL = 10000;
 
 export const isIndexActive = (
 	progress: IndexProgressData | null | undefined
