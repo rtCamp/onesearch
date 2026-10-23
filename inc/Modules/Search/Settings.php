@@ -11,7 +11,7 @@ namespace OneSearch\Modules\Search;
 
 use OneSearch\Contracts\Interfaces\Registrable;
 use OneSearch\Encryptor;
-use OneSearch\Modules\Rest\Remote_Client;
+use OneSearch\Jobs\Queue;
 use OneSearch\Modules\Settings\Settings as Admin_Settings;
 use OneSearch\Utils;
 
@@ -60,8 +60,8 @@ final class Settings implements Registrable {
 			self::OPTION_GOVERNING_INDEXABLE_SITES,
 			self::OPTION_GOVERNING_SEARCH_SETTINGS,
 		] as $option ) {
-			add_action( 'add_option_' . $option, static fn () => Remote_Client::clear_brand_sites_config_cache() );
-			add_action( 'update_option_' . $option, static fn () => Remote_Client::clear_brand_sites_config_cache() );
+			add_action( 'add_option_' . $option, [ $this, 'queue_brand_config_purges' ] );
+			add_action( 'update_option_' . $option, [ $this, 'queue_brand_config_purges' ] );
 		}
 	}
 
@@ -201,7 +201,7 @@ final class Settings implements Registrable {
 			return;
 		}
 
-		( new Indexer() )->delete_index();
+		( new Search_Index() )->delete_index();
 	}
 
 	/**
@@ -236,11 +236,11 @@ final class Settings implements Registrable {
 
 		$removed_sites = array_values( $removed_sites );
 
-		$is_deleted = ( new Indexer() )->delete_site_records( $removed_sites );
-
-		if ( is_wp_error( $is_deleted ) ) {
-			Utils::log( sprintf( 'Failed to delete the records of removed sites: %s', $is_deleted->get_error_message() ) );
+		foreach ( $removed_sites as $site_url ) {
+			Indexer::delete_brand_progress( $site_url );
 		}
+
+		( new Queue() )->add( Indexer::DELETE_SITE_RECORDS_HOOK, [ $removed_sites ] );
 
 		// Remove from indexable entities.
 		$indexable_entities = self::get_indexable_entities();
@@ -271,6 +271,23 @@ final class Settings implements Registrable {
 
 		if ( $updated_search !== $search_settings ) {
 			update_option( self::OPTION_GOVERNING_SEARCH_SETTINGS, $updated_search );
+		}
+	}
+
+	/**
+	 * Queues a config purge for each brand site.
+	 *
+	 * @internal Hook callback
+	 */
+	public function queue_brand_config_purges(): void {
+		if ( ! Admin_Settings::is_governing_site() ) {
+			return;
+		}
+
+		$queue = new Queue();
+
+		foreach ( array_keys( Admin_Settings::get_shared_sites() ) as $site_url ) {
+			$queue->add( Indexer::PURGE_BRAND_CONFIG_HOOK, [ $site_url ], true );
 		}
 	}
 

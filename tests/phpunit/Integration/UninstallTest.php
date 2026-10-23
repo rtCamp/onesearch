@@ -9,6 +9,8 @@ declare( strict_types = 1 );
 
 namespace OneSearch\Tests\Integration;
 
+use OneSearch\Jobs\Queue;
+use OneSearch\Modules\Search\Indexer;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversNothing;
@@ -19,7 +21,7 @@ use PHPUnit\Framework\Attributes\CoversNothing;
 #[CoversNothing]
 final class UninstallTest extends TestCase {
 	/**
-	 * Uninstalling a brand site deletes its records, deregisters it from the governing site, and removes the options that hold the connection between the sites.
+	 * Uninstalling a brand site deletes its records, deregisters it from the governing site, deletes its pending jobs while keeping the ones that ran, and removes the options that hold the connection between the sites and its indexing progress.
 	 *
 	 * The script declares functions, so it can only be run once per test run.
 	 */
@@ -27,7 +29,15 @@ final class UninstallTest extends TestCase {
 		$options = [
 			Settings::OPTION_CONSUMER_PARENT_SITE_URL,
 			Settings::OPTION_CONSUMER_API_KEY,
+			Indexer::OPTION_PROGRESS,
 		];
+
+		// A job that failed, and one that's waiting.
+		$queue = new Queue();
+		$queue->add( Indexer::BATCH_HOOK, [ 'run-id', 0 ] );
+		$this->fail_job_with_fatal_error( (int) \ActionScheduler::store()->find_action( Indexer::BATCH_HOOK ), 'Allowed memory size exhausted' );
+		$queue->add( Indexer::BATCH_HOOK, [ 'run-id', 100 ] );
+		update_option( Indexer::OPTION_PROGRESS, [ 'id' => 'run-id' ] );
 
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
 		Settings::set_parent_site_url( 'https://governing.example.com' );
@@ -73,6 +83,9 @@ final class UninstallTest extends TestCase {
 			],
 			$sent
 		);
+
+		$this->assertFalse( $queue->has( Indexer::BATCH_HOOK ) );
+		$this->assertSame( \ActionScheduler_Store::STATUS_FAILED, $queue->get_latest( Indexer::BATCH_HOOK )['status'] );
 
 		foreach ( $options as $option ) {
 			$this->assertFalse( get_option( $option ), $option . ' should be deleted.' );

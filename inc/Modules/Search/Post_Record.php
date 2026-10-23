@@ -16,6 +16,7 @@ use OneSearch\Utils;
  *
  * @phpstan-type BaseRecordData array{
  *  site_post_id: string,
+ *  indexed_at: int,
  *  is_sticky: 0|1,
  *  permalink: string,
  *  post_date_gmt: int,
@@ -57,6 +58,7 @@ use OneSearch\Utils;
  *  objectID: string,
  *  total_chunks: int,
  *  site_post_id: string,
+ *  indexed_at: int,
  *  is_sticky: 0|1,
  *  permalink: string,
  *  post_date_gmt: int,
@@ -142,7 +144,7 @@ final class Post_Record {
 	/**
 	 * Gets the `site_post_id` value used to identify a post's records.
 	 *
-	 * @see Indexer::delete_posts() for the delete-by-filter counterpart.
+	 * @see Search_Index::delete_posts() for the delete-by-filter counterpart.
 	 *
 	 * @param int $post_id The post ID.
 	 */
@@ -249,16 +251,18 @@ final class Post_Record {
 	 * Gets the WP_Post objects that can be indexed.
 	 *
 	 * @param string[] $post_types The post types to get posts for.
-	 * @param int      $page       The page number.
-	 * @param int      $posts_per_page The number of posts per page.
+	 * @param int      $limit      The most posts to get, or -1 for all.
+	 * @param int      $after_id   Only gets the posts with a higher ID.
 	 *
 	 * @return \WP_Post[] The posts to index.
 	 */
-	public static function get_indexable_posts( array $post_types, int $page = 1, int $posts_per_page = -1 ): array {
+	public static function get_indexable_posts( array $post_types, int $limit = -1, int $after_id = 0 ): array {
 		$args = [
 			'post_type'              => $post_types,
 			'post_status'            => self::get_allowed_statuses( $post_types ),
-			'posts_per_page'         => $posts_per_page,
+			'posts_per_page'         => $limit,
+			'orderby'                => 'ID',
+			'order'                  => 'ASC',
 			// Records need the meta and terms of every post, so load them with one query per batch.
 			'update_post_meta_cache' => true,
 			'update_post_term_cache' => true,
@@ -266,19 +270,45 @@ final class Post_Record {
 			'no_found_rows'          => true,
 		];
 
-		// Enable pagination when batching.
-		if ( $posts_per_page > 0 ) {
-			$args['paged'] = $page;
-		}
+		$query = new \WP_Query();
 
-		$query = new \WP_Query( $args );
+		// Only the posts after the previous batch's last one.
+		$after = static function ( string $where, \WP_Query $filtered ) use ( $query, $after_id ): string {
+			global $wpdb;
+
+			return $filtered === $query ? $where . $wpdb->prepare( " AND {$wpdb->posts}.ID > %d", $after_id ) : $where;
+		};
+
+		add_filter( 'posts_where', $after, 10, 2 );
 		/** @var \WP_Post[] $posts */
-		$posts = $query->get_posts();
+		$posts = $query->query( $args );
+		remove_filter( 'posts_where', $after );
 
 		// Records include the featured images too.
 		update_post_thumbnail_cache( $query );
 
 		return $posts;
+	}
+
+	/**
+	 * Counts the posts that can be indexed, including the protected ones that are left out.
+	 *
+	 * @param string[] $post_types The post types to count.
+	 */
+	public static function count_indexable_posts( array $post_types ): int {
+		$query = new \WP_Query(
+			[
+				'post_type'              => $post_types,
+				'post_status'            => self::get_allowed_statuses( $post_types ),
+				'posts_per_page'         => 1,
+				'fields'                 => 'ids',
+				'ignore_sticky_posts'    => true,
+				'update_post_meta_cache' => false,
+				'update_post_term_cache' => false,
+			]
+		);
+
+		return (int) $query->found_posts;
 	}
 
 	/**
@@ -291,45 +321,54 @@ final class Post_Record {
 	 * @return list<PostRecord> The prepared records.
 	 */
 	public function to_records( \WP_Post $post ): array {
-		// Core data.
-		$base_record = $this->get_base_record( $post );
+		// The index is public, so render the post as a logged-out visitor.
+		$user_id = get_current_user_id();
+		wp_set_current_user( 0 );
 
-		// Chunk the post content according to Algolia limits.
-		$post_content = $this->get_cleaned_post_content( $post );
-		$base_size    = strlen( wp_json_encode( $base_record ) ?: '' );
+		try {
+			// Core data.
+			$base_record = $this->get_base_record( $post );
 
-		/**
-		 * Filter the Algolia record size limit.
-		 *
-		 * @param int $limit The record size limit in bytes. Default 9000 to allow some buffer under Algolia's 10KB limit.
-		 */
-		$algolia_limit  = apply_filters( 'onesearch_algolia_record_size_limit', self::DEFAULT_ALGOLIA_RECORD_LIMIT );
-		$max_chunk_size = max( 0, $algolia_limit - $base_size );
-
-		$content_chunks = $this->split_content_into_chunks( $post_content, $max_chunk_size );
-		$total_chunks   = count( $content_chunks );
-		$records        = [];
-		foreach ( $content_chunks as $index => $chunk ) {
-			$record = array_merge(
-				$base_record,
-				[
-					'objectID'     => $this->prepare_record_object_name( (int) $post->ID, $index ),
-					'content'      => $chunk,
-					'chunk_index'  => $index,
-					'total_chunks' => $total_chunks,
-				]
-			);
+			// Chunk the post content according to Algolia limits.
+			$post_content = $this->get_cleaned_post_content( $post );
+			$base_size    = strlen( wp_json_encode( $base_record ) ?: '' );
 
 			/**
-			 * Filters the record data for each post chunk.
+			 * Filter the Algolia record size limit.
 			 *
-			 * @param PostRecord $record       The record data for the chunk.
-			 * @param \WP_Post   $post         The post being indexed.
-			 * @param int        $index        The chunk index.
-			 * @param int        $total_chunks The total number of chunks.
-			 * @param string[]   $chunks       The `post_content` chunks.
+			 * @param int $limit The record size limit in bytes. Default 9000 to allow some buffer under Algolia's 10KB limit.
 			 */
-			$records[] = apply_filters( 'onesearch_algolia_record_data', $record, $post, $index, $total_chunks, $content_chunks );
+			$algolia_limit  = apply_filters( 'onesearch_algolia_record_size_limit', self::DEFAULT_ALGOLIA_RECORD_LIMIT );
+			$max_chunk_size = max( 0, $algolia_limit - $base_size );
+
+			$content_chunks = $this->split_content_into_chunks( $post_content, $max_chunk_size );
+			$total_chunks   = count( $content_chunks );
+			$records        = [];
+			foreach ( $content_chunks as $index => $chunk ) {
+				$record = array_merge(
+					$base_record,
+					[
+						'objectID'     => $this->prepare_record_object_name( (int) $post->ID, $index ),
+						'content'      => $chunk,
+						'chunk_index'  => $index,
+						'total_chunks' => $total_chunks,
+					]
+				);
+
+				/**
+				 * Filters the record data for each post chunk.
+				 *
+				 * @param PostRecord $record       The record data for the chunk.
+				 * @param \WP_Post   $post         The post being indexed.
+				 * @param int        $index        The chunk index.
+				 * @param int        $total_chunks The total number of chunks.
+				 * @param string[]   $chunks       The `post_content` chunks.
+				 */
+				$records[] = apply_filters( 'onesearch_algolia_record_data', $record, $post, $index, $total_chunks, $content_chunks );
+			}
+		} finally {
+			// The caller keeps its own user.
+			wp_set_current_user( $user_id );
 		}
 
 		/** @var list<PostRecord> $records */
@@ -432,6 +471,8 @@ final class Post_Record {
 		$base_record = [
 			// The unique site post ID used for distinct filtering.
 			'site_post_id'      => $this->get_site_post_id( $post->ID ),
+			// When the record was saved, so an indexing run can delete the ones it didn't save again.
+			'indexed_at'        => time(),
 			'is_sticky'         => (int) is_sticky( $post->ID ),
 			'permalink'         => get_permalink( $post ),
 			'post_date_gmt'     => (int) get_post_time( 'U', true, $post ),

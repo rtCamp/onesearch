@@ -3,6 +3,7 @@
  */
 import { describe, expect, it, type MockedFunction, vi } from 'vitest';
 import {
+	act,
 	fireEvent,
 	render,
 	screen,
@@ -16,17 +17,48 @@ import {
 import apiFetch from '@wordpress/api-fetch';
 
 import SiteIndexableEntities from '@/components/SiteIndexableEntities';
+import { INDEX_POLL_INTERVAL } from '@/js/use-index-progress';
 
 const mockedApiFetch = apiFetch as MockedFunction< typeof apiFetch >;
 
 const currentSiteUrl = 'https://governing.example.com/';
 const brandSiteUrl = 'https://brand.example.com/';
 
-const okJson = ( data: unknown ) =>
-	( {
-		ok: true,
-		json: vi.fn().mockResolvedValue( data ),
-	} ) as unknown as Response;
+const progress = ( overrides: Record< string, unknown > = {} ) => ( {
+	id: 'run-id',
+	status: 'queued',
+	total: null,
+	done: 0,
+	failed: 0,
+	errors: [],
+	started_at: 1767225600,
+	...overrides,
+} );
+
+type ApiResult = unknown | Error;
+
+// Answers apiFetch by method and path. An Error is thrown as the request's failure.
+const mockApi = ( routes: Record< string, ApiResult | ApiResult[] > ) => {
+	mockedApiFetch.mockImplementation( ( async ( options: {
+		path?: string;
+		method?: string;
+	} ) => {
+		const route =
+			routes[ `${ options.method ?? 'GET' } ${ options.path }` ];
+
+		// A list answers each request in turn, and repeats its last answer.
+		let result = route;
+		if ( Array.isArray( route ) ) {
+			result = route.length > 1 ? route.shift() : route[ 0 ];
+		}
+
+		if ( result instanceof Error ) {
+			throw result;
+		}
+
+		return result;
+	} ) as unknown as typeof apiFetch );
+};
 
 describe( 'SiteIndexableEntities', () => {
 	it( 'loads saved entities and enables reindexing when data exists', async () => {
@@ -87,13 +119,15 @@ describe( 'SiteIndexableEntities', () => {
 		const onEntitiesSaved = vi.fn();
 		const setSaving = vi.fn();
 
-		mockedApiFetch.mockResolvedValueOnce( {} );
-		global.fetch = vi.fn().mockResolvedValueOnce(
-			okJson( {
-				message: 'Reindex complete.',
-				errors: [],
-			} )
-		) as typeof fetch;
+		mockApi( {
+			'GET /onesearch/v1/indexer': {
+				sites: { [ currentSiteUrl ]: null },
+			},
+			'POST /wp/v2/settings': {},
+			'POST /onesearch/v1/indexer': {
+				sites: { [ currentSiteUrl ]: progress() },
+			},
+		} );
 
 		render(
 			<SiteIndexableEntities
@@ -123,7 +157,7 @@ describe( 'SiteIndexableEntities', () => {
 			expect( onEntitiesSaved ).toHaveBeenCalled();
 		} );
 
-		expect( mockedApiFetch ).toHaveBeenLastCalledWith( {
+		expect( mockedApiFetch ).toHaveBeenCalledWith( {
 			path: '/wp/v2/settings',
 			method: 'POST',
 			data: {
@@ -135,13 +169,288 @@ describe( 'SiteIndexableEntities', () => {
 
 		expect( setSaving ).toHaveBeenCalledWith( true );
 		expect( setSaving ).toHaveBeenLastCalledWith( false );
-		expect( setNotice ).toHaveBeenCalledWith( {
-			message: 'Reindex complete.',
-			type: 'success',
+		await waitFor( () => {
+			expect( setNotice ).toHaveBeenCalledWith( {
+				message:
+					'Indexing started. Each site shows its progress below.',
+				type: 'success',
+			} );
 		} );
+		expect( screen.getByText( 'Waiting to start…' ) ).toBeInTheDocument();
 	} );
 
-	it( 'shows why post types failed to load for a brand site', () => {
+	it( "shows each site's indexing progress, and keeps checking while one runs", async () => {
+		vi.useFakeTimers();
+
+		const failedDelete = {
+			job: 'onesearch_delete_site_records',
+			args: [ [ 'https://old.example.com/' ] ],
+			error: 'Failed to delete Algolia records by given args. Unreachable hosts',
+		};
+		const deleteMessage =
+			'Search may still show content from the removed site https://old.example.com/. Re-index to remove it.';
+
+		mockApi( {
+			'GET /onesearch/v1/indexer': [
+				{
+					sites: {
+						[ currentSiteUrl ]: progress( {
+							status: 'running',
+							total: 200,
+							done: 100,
+						} ),
+						[ brandSiteUrl ]: progress( {
+							status: 'failed',
+							total: 100,
+							done: 100,
+							failed: 100,
+							errors: [ 'Algolia admin credentials missing.' ],
+						} ),
+					},
+					failed_jobs: {
+						[ currentSiteUrl ]: [ failedDelete ],
+						[ brandSiteUrl ]: [
+							{
+								job: 'onesearch_purge_brand_config',
+								args: [ brandSiteUrl ],
+								error: 'cURL error 7',
+							},
+						],
+					},
+				},
+				{
+					sites: {
+						[ currentSiteUrl ]: progress( {
+							status: 'completed',
+							total: 200,
+							done: 200,
+						} ),
+						[ brandSiteUrl ]: null,
+					},
+					failed_jobs: {
+						[ currentSiteUrl ]: [ failedDelete ],
+					},
+				},
+			],
+		} );
+
+		render(
+			<SiteIndexableEntities
+				sites={ [ { name: 'Brand Site', url: brandSiteUrl } ] }
+				allPostTypes={ {
+					[ currentSiteUrl ]: [ { slug: 'post', label: 'Posts' } ],
+				} }
+				currentSiteUrl={ currentSiteUrl }
+				indexableEntities={ { [ currentSiteUrl ]: [ 'post' ] } }
+				setNotice={ vi.fn() }
+				saving={ false }
+				setSaving={ vi.fn() }
+			/>
+		);
+
+		expect(
+			await screen.findByText( 'Indexing… 100 of 200 items.' )
+		).toBeInTheDocument();
+		expect(
+			screen.getByText( 'Algolia admin credentials missing.' )
+		).toBeInTheDocument();
+		expect(
+			screen.getByText( "100 items couldn't be indexed." )
+		).toBeInTheDocument();
+		// The jobs that failed show with the site they're about, once that site isn't indexing.
+		expect(
+			screen.getByText(
+				'This site may search with outdated settings. Re-index to fix it.'
+			)
+		).toBeInTheDocument();
+		expect( screen.getByText( 'cURL error 7' ) ).toBeInTheDocument();
+		expect( screen.queryByText( deleteMessage ) ).not.toBeInTheDocument();
+		// One live region for every site, so screen readers don't hear each site's counter.
+		expect( screen.getByRole( 'status' ) ).toHaveTextContent( 'Indexing…' );
+
+		await act( async () => {
+			vi.advanceTimersByTime( INDEX_POLL_INTERVAL );
+		} );
+
+		expect( await screen.findByText( deleteMessage ) ).toBeInTheDocument();
+		expect( screen.getByText( 'Not indexed yet.' ) ).toBeInTheDocument();
+		// The failed jobs say what's still out of date.
+		expect(
+			screen.queryByText( 'Search is up to date.' )
+		).not.toBeInTheDocument();
+		expect(
+			screen.getByText(
+				'Failed to delete Algolia records by given args. Unreachable hosts'
+			)
+		).toBeInTheDocument();
+		expect( screen.getByRole( 'status' ) ).toHaveTextContent(
+			'Indexing complete.'
+		);
+
+		vi.useRealTimers();
+	} );
+
+	it( "says search is up to date only for this site, since it doesn't know which of a brand site's changes failed to sync", async () => {
+		mockApi( {
+			'GET /onesearch/v1/indexer': {
+				sites: {
+					[ currentSiteUrl ]: progress( {
+						status: 'completed',
+						total: 200,
+						done: 200,
+					} ),
+					[ brandSiteUrl ]: progress( {
+						status: 'completed',
+						total: 50,
+						done: 50,
+					} ),
+				},
+			},
+		} );
+
+		render(
+			<SiteIndexableEntities
+				sites={ [ { name: 'Brand Site', url: brandSiteUrl } ] }
+				allPostTypes={ {
+					[ currentSiteUrl ]: [ { slug: 'post', label: 'Posts' } ],
+				} }
+				currentSiteUrl={ currentSiteUrl }
+				indexableEntities={ { [ currentSiteUrl ]: [ 'post' ] } }
+				setNotice={ vi.fn() }
+				saving={ false }
+				setSaving={ vi.fn() }
+			/>
+		);
+
+		expect(
+			await screen.findAllByText( 'Search is up to date.' )
+		).toHaveLength( 1 );
+	} );
+
+	it( "keeps checking when the progress doesn't load", async () => {
+		vi.useFakeTimers();
+
+		mockApi( {
+			'GET /onesearch/v1/indexer': [
+				new Error( 'Internal server error.' ),
+				{
+					sites: {
+						[ currentSiteUrl ]: progress( {
+							status: 'running',
+							total: 200,
+							done: 100,
+						} ),
+					},
+				},
+			],
+		} );
+
+		render(
+			<SiteIndexableEntities
+				sites={ [] }
+				allPostTypes={ {
+					[ currentSiteUrl ]: [ { slug: 'post', label: 'Posts' } ],
+				} }
+				currentSiteUrl={ currentSiteUrl }
+				indexableEntities={ { [ currentSiteUrl ]: [ 'post' ] } }
+				setNotice={ vi.fn() }
+				saving={ false }
+				setSaving={ vi.fn() }
+			/>
+		);
+
+		expect(
+			screen.queryByText( 'Not indexed yet.' )
+		).not.toBeInTheDocument();
+
+		await act( async () => {
+			vi.advanceTimersByTime( INDEX_POLL_INTERVAL );
+		} );
+
+		expect(
+			screen.getByText( 'Indexing… 100 of 200 items.' )
+		).toBeInTheDocument();
+
+		vi.useRealTimers();
+	} );
+
+	it( 'says that re-indexing starts over a run that is going', async () => {
+		mockApi( {
+			'GET /onesearch/v1/indexer': {
+				sites: {
+					[ currentSiteUrl ]: progress( {
+						status: 'running',
+						total: 200,
+						done: 100,
+					} ),
+				},
+			},
+		} );
+
+		render(
+			<SiteIndexableEntities
+				sites={ [] }
+				allPostTypes={ {
+					[ currentSiteUrl ]: [ { slug: 'post', label: 'Posts' } ],
+				} }
+				currentSiteUrl={ currentSiteUrl }
+				indexableEntities={ { [ currentSiteUrl ]: [ 'post' ] } }
+				setNotice={ vi.fn() }
+				saving={ false }
+				setSaving={ vi.fn() }
+			/>
+		);
+
+		await screen.findByText( 'Indexing… 100 of 200 items.' );
+		fireEvent.click( screen.getByRole( 'button', { name: 'Re-index' } ) );
+
+		expect(
+			within( await screen.findByRole( 'dialog' ) ).getByText(
+				'Indexing is already running. Re-indexing will start it over.'
+			)
+		).toBeInTheDocument();
+	} );
+
+	it( "shows that a failed index didn't finish, without announcing it when the screen loads", async () => {
+		mockApi( {
+			'GET /onesearch/v1/indexer': {
+				sites: {
+					[ currentSiteUrl ]: progress( {
+						status: 'failed',
+						total: 267,
+						done: 100,
+						errors: [ 'Indexing was cancelled.' ],
+					} ),
+				},
+			},
+		} );
+
+		render(
+			<SiteIndexableEntities
+				sites={ [] }
+				allPostTypes={ {
+					[ currentSiteUrl ]: [ { slug: 'post', label: 'Posts' } ],
+				} }
+				currentSiteUrl={ currentSiteUrl }
+				indexableEntities={ { [ currentSiteUrl ]: [ 'post' ] } }
+				setNotice={ vi.fn() }
+				saving={ false }
+				setSaving={ vi.fn() }
+			/>
+		);
+
+		expect(
+			await screen.findByText(
+				"Indexing didn't finish, so search may show outdated or missing content. Re-index to try again."
+			)
+		).toBeInTheDocument();
+		expect(
+			screen.getByText( 'Indexing was cancelled.' )
+		).toBeInTheDocument();
+		expect( screen.getByRole( 'status' ) ).toBeEmptyDOMElement();
+	} );
+
+	it( 'shows why post types failed to load for a brand site', async () => {
 		render(
 			<SiteIndexableEntities
 				sites={ [ { name: 'Brand Site', url: brandSiteUrl } ] }
@@ -159,7 +468,9 @@ describe( 'SiteIndexableEntities', () => {
 			/>
 		);
 
-		expect( screen.getByText( 'Request timed out.' ) ).toBeInTheDocument();
+		expect(
+			await screen.findByText( 'Request timed out.' )
+		).toBeInTheDocument();
 		expect(
 			screen.queryByText(
 				'No entities to select. Please check site configuration'
@@ -167,7 +478,7 @@ describe( 'SiteIndexableEntities', () => {
 		).not.toBeInTheDocument();
 	} );
 
-	it( 'disables saving when the saved entities failed to load', () => {
+	it( 'disables saving when the saved entities failed to load', async () => {
 		render(
 			<SiteIndexableEntities
 				sites={ [] }
@@ -184,7 +495,7 @@ describe( 'SiteIndexableEntities', () => {
 		);
 
 		expect(
-			screen.getByRole( 'button', { name: 'Select entities…' } )
+			await screen.findByRole( 'button', { name: 'Select entities…' } )
 		).toBeDisabled();
 		expect(
 			screen.getByRole( 'button', { name: 'Save Changes' } )
@@ -195,9 +506,13 @@ describe( 'SiteIndexableEntities', () => {
 		const setNotice = vi.fn();
 		const setSaving = vi.fn();
 
-		mockedApiFetch.mockRejectedValueOnce( {
-			code: 'rest_invalid_param',
-			message: 'Invalid parameter(s): onesearch_indexable_entities',
+		mockApi( {
+			'GET /onesearch/v1/indexer': {
+				sites: { [ currentSiteUrl ]: null },
+			},
+			'POST /wp/v2/settings': new Error(
+				'Invalid parameter(s): onesearch_indexable_entities'
+			),
 		} );
 
 		render(
@@ -236,9 +551,14 @@ describe( 'SiteIndexableEntities', () => {
 	it( 'opens and closes re-index modal and handles server errors', async () => {
 		const setNotice = vi.fn();
 
-		mockedApiFetch.mockRejectedValueOnce( {
-			code: 'internal_server_error',
-			message: 'Internal server error.',
+		mockApi( {
+			'GET /onesearch/v1/indexer': {
+				sites: { [ currentSiteUrl ]: null },
+			},
+			'POST /wp/v2/settings': new Error( 'Internal server error.' ),
+			'POST /onesearch/v1/indexer': new Error(
+				"Indexing couldn't be started."
+			),
 		} );
 
 		render(
@@ -273,13 +593,6 @@ describe( 'SiteIndexableEntities', () => {
 			} );
 		} );
 
-		global.fetch = vi.fn().mockResolvedValueOnce(
-			okJson( {
-				message: 'failed',
-				errors: [ { site_url: currentSiteUrl, message: 'timed out' } ],
-			} )
-		) as typeof fetch;
-
 		fireEvent.click( screen.getByRole( 'button', { name: 'Re-index' } ) );
 
 		expect(
@@ -299,7 +612,7 @@ describe( 'SiteIndexableEntities', () => {
 		);
 		await waitFor( () => {
 			expect( setNotice ).toHaveBeenCalledWith( {
-				message: 'failed',
+				message: "Indexing couldn't be started.",
 				type: 'error',
 			} );
 		} );

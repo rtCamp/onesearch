@@ -303,12 +303,38 @@
 	margin: 0 0 2px 0;
 	font-size: 13px;
 	color: #666;
-	font-family: "SF Mono", Consolas, "Liberation Mono", Menlo, Courier,
-		monospace;
+	font-family:
+		"SF Mono", Consolas, "Liberation Mono", Menlo, Courier, monospace;
 }
 
 .onesearch-entity-selector {
 	max-width: 100%;
+}
+
+/* Indexing progress */
+.onesearch-index-progress {
+	margin-top: 8px;
+	font-size: 13px;
+
+	p {
+		margin: 4px 0;
+	}
+
+	// Nested to beat the width the ProgressBar's own styles set.
+	.onesearch-index-progress-bar {
+		width: 100%;
+		max-width: 320px;
+		margin: 12px 0 8px;
+	}
+}
+
+.onesearch-index-progress-failed {
+	color: #d63638;
+}
+
+.onesearch-index-progress-errors {
+	margin: 4px 0 0 20px;
+	list-style: disc;
 }
 
 /* Site without entities styling */

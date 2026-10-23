@@ -22,6 +22,9 @@ import { __ } from '@wordpress/i18n';
  * Internal dependencies
  */
 import type { NoticeType } from '@/admin/settings/page';
+import IndexProgress, { IndexLiveRegion } from '@/components/index-progress';
+import { CURRENT_SITE_URL, withTrailingSlash } from '@/js/utils';
+import { useIndexProgress } from '@/js/use-index-progress';
 
 const API_NAMESPACE = window.OneSearchSettings.restUrl + 'onesearch/v1';
 const NONCE = window.OneSearchSettings.nonce as string;
@@ -34,6 +37,7 @@ const SiteSettings = () => {
 	const [ governingSite, setGoverningSite ] = useState( '' );
 	const [ showDisconnectionModal, setShowDisconnectionModal ] =
 		useState( false );
+	const { sites: indexProgress, failedJobs } = useIndexProgress();
 
 	// The admin nonce authenticates these same-site requests.
 	const regenerateApiKey = useCallback( async () => {
@@ -268,6 +272,30 @@ const SiteSettings = () => {
 					/>
 				</CardBody>
 			</Card>
+
+			{ governingSite.trim().length > 0 && (
+				<Card style={ { marginTop: '30px' } }>
+					<CardHeader>
+						<h2>{ __( 'Index Status', 'onesearch' ) }</h2>
+					</CardHeader>
+					<CardBody>
+						<IndexLiveRegion sites={ indexProgress } />
+						<IndexProgress
+							progress={
+								indexProgress[
+									withTrailingSlash( CURRENT_SITE_URL )
+								]
+							}
+							failedJobs={
+								failedJobs[
+									withTrailingSlash( CURRENT_SITE_URL )
+								]
+							}
+							canReindex={ false }
+						/>
+					</CardBody>
+				</Card>
+			) }
 
 			{ showDisconnectionModal && (
 				<Modal

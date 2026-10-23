@@ -167,7 +167,7 @@ class Remote_ClientTest extends TestCase {
 
 		$this->assertIsArray( $result );
 		$this->assertNotEmpty( $result['errors'] );
-		$this->assertStringContainsString( 'Invalid response received', $result['errors'][0]['message'] );
+		$this->assertSame( 'cURL error 6: Could not resolve host', $result['errors'][0]['message'] );
 	}
 
 	/**
@@ -241,67 +241,58 @@ class Remote_ClientTest extends TestCase {
 	}
 
 	/**
-	 * Governing site clear skips sites with missing url or api_key.
+	 * A brand site is told to clear its cached config with its key, and a site without a key isn't sent anything.
 	 */
-	public function test_clear_brand_sites_config_cache_skips_incomplete_sites(): void {
+	public function test_clear_brand_site_config_cache(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-		Settings::set_shared_sites(
-			[
-				[
-					'name'    => 'No Key',
-					'url'     => 'https://no-key.example.com',
-					'api_key' => '',
-				],
-			]
-		);
 
-		$requested_urls = [];
-		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-			$requested_urls[] = $url;
-			return new \WP_Error( 'blocked', 'Intercepted' );
+		$sent   = [];
+		$filter = static function ( $preempt, $args, $url ) use ( &$sent ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$sent[] = [ $args['method'], $url, $args['headers']['X-OneSearch-Token'] ];
+
+			return [
+				'response' => [
+					'code'    => str_contains( $url, 'site-b' ) ? 401 : 200,
+					'message' => '',
+				],
+				'body'     => '{}',
+				'headers'  => [],
+				'cookies'  => [],
+			];
 		};
 		add_filter( 'pre_http_request', $filter, 10, 3 );
 
-		Remote_Client::clear_brand_sites_config_cache();
-
-		remove_filter( 'pre_http_request', $filter );
-
-		$this->assertEmpty( $requested_urls, 'No HTTP requests should be made for sites missing api_key.' );
-	}
-
-	/**
-	 * Governing site targets specific site when site_url provided.
-	 */
-	public function test_clear_brand_sites_config_cache_targets_specific_site(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-		Settings::set_shared_sites(
+		$cleared  = Remote_Client::clear_brand_site_config_cache(
 			[
-				[
-					'name'    => 'Site A',
-					'url'     => 'https://site-a.example.com/',
-					'api_key' => 'key-a',
-				],
-				[
-					'name'    => 'Site B',
-					'url'     => 'https://site-b.example.com/',
-					'api_key' => 'key-b',
-				],
+				'url'     => 'https://site-a.example.com/',
+				'api_key' => 'key-a',
+			]
+		);
+		$rejected = Remote_Client::clear_brand_site_config_cache(
+			[
+				'url'     => 'https://site-b.example.com/',
+				'api_key' => 'key-b',
+			]
+		);
+		$no_key   = Remote_Client::clear_brand_site_config_cache(
+			[
+				'url'     => 'https://no-key.example.com/',
+				'api_key' => '',
 			]
 		);
 
-		$requested_urls = [];
-		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-			$requested_urls[] = $url;
-			return new \WP_Error( 'blocked', 'Intercepted' );
-		};
-		add_filter( 'pre_http_request', $filter, 10, 3 );
-
-		Remote_Client::clear_brand_sites_config_cache( 'https://site-a.example.com/' );
-
 		remove_filter( 'pre_http_request', $filter );
 
-		$this->assertCount( 1, $requested_urls, 'Only one HTTP request should be made.' );
-		$this->assertStringContainsString( 'site-a.example.com', $requested_urls[0], 'Request should target Site A.' );
+		$this->assertTrue( $cleared );
+		$this->assertWPError( $rejected );
+		$this->assertWPError( $no_key );
+		$this->assertSame(
+			[
+				[ 'DELETE', 'https://site-a.example.com/wp-json/onesearch/v1/governing-site/config', 'key-a' ],
+				[ 'DELETE', 'https://site-b.example.com/wp-json/onesearch/v1/governing-site/config', 'key-b' ],
+			],
+			$sent
+		);
 	}
 
 	/**
@@ -497,7 +488,6 @@ class Remote_ClientTest extends TestCase {
 		$this->assertSame( $api_key, $captured['args']['headers']['X-OneSearch-Token'] );
 		$this->assertSame( Utils::get_current_site_url(), $captured['args']['headers']['X-OneSearch-Site-URL'] );
 		$this->assertArrayNotHasKey( 'Origin', $captured['args']['headers'] );
-		$this->assertSame( 15, $captured['args']['timeout'] );
 	}
 
 	/**

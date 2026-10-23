@@ -1,6 +1,6 @@
 <?php
 /**
- * Watches for object changes to reindex in Algolia.
+ * Watches for content changes to sync to Algolia.
  *
  * @package OneSearch\Modules\Search
  */
@@ -10,23 +10,16 @@ declare(strict_types = 1);
 namespace OneSearch\Modules\Search;
 
 use OneSearch\Contracts\Interfaces\Registrable;
-use OneSearch\Utils;
+use OneSearch\Jobs\Queue;
 
 /**
  * Class - Watcher
  */
 final class Watcher implements Registrable {
 	/**
-	 * The indexer, once instantiated.
+	 * The job that syncs a post's records.
 	 */
-	private ?Indexer $indexer = null;
-
-	/**
-	 * The media to sync at the end of the request, keyed by ID.
-	 *
-	 * @var array<int, true>
-	 */
-	private array $pending_media = [];
+	public const SYNC_HOOK = 'onesearch_sync_post';
 
 	/**
 	 * The media attached to the posts being deleted, keyed by post ID.
@@ -45,7 +38,7 @@ final class Watcher implements Registrable {
 		add_action( 'delete_post_meta', [ $this, 'on_delete_post_meta' ], 10, 3 );
 		add_action( 'before_delete_post', [ $this, 'on_before_delete_post' ] );
 		add_action( 'deleted_post', [ $this, 'on_deleted_post' ], 10, 2 );
-		add_action( 'shutdown', [ $this, 'sync_pending_media' ] );
+		add_action( self::SYNC_HOOK, [ $this, 'sync_post' ] );
 	}
 
 	/**
@@ -58,7 +51,7 @@ final class Watcher implements Registrable {
 	 * @param bool      $update      Whether the post is being updated.
 	 * @param ?\WP_Post $post_before The post as it was before the update.
 	 */
-	public function on_after_insert_post( $post_id, $post, $update = false, $post_before = null ): void {
+	public function on_after_insert_post( $post_id, $post, $update = false, $post_before = null ): void { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
 		// The passed post is stale when a save_post callback updated it again.
 		$post = get_post( (int) $post_id );
 
@@ -66,30 +59,21 @@ final class Watcher implements Registrable {
 			return;
 		}
 
-		// New media is synced at the end of the request, once its image sizes are generated.
-		if ( ! $update && 'attachment' === $post->post_type ) {
-			$this->pending_media[ $post->ID ] = true;
-			return;
-		}
-
 		$post_types  = $this->get_indexed_post_types();
 		$post_before = $post_before instanceof \WP_Post ? $post_before : null;
 
-		$this->sync( $post, $post_types, null !== $post_before && $this->is_indexable( $post_before, $post_types ) );
-
-		$is_public = Post_Record::is_public( $post );
+		// A post that was indexed may have records to delete.
+		if ( $this->is_indexable( $post, $post_types ) || ( null !== $post_before && $this->is_indexable( $post_before, $post_types ) ) ) {
+			$this->queue_sync( (int) $post->ID );
+		}
 
 		// Attached media is only indexed while its parent is public.
-		if ( null === $post_before || ! in_array( 'attachment', $post_types, true ) || Post_Record::is_public( $post_before ) === $is_public ) {
+		if ( null === $post_before || ! in_array( 'attachment', $post_types, true ) || Post_Record::is_public( $post_before ) === Post_Record::is_public( $post ) ) {
 			return;
 		}
 
-		$attachment_ids = $this->get_attached_media_ids( $post->ID );
-
-		if ( $is_public ) {
-			$this->pending_media += array_fill_keys( $attachment_ids, true );
-		} else {
-			$this->log_error( $post->ID, $this->get_indexer()->delete_posts( $attachment_ids ) );
+		foreach ( $this->get_attached_media_ids( (int) $post->ID ) as $attachment_id ) {
+			$this->queue_sync( $attachment_id );
 		}
 	}
 
@@ -103,10 +87,18 @@ final class Watcher implements Registrable {
 	 * @param string $meta_key  The meta key.
 	 */
 	public function on_post_meta_saved( $meta_id, $object_id, $meta_key ): void { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-		// Core saves the metadata again after each image size, so the media is synced once, at the end of the request.
-		if ( '_wp_attachment_metadata' === $meta_key ) {
-			$this->pending_media[ (int) $object_id ] = true;
+		if ( '_wp_attachment_metadata' !== $meta_key ) {
+			return;
 		}
+
+		$post = get_post( (int) $object_id );
+
+		// Only queue the media if it's indexable.
+		if ( ! $post instanceof \WP_Post || ! $this->is_indexable( $post, $this->get_indexed_post_types() ) ) {
+			return;
+		}
+
+		$this->queue_sync( (int) $post->ID );
 	}
 
 	/**
@@ -124,35 +116,15 @@ final class Watcher implements Registrable {
 			return;
 		}
 
-		foreach ( $meta_ids as $meta_id ) {
-			$meta = get_metadata_by_mid( 'post', (int) $meta_id );
-
-			if ( $meta ) {
-				$this->pending_media[ (int) $meta->post_id ] = true;
-			}
-		}
-	}
-
-	/**
-	 * Syncs the posts queued during the request.
-	 *
-	 * @internal Hook callback
-	 */
-	public function sync_pending_media(): void {
-		$post_ids            = array_keys( $this->pending_media );
-		$this->pending_media = [];
-
-		if ( [] === $post_ids ) {
-			return;
-		}
-
 		$post_types = $this->get_indexed_post_types();
 
-		foreach ( $post_ids as $post_id ) {
-			$post = get_post( $post_id );
+		foreach ( $meta_ids as $meta_id ) {
+			$meta = get_metadata_by_mid( 'post', (int) $meta_id );
+			$post = $meta ? get_post( (int) $meta->post_id ) : null;
 
-			if ( $post instanceof \WP_Post ) {
-				$this->sync( $post, $post_types, false );
+			// The job runs once the meta is gone.
+			if ( $post instanceof \WP_Post && $this->is_indexable( $post, $post_types ) ) {
+				$this->queue_sync( (int) $post->ID );
 			}
 		}
 	}
@@ -185,11 +157,7 @@ final class Watcher implements Registrable {
 		foreach ( $attachment_ids as $attachment_id ) {
 			// Core moves the media to the post's parent with a direct query, so its cached post still has the old parent.
 			clean_post_cache( $attachment_id );
-			$attachment = get_post( $attachment_id );
-
-			if ( $attachment instanceof \WP_Post ) {
-				$this->sync( $attachment, $post_types, true );
-			}
+			$this->queue_sync( $attachment_id );
 		}
 
 		// Bail early if there's nothing left that's indexable (e.g. a draft or trashed post).
@@ -197,21 +165,45 @@ final class Watcher implements Registrable {
 			return;
 		}
 
-		$this->log_error( (int) $post_id, $this->get_indexer()->delete_posts( [ (int) $post_id ] ) );
+		$this->queue_sync( (int) $post_id );
 	}
 
 	/**
 	 * Saves a post's records if it belongs in the index, or deletes them if it doesn't.
 	 *
-	 * @param \WP_Post $post        The post.
-	 * @param string[] $post_types  The indexed post types.
-	 * @param bool     $was_indexed Whether the post may have records to delete.
+	 * @internal Hook callback
+	 *
+	 * @param int $post_id The post ID.
+	 *
+	 * @throws \RuntimeException When the records can't be updated.
 	 */
-	private function sync( \WP_Post $post, array $post_types, bool $was_indexed ): void {
-		if ( $this->is_indexable( $post, $post_types ) ) {
-			$this->log_error( (int) $post->ID, $this->get_indexer()->save_post( $post ) );
-		} elseif ( $was_indexed ) {
-			$this->log_error( (int) $post->ID, $this->get_indexer()->delete_posts( [ (int) $post->ID ] ) );
+	public function sync_post( $post_id ): void {
+		$post_types = Search_Index::get_indexable_post_types();
+
+		if ( is_wp_error( $post_types ) ) {
+			// Don't delete the records when the post types can't be fetched.
+			$result = $post_types;
+		} else {
+			// Each sync gets its own client, since the client skips hosts that failed for a few minutes.
+			$search_index = new Search_Index();
+
+			// The job runner keeps its cache between jobs, so an earlier job may have cached the post before another request changed it.
+			clean_post_cache( (int) $post_id );
+			$post = get_post( (int) $post_id );
+
+			// Media checks its parent's visibility, so that has to be fresh too.
+			if ( $post instanceof \WP_Post && 'attachment' === $post->post_type && $post->post_parent ) {
+				clean_post_cache( $post->post_parent );
+			}
+
+			$result = $post instanceof \WP_Post && $this->is_indexable( $post, $post_types )
+				? $search_index->save_post( $post )
+				: $search_index->delete_posts( [ (int) $post_id ] );
+		}
+
+		// Without an Algolia config there's no index to update yet, e.g. before Algolia is set up.
+		if ( is_wp_error( $result ) && Search_Index::ERROR_NOT_CONFIGURED !== $result->get_error_code() ) {
+			throw new \RuntimeException( esc_html( Search_Index::get_error_message( $result ) ) );
 		}
 	}
 
@@ -233,7 +225,7 @@ final class Watcher implements Registrable {
 	 * @return string[]
 	 */
 	private function get_indexed_post_types(): array {
-		$post_types = Indexer::get_indexable_post_types();
+		$post_types = Search_Index::get_indexable_post_types();
 
 		return is_wp_error( $post_types ) ? [] : $post_types;
 	}
@@ -252,7 +244,7 @@ final class Watcher implements Registrable {
 				'post_type'      => 'attachment',
 				'post_status'    => 'inherit',
 				'fields'         => 'ids',
-				 // phpcs:ignore WordPress.WP.PostsPerPage.posts_per_page_posts_per_page -- Additional will be caught on reindex.
+				 // phpcs:ignore WordPress.WP.PostsPerPage.posts_per_page_posts_per_page -- The next indexing run catches the rest.
 				'posts_per_page' => 999,
 				'no_found_rows'  => true,
 			]
@@ -265,37 +257,11 @@ final class Watcher implements Registrable {
 	}
 
 	/**
-	 * Gets the indexer, instantiating it if needed.
-	 */
-	private function get_indexer(): Indexer {
-		if ( ! $this->indexer instanceof Indexer ) {
-			$this->indexer = new Indexer();
-		}
-
-		return $this->indexer;
-	}
-
-	/**
-	 * Logs a failed index update.
+	 * Queues the job that syncs a post.
 	 *
-	 * @param int            $post_id The post ID.
-	 * @param true|\WP_Error $result  The result of the index update.
+	 * @param int $post_id The post ID.
 	 */
-	private function log_error( int $post_id, bool|\WP_Error $result ): void {
-		// @todo this class shouldn't run if the Algolia config isn't good.
-		if ( ! is_wp_error( $result ) || Indexer::ERROR_NOT_CONFIGURED === $result->get_error_code() ) {
-			return;
-		}
-
-		$data = $result->get_error_data();
-
-		Utils::log(
-			sprintf(
-				'Failed to update records for post %d: %s %s',
-				$post_id,
-				$result->get_error_message(),
-				is_array( $data ) ? (string) ( $data['message'] ?? '' ) : ''
-			)
-		);
+	private function queue_sync( int $post_id ): void {
+		( new Queue() )->add( self::SYNC_HOOK, [ $post_id ], true );
 	}
 }

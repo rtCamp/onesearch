@@ -9,7 +9,10 @@ declare(strict_types = 1);
 
 namespace OneSearch\Tests\Integration\Modules\Search;
 
+use OneSearch\Jobs\Progress;
+use OneSearch\Modules\Rest\Indexer_Controller;
 use OneSearch\Modules\Rest\Remote_Client;
+use OneSearch\Modules\Search\Indexer;
 use OneSearch\Modules\Search\Post_Record;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Search\Watcher;
@@ -73,8 +76,207 @@ final class WatcherTest extends TestCase {
 		);
 
 		self::factory()->post->create( [ 'post_status' => 'publish' ] );
+		$this->run_jobs();
 
 		$this->assertSame( [], $this->get_saved_records( $requests ) );
+	}
+
+	/**
+	 * Changes are synced in the background, with the post as it was saved last.
+	 */
+	public function test_changes_are_synced_in_the_background(): void {
+		$this->set_up_governing_site();
+
+		$paths    = [];
+		$requests = [];
+		$this->mock_algolia_http_client( $paths, null, null, $requests );
+
+		( new Watcher() )->register_hooks();
+
+		$post_id = self::factory()->post->create(
+			[
+				'post_status' => 'publish',
+				'post_title'  => 'First Title',
+			]
+		);
+		wp_update_post(
+			[
+				'ID'         => $post_id,
+				'post_title' => 'Second Title',
+			]
+		);
+
+		$this->assertSame( [], $paths, 'Nothing is sent to Algolia until the job runs.' );
+
+		$this->run_jobs();
+
+		$this->assertSame( [ 'Second Title' ], array_unique( array_column( $this->get_saved_records( $requests ), 'post_title' ) ) );
+	}
+
+	/**
+	 * A brand site that can't get its post types from the governing site fails the sync, rather than deleting the post's records.
+	 */
+	public function test_brand_site_sync_fails_without_its_config(): void {
+		$this->set_up_brand_site();
+
+		$paths    = [];
+		$requests = [];
+		$this->mock_algolia_http_client( $paths, null, null, $requests );
+
+		( new Watcher() )->register_hooks();
+
+		self::factory()->post->create( [ 'post_status' => 'publish' ] );
+
+		// The cached config expires, and the governing site misses the job's first request.
+		delete_transient( Remote_Client::TRANSIENT_KEY );
+		$governing = (object) [ 'is_down' => true ];
+		add_filter(
+			'pre_http_request',
+			static function () use ( $governing ) {
+				if ( $governing->is_down ) {
+					$governing->is_down = false;
+					return new \WP_Error( 'http_request_failed', 'cURL error 28' );
+				}
+
+				return [
+					'response' => [
+						'code'    => 200,
+						'message' => 'OK',
+					],
+					'body'     => wp_json_encode(
+						[
+							'algolia_credentials' => [
+								'app_id'    => 'test-app',
+								'write_key' => 'test-key',
+							],
+							'indexable_entities'  => [ 'post' ],
+						]
+					),
+				];
+			}
+		);
+
+		$this->run_jobs();
+
+		$this->assertSame( [], $this->get_delete_filters( $requests ) );
+		$this->assertSame( [], $this->get_saved_records( $requests ) );
+	}
+
+	/**
+	 * The index status shows the syncs that failed since the latest indexing run started, and why.
+	 */
+	public function test_failed_syncs_show_in_the_index_status(): void {
+		$this->set_up_governing_site();
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
+
+		$paths = [];
+		$this->mock_algolia_http_client( $paths, null, '/batch' );
+
+		( new Watcher() )->register_hooks();
+
+		$post_id = self::factory()->post->create( [ 'post_status' => 'publish' ] );
+		$this->run_jobs();
+
+		( new Indexer_Controller() )->register_hooks();
+		$failed_jobs = static fn (): array => rest_do_request( new \WP_REST_Request( 'GET', '/onesearch/v1/indexer' ) )->get_data()['failed_jobs'];
+		$this->assertSame(
+			[
+				Utils::get_current_site_url() => [
+					[
+						'job'   => Watcher::SYNC_HOOK,
+						'args'  => [ $post_id ],
+						'error' => 'Failed to save records to Algolia index. forced test exception',
+					],
+				],
+			],
+			$failed_jobs()
+		);
+
+		// An indexing run that started after the sync failed.
+		$progress               = ( new Progress( Indexer::OPTION_PROGRESS ) )->start();
+		$progress['started_at'] = time() + 1;
+		( new Progress( Indexer::OPTION_PROGRESS ) )->set( $progress );
+
+		$this->assertSame( [], $failed_jobs() );
+	}
+
+	/**
+	 * A post whose sync failed no longer counts once a later sync of it succeeds.
+	 */
+	public function test_a_later_sync_makes_up_for_a_failed_one(): void {
+		$this->set_up_governing_site();
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
+
+		$algolia = (object) [ 'fails' => true ];
+		$paths   = [];
+		$this->mock_algolia_http_client(
+			$paths,
+			static function ( string $path ) use ( $algolia ): string {
+				if ( $algolia->fails && str_contains( $path, '/batch' ) ) {
+					throw new \RuntimeException( 'forced test exception' );
+				}
+
+				return str_contains( $path, '/task/' ) ? '{"status":"published","pendingTask":false}' : '{"taskID":1,"updatedAt":"2024-01-01T00:00:00.000Z"}';
+			}
+		);
+
+		( new Watcher() )->register_hooks();
+		( new Indexer_Controller() )->register_hooks();
+		$failed_syncs = static fn (): int => count( rest_do_request( new \WP_REST_Request( 'GET', '/onesearch/v1/indexer' ) )->get_data()['failed_jobs'][ Utils::get_current_site_url() ] ?? [] );
+
+		$failing_id = self::factory()->post->create( [ 'post_status' => 'publish' ] );
+		self::factory()->post->create( [ 'post_status' => 'publish' ] );
+		$this->run_jobs();
+		$this->assertSame( 2, $failed_syncs() );
+
+		$algolia->fails = false;
+		wp_update_post(
+			[
+				'ID'         => $failing_id,
+				'post_title' => 'Edited',
+			]
+		);
+		$this->run_jobs();
+
+		$this->assertSame( 1, $failed_syncs() );
+	}
+
+	/**
+	 * A sync that fails on every Algolia host doesn't fail the syncs that run after it.
+	 */
+	public function test_a_failed_sync_does_not_fail_the_next_ones(): void {
+		$this->set_up_governing_site();
+
+		$algolia  = (object) [ 'fails' => true ];
+		$paths    = [];
+		$requests = [];
+		$this->mock_algolia_http_client(
+			$paths,
+			static function ( string $path ) use ( $algolia ): string {
+				// What the client throws when it can't reach a host, which it then skips.
+				if ( $algolia->fails && str_contains( $path, '/batch' ) ) {
+					throw new \OneSearch\Vendor\Algolia\AlgoliaSearch\Exceptions\RetriableException( 'Unreachable Host' );
+				}
+
+				return str_contains( $path, '/task/' ) ? '{"status":"published","pendingTask":false}' : '{"taskID":1,"updatedAt":"2024-01-01T00:00:00.000Z"}';
+			},
+			null,
+			$requests
+		);
+
+		// Algolia is back once the first sync failed.
+		add_action(
+			'action_scheduler_failed_execution',
+			static function () use ( $algolia ): void {
+				$algolia->fails = false;
+			}
+		);
+
+		( new Watcher() )->register_hooks();
+		self::factory()->post->create_many( 2, [ 'post_status' => 'publish' ] );
+		$this->run_jobs();
+
+		$this->assertCount( 2, array_unique( array_column( $this->get_saved_records( $requests ), 'post_id' ) ), 'Both posts were sent to Algolia.' );
 	}
 
 	/**
@@ -95,7 +297,7 @@ final class WatcherTest extends TestCase {
 		$post    = self::factory()->post->create_and_get( [ 'post_type' => 'post' ] );
 		$watcher = new Watcher();
 
-		// Should exit early without hitting Algolia since 'post' is not indexable.
+		// Nothing is queued, since 'post' isn't indexed.
 		$this->publish( $watcher, $post );
 
 		$this->assertTrue( true );
@@ -111,7 +313,7 @@ final class WatcherTest extends TestCase {
 		$post    = self::factory()->post->create_and_get();
 		$watcher = new Watcher();
 
-		// Should exit early without hitting Algolia since no indexable entities are configured.
+		// Nothing is queued, since no post types are indexed.
 		$this->publish( $watcher, $post );
 
 		$this->assertTrue( true );
@@ -130,8 +332,6 @@ final class WatcherTest extends TestCase {
 				],
 			]
 		);
-		// Without Algolia credentials the save fails quietly, so this only checks the post type is let through.
-		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
 
 		$post    = self::factory()->post->create_and_get( [ 'post_status' => 'publish' ] );
 		$watcher = new Watcher();
@@ -144,11 +344,8 @@ final class WatcherTest extends TestCase {
 	/**
 	 * A post moving to a status that isn't indexed, like trash, has its records deleted, not saved.
 	 */
-	public function test_on_after_insert_post_does_not_reindex_disallowed_status(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
-		update_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL, 'https://governing.example.com' );
-
-		$this->set_consumer_brand_config_cache();
+	public function test_on_after_insert_post_deletes_the_records_of_a_disallowed_status(): void {
+		$this->set_up_brand_site();
 
 		$recorded_paths = [];
 		$requests       = [];
@@ -158,6 +355,7 @@ final class WatcherTest extends TestCase {
 		( new Watcher() )->register_hooks();
 
 		wp_trash_post( $post->ID );
+		$this->run_jobs();
 
 		$this->assertSame( [ sprintf( 'site_post_id:"%s"', ( new Post_Record() )->get_site_post_id( $post->ID ) ) ], $this->get_delete_filters( $requests ) );
 		$this->assertSame( [], $this->get_saved_records( $requests ) );
@@ -184,42 +382,26 @@ final class WatcherTest extends TestCase {
 	 * Consumer site with cached brand config recognizes indexable post types.
 	 */
 	public function test_on_after_insert_post_consumer_with_cached_config(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
-		update_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL, 'https://governing.example.com' );
+		$this->set_up_brand_site();
 
-		$this->set_consumer_brand_config_cache( 'test-app', 'test-key' );
+		$paths = [];
+		$this->mock_algolia_http_client( $paths );
 
 		$post    = self::factory()->post->create_and_get( [ 'post_status' => 'publish' ] );
 		$watcher = new Watcher();
 
 		// 'post' is in indexable_entities, so it passes the guard.
-		// Algolia SDK will fail with test credentials, but the guard logic is tested.
 		$this->publish( $watcher, $post );
 
 		$this->assertTrue( true );
 	}
 
 	/**
-	 * Indexable post triggers Algolia saveObjects (reindex) call.
+	 * Publishing an indexable post saves its records.
 	 * This verifies the full integration flow for a governing site.
 	 */
-	public function test_on_after_insert_post_triggers_algolia_reindex(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-		update_option(
-			Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS,
-			[
-				'app_id'    => 'test-app',
-				'write_key' => 'test-key',
-			]
-		);
-		update_option(
-			Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES,
-			[
-				'entities' => [
-					Utils::normalize_url( get_site_url() ) => [ 'post' ],
-				],
-			]
-		);
+	public function test_publishing_a_post_saves_its_records(): void {
+		$this->set_up_governing_site();
 
 		$recorded_paths = [];
 		$this->mock_algolia_http_client( $recorded_paths );
@@ -227,24 +409,21 @@ final class WatcherTest extends TestCase {
 		$post    = self::factory()->post->create_and_get( [ 'post_status' => 'publish' ] );
 		$watcher = new Watcher();
 
-		// Transition from 'draft' to 'publish' (should trigger reindex).
+		// Transition from 'draft' to 'publish' (should save its records).
 		$this->publish( $watcher, $post );
 
 		// Assert that a /batch (saveObjects) call was made.
 		$batch_calls = array_filter( $recorded_paths, static fn ( $p ) => str_contains( $p, '/batch' ) );
-		$this->assertNotEmpty( $batch_calls, 'Happy path should trigger Algolia reindex (saveObjects).' );
+		$this->assertNotEmpty( $batch_calls, 'Happy path should save the records (saveObjects).' );
 	}
 
 	/**
-	 * Indexable post triggers Algolia saveObjects (reindex) call on a consumer (brand) site.
+	 * Publishing an indexable post saves its records on a consumer (brand) site.
 	 * This verifies the full integration flow where credentials and indexable entities
 	 * are resolved from the governing site's brand config cache.
 	 */
-	public function test_on_after_insert_post_triggers_algolia_reindex_consumer_site(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
-		update_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL, 'https://governing.example.com' );
-
-		$this->set_consumer_brand_config_cache( 'test-app', 'test-key' );
+	public function test_publishing_a_post_on_a_brand_site_saves_its_records(): void {
+		$this->set_up_brand_site();
 
 		$recorded_paths = [];
 		$this->mock_algolia_http_client( $recorded_paths );
@@ -252,12 +431,12 @@ final class WatcherTest extends TestCase {
 		$post    = self::factory()->post->create_and_get( [ 'post_status' => 'publish' ] );
 		$watcher = new Watcher();
 
-		// Transition from 'draft' to 'publish' (should trigger reindex).
+		// Transition from 'draft' to 'publish' (should save its records).
 		$this->publish( $watcher, $post );
 
 		// Assert that a /batch (saveObjects) call was made.
 		$batch_calls = array_filter( $recorded_paths, static fn ( $p ) => str_contains( $p, '/batch' ) );
-		$this->assertNotEmpty( $batch_calls, 'Consumer site happy path should trigger Algolia reindex (saveObjects).' );
+		$this->assertNotEmpty( $batch_calls, 'Consumer site happy path should save the records (saveObjects).' );
 	}
 
 	/**
@@ -272,7 +451,8 @@ final class WatcherTest extends TestCase {
 
 		( new Watcher() )->register_hooks();
 
-		$post_id   = self::factory()->post->create( [ 'post_status' => 'publish' ] );
+		$post_id = self::factory()->post->create( [ 'post_status' => 'publish' ] );
+		$this->run_jobs();
 		$stored_id = $this->get_indexed_site_post_id( $requests );
 
 		// Drop the publish traffic, so only the delete request is left to assert on.
@@ -284,6 +464,7 @@ final class WatcherTest extends TestCase {
 				'post_status' => 'draft',
 			]
 		);
+		$this->run_jobs();
 
 		$this->assertSame(
 			[ sprintf( 'site_post_id:"%s"', $stored_id ) ],
@@ -304,7 +485,8 @@ final class WatcherTest extends TestCase {
 
 		( new Watcher() )->register_hooks();
 
-		$post_id   = self::factory()->post->create( [ 'post_status' => 'publish' ] );
+		$post_id = self::factory()->post->create( [ 'post_status' => 'publish' ] );
+		$this->run_jobs();
 		$stored_id = $this->get_indexed_site_post_id( $requests );
 
 		// Drop the publish traffic, so only the password change is left to assert on.
@@ -317,8 +499,40 @@ final class WatcherTest extends TestCase {
 				'post_password' => 'secret',
 			]
 		);
+		$this->run_jobs();
 
 		$this->assertSame( [ sprintf( 'site_post_id:"%s"', $stored_id ) ], $this->get_delete_filters( $requests ) );
+		$this->assertSame( [], array_filter( $paths, static fn ( string $path ): bool => str_contains( $path, '/batch' ) ), 'The protected content must not be saved.' );
+	}
+
+	/**
+	 * A sync checks the post as it is now, even when an earlier job cached it before another request protected it.
+	 */
+	public function test_sync_skips_the_cached_copy_of_a_protected_post(): void {
+		global $wpdb;
+
+		$this->set_up_governing_site( [ 'post', 'attachment' ] );
+
+		$post_id       = self::factory()->post->create( [ 'post_status' => 'publish' ] );
+		$attachment_id = self::factory()->attachment->create( [ 'post_parent' => $post_id ] );
+
+		$paths    = [];
+		$requests = [];
+		$this->mock_algolia_http_client( $paths, null, null, $requests );
+
+		// Cache both posts, then protect the post without clearing that cache, the way another request would.
+		get_post( $post_id );
+		get_post( $attachment_id );
+		$wpdb->update( $wpdb->posts, [ 'post_password' => 'secret' ], [ 'ID' => $post_id ] ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+
+		$watcher = new Watcher();
+		$watcher->sync_post( $post_id );
+		$watcher->sync_post( $attachment_id );
+
+		$filters = implode( ' OR ', $this->get_delete_filters( $requests ) );
+
+		$this->assertStringContainsString( sprintf( 'site_post_id:"%s"', ( new Post_Record() )->get_site_post_id( $post_id ) ), $filters );
+		$this->assertStringContainsString( sprintf( 'site_post_id:"%s"', ( new Post_Record() )->get_site_post_id( $attachment_id ) ), $filters );
 		$this->assertSame( [], array_filter( $paths, static fn ( string $path ): bool => str_contains( $path, '/batch' ) ), 'The protected content must not be saved.' );
 	}
 
@@ -335,6 +549,7 @@ final class WatcherTest extends TestCase {
 		( new Watcher() )->register_hooks();
 
 		$post_id = self::factory()->post->create( [ 'post_status' => 'publish' ] );
+		$this->run_jobs();
 
 		// Drop the publish traffic, so only the delete request is left to assert on.
 		$requests = [];
@@ -349,6 +564,7 @@ final class WatcherTest extends TestCase {
 		);
 
 		wp_delete_post( $post_id, true );
+		$this->run_jobs();
 
 		$this->assertSame(
 			[],
@@ -375,10 +591,12 @@ final class WatcherTest extends TestCase {
 
 		$post_id = self::factory()->post->create( [ 'post_status' => 'publish' ] );
 		wp_trash_post( $post_id );
+		$this->run_jobs();
 		$this->assertNotEmpty( $this->get_delete_filters( $requests ) );
 
 		$requests = [];
 		wp_delete_post( $post_id, true );
+		$this->run_jobs();
 
 		$this->assertSame( [], $this->get_delete_filters( $requests ) );
 	}
@@ -408,6 +626,7 @@ final class WatcherTest extends TestCase {
 		);
 
 		self::factory()->post->create( [ 'post_status' => 'publish' ] );
+		$this->run_jobs();
 
 		$records = $this->get_saved_records( $requests );
 
@@ -430,11 +649,10 @@ final class WatcherTest extends TestCase {
 		$requests = [];
 		$this->mock_algolia_http_client( $paths, null, null, $requests );
 
-		$watcher = new Watcher();
-		$watcher->register_hooks();
+		( new Watcher() )->register_hooks();
 
 		wp_delete_attachment( $image_id, true );
-		$watcher->sync_pending_media();
+		$this->run_jobs();
 
 		$records = $this->get_saved_records( $requests );
 		$this->assertSame( [ $post_id ], array_column( $records, 'post_id' ) );
@@ -470,6 +688,7 @@ final class WatcherTest extends TestCase {
 				'post_title'  => 'Original Title',
 			]
 		);
+		$this->run_jobs();
 
 		$records = $this->get_saved_records( $requests );
 		$this->assertSame( 'Updated Title', end( $records )['post_title'] );
@@ -500,6 +719,7 @@ final class WatcherTest extends TestCase {
 				'post_status' => 'draft',
 			]
 		);
+		$this->run_jobs();
 
 		$filters = implode( ' OR ', $this->get_delete_filters( $requests ) );
 
@@ -514,7 +734,7 @@ final class WatcherTest extends TestCase {
 				'post_status' => 'publish',
 			]
 		);
-		$watcher->sync_pending_media();
+		$this->run_jobs();
 
 		$this->assertEqualsCanonicalizing( $attachment_ids, array_column( $this->get_saved_records( $requests ), 'post_id' ) );
 	}
@@ -538,6 +758,7 @@ final class WatcherTest extends TestCase {
 		get_post( $attachment_id );
 
 		wp_delete_post( $parent_id, true );
+		$this->run_jobs();
 
 		$this->assertSame( [ $attachment_id ], array_column( $this->get_saved_records( $requests ), 'post_id' ) );
 	}
@@ -570,6 +791,7 @@ final class WatcherTest extends TestCase {
 		( new Watcher() )->register_hooks();
 
 		wp_delete_post( $parent_id, true );
+		$this->run_jobs();
 
 		$this->assertContains( sprintf( 'site_post_id:"%s"', ( new Post_Record() )->get_site_post_id( $attachment_id ) ), $this->get_delete_filters( $requests ) );
 		$this->assertSame( [], $this->get_saved_records( $requests ) );
@@ -597,7 +819,7 @@ final class WatcherTest extends TestCase {
 
 		$attachment_id = rest_do_request( $request )->get_data()['id'];
 
-		$watcher->sync_pending_media();
+		$this->run_jobs();
 
 		$records = $this->get_saved_records( $requests );
 		$this->assertCount( 1, array_filter( $paths, static fn ( string $path ): bool => str_contains( $path, '/batch' ) ) );
@@ -622,7 +844,7 @@ final class WatcherTest extends TestCase {
 		$attachment_id = self::factory()->attachment->create_upload_object( DIR_TESTDATA . '/images/canola.jpg' );
 		remove_filter( 'intermediate_image_sizes_advanced', '__return_empty_array' );
 
-		$watcher->sync_pending_media();
+		$this->run_jobs();
 
 		$records = $this->get_saved_records( $requests );
 		$this->assertSame( $attachment_id, $records[0]['post_id'] );
@@ -630,7 +852,7 @@ final class WatcherTest extends TestCase {
 
 		$requests = [];
 		wp_update_image_subsizes( $attachment_id );
-		$watcher->sync_pending_media();
+		$this->run_jobs();
 
 		$this->assertArrayHasKey( 'medium', $this->get_saved_records( $requests )[0]['thumbnail']['sizes'] );
 	}
@@ -645,31 +867,10 @@ final class WatcherTest extends TestCase {
 		$before              = clone $post;
 		$before->post_status = 'draft';
 
+		add_action( Watcher::SYNC_HOOK, [ $watcher, 'sync_post' ] );
+
 		$watcher->on_after_insert_post( $post->ID, $post, true, $before );
-	}
-
-	/**
-	 * Prime the consumer brand config cache used by Watcher guards.
-	 *
-	 * @param string $app_id    Algolia app ID.
-	 * @param string $write_key Algolia write key.
-	 */
-	private function set_consumer_brand_config_cache( string $app_id = 'TEST_APP', string $write_key = 'TEST_KEY' ): void {
-		$cached_config = [
-			'algolia_credentials' => [
-				'app_id'    => $app_id,
-				'write_key' => $write_key,
-			],
-			'search_settings'     => [
-				'algolia_enabled'  => true,
-				'searchable_sites' => [],
-			],
-			'indexable_entities'  => [ 'post' ],
-			'available_sites'     => [],
-		];
-
-		$method = new \ReflectionMethod( Remote_Client::class, 'set_brand_config_cache' );
-		$method->invoke( null, $cached_config );
+		$this->run_jobs();
 	}
 
 	/**
@@ -744,28 +945,5 @@ final class WatcherTest extends TestCase {
 		}
 
 		return $filters;
-	}
-
-	/**
-	 * Configures the current site as a governing site with credentials and indexable entities.
-	 *
-	 * @param string[] $entities The indexable post types.
-	 */
-	private function set_up_governing_site( array $entities = [ 'post' ] ): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
-		Search_Settings::set_algolia_credentials(
-			[
-				'app_id'    => 'test-app',
-				'write_key' => 'test-key',
-			]
-		);
-		update_option(
-			Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES,
-			[
-				'entities' => [
-					Utils::get_current_site_url() => $entities,
-				],
-			]
-		);
 	}
 }

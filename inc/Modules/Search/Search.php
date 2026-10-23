@@ -37,9 +37,9 @@ final class Search implements Registrable {
 	private const LEGACY_PROXY_ATTACHMENT_OPTION = 'onesearch_proxy_attachment_id';
 
 	/**
-	 * The indexer, once instantiated.
+	 * The search index, once instantiated.
 	 */
-	private ?Indexer $indexer = null;
+	private ?Search_Index $search_index = null;
 
 	/**
 	 * Whether to filter the search results.
@@ -644,14 +644,14 @@ final class Search implements Registrable {
 	}
 
 	/**
-	 * Gets the indexer, instantiating it if needed.
+	 * Gets the search index, instantiating it if needed.
 	 */
-	private function get_indexer(): Indexer {
-		if ( ! $this->indexer instanceof Indexer ) {
-			$this->indexer = new Indexer();
+	private function get_search_index(): Search_Index {
+		if ( ! $this->search_index instanceof Search_Index ) {
+			$this->search_index = new Search_Index();
 		}
 
-		return $this->indexer;
+		return $this->search_index;
 	}
 
 	/**
@@ -706,7 +706,7 @@ final class Search implements Registrable {
 
 		$params = $this->prepare_search_params( $query, $site_urls );
 
-		$results = $this->get_indexer()->search( $query->get( 's' ), $params );
+		$results = $this->get_search_index()->search( $query->get( 's' ), $params );
 
 		if ( is_wp_error( $results ) ) {
 			Utils::log( 'Algolia search failed, falling back to the native search: ' . $results->get_error_message() );
@@ -754,12 +754,12 @@ final class Search implements Registrable {
 		if ( ! empty( $query->get( 'post_type' ) ) && 'any' !== $query->get( 'post_type' ) ) {
 			$post_types = is_string( $query->get( 'post_type' ) ) ? [ $query->get( 'post_type' ) ] : (array) $query->get( 'post_type' );
 
-			$default_params['filters'] = Indexer::filter_any_of( 'post_type', $post_types );
+			$default_params['filters'] = Search_Index::filter_any_of( 'post_type', $post_types );
 		}
 
 		// Add Site URL filters.
 		$site_urls            = array_map( [ Utils::class, 'normalize_url' ], $searchable_sites );
-		$site_url_filters_str = Indexer::filter_any_of( 'site_url', $site_urls );
+		$site_url_filters_str = Search_Index::filter_any_of( 'site_url', $site_urls );
 
 		$default_params['filters'] = isset( $default_params['filters'] )
 			? '(' . $default_params['filters'] . ') AND (' . $site_url_filters_str . ')'
@@ -888,7 +888,7 @@ final class Search implements Registrable {
 			return $records;
 		}
 
-		$post_records = $this->get_indexer()->get_post_records( array_values( array_unique( $site_post_ids ) ) );
+		$post_records = $this->get_search_index()->get_post_records( array_values( array_unique( $site_post_ids ) ) );
 
 		if ( is_wp_error( $post_records ) ) {
 			Utils::log( 'Error fetching chunks from Algolia: ' . $post_records->get_error_message() );
