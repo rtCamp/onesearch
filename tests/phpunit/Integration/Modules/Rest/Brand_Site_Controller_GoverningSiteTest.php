@@ -11,6 +11,7 @@ namespace OneSearch\Tests\Integration\Modules\Rest;
 
 use OneSearch\Modules\Rest\Abstract_REST_Controller;
 use OneSearch\Modules\Rest\Brand_Site_Controller;
+use OneSearch\Modules\Search\Jobs\Jobs;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
@@ -104,12 +105,13 @@ class Brand_Site_Controller_GoverningSiteTest extends TestCase {
 			]
 		);
 
-		$algolia_paths    = [];
-		$algolia_requests = [];
-		$this->mock_algolia_http_client( $algolia_paths, null, null, $algolia_requests );
+		$this->fake_algolia_index();
+		$this->add_algolia_record( 'brand_one_post', 'https://brand-one.example.com/' );
+		$this->add_algolia_record( 'brand_two_post', 'https://brand-two.example.com/' );
 
-		// The shared sites listeners that purge a removed site's search data.
+		// The shared sites listeners that purge a removed site's search data, and the jobs that do it.
 		( new Search_Settings() )->register_hooks();
+		( new Jobs() )->register_hooks();
 
 		// Keep the cache purge for the remaining brand sites off the network.
 		$block_http = static fn () => new \WP_Error( 'http_request_blocked', 'Blocked in tests.' );
@@ -122,6 +124,7 @@ class Brand_Site_Controller_GoverningSiteTest extends TestCase {
 		$request->set_header( 'X-OneSearch-Token', 'brand-one-key' );
 
 		$response = $this->server->dispatch( $request );
+		$this->run_jobs();
 
 		remove_filter( 'pre_http_request', $block_http );
 
@@ -133,15 +136,7 @@ class Brand_Site_Controller_GoverningSiteTest extends TestCase {
 			Search_Settings::get_indexable_entities()['entities']
 		);
 
-		$delete_filters = [];
-		foreach ( $algolia_requests as $algolia_request ) {
-			if ( str_contains( $algolia_request['path'], '/deleteByQuery' ) ) {
-				$delete_filters[] = json_decode( $algolia_request['body'], true )['filters'] ?? '';
-			}
-		}
-		$this->assertCount( 1, $delete_filters );
-		$this->assertStringContainsString( 'site_url:"https://brand-one.example.com/"', $delete_filters[0] );
-		$this->assertStringNotContainsString( 'brand-two', $delete_filters[0] );
+		$this->assertSame( [ 'brand_two_post' ], array_keys( $this->algolia_records ) );
 	}
 
 	/**

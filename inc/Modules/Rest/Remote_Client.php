@@ -174,8 +174,7 @@ class Remote_Client {
 			'brand-site',
 			$our_public_key,
 			[
-				'method'  => \WP_REST_Server::DELETABLE,
-				'timeout' => 15, // phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout -- The governing site purges this site's Algolia records before responding.
+				'method' => \WP_REST_Server::DELETABLE,
 			]
 		);
 

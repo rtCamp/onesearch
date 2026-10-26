@@ -599,7 +599,6 @@ class Remote_ClientTest extends TestCase {
 		$this->assertSame( $api_key, $captured['args']['headers']['X-OneSearch-Token'] );
 		$this->assertSame( Utils::get_current_site_url(), $captured['args']['headers']['X-OneSearch-Site-URL'] );
 		$this->assertArrayNotHasKey( 'Origin', $captured['args']['headers'] );
-		$this->assertSame( 15, $captured['args']['timeout'] );
 	}
 
 	/**
