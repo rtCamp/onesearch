@@ -10,6 +10,9 @@ declare(strict_types = 1);
 namespace OneSearch\Tests\Integration\Modules\Search;
 
 use OneSearch\Modules\Rest\Remote_Client;
+use OneSearch\Modules\Search\Index_Status;
+use OneSearch\Modules\Search\Jobs\Index_Site_Job;
+use OneSearch\Modules\Search\Jobs\Jobs;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
@@ -274,24 +277,91 @@ final class SettingsTest extends TestCase {
 	}
 
 	/**
-	 * Switching a governing site to a consumer deletes the governing site's index.
+	 * Switching a governing site to a consumer deletes the governing site's index, with every site's records.
 	 *
 	 * The hook runs before the new site type is saved, so the index still resolves as the governing site's.
 	 */
 	public function test_switching_governing_site_to_consumer_deletes_its_index(): void {
 		$this->set_up_governing_credentials();
-
-		$recorded_paths = [];
-		$this->mock_algolia_http_client( $recorded_paths );
+		$this->fake_algolia_index();
+		$this->add_algolia_record( 'governing_post', 'https://governing.example.org/' );
+		$this->add_algolia_record( 'brand_post', 'https://brand.example.com/' );
 
 		( new Search_Settings() )->register_hooks();
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
 
-		$this->assertContains( '/1/indexes/onesearch_governing_example_org_wp_posts', $recorded_paths );
-		$this->assertEmpty(
-			array_filter( $recorded_paths, static fn ( string $path ) => str_contains( $path, '/deleteByQuery' ) ),
-			'The governing site should delete the whole index, not just its records.'
+		$this->assertSame( [], $this->algolia_records );
+	}
+
+	/**
+	 * A governing site that becomes a consumer forgets which posts were in search, since its index is gone.
+	 */
+	public function test_switching_governing_site_to_consumer_clears_its_index_status(): void {
+		$this->set_up_governing_credentials();
+		$this->fake_algolia_index();
+		$indexed = self::factory()->post->create();
+		$failed  = self::factory()->post->create();
+		Index_Status::record_saved( [ $indexed ] );
+		Index_Status::record_errors( [ $failed => 'Too big' ] );
+		$this->assertSame( 1, Index_Status::get_summary( [ 'post' ] )['indexed'] );
+
+		( new Search_Settings() )->register_hooks();
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+
+		$this->assertSame(
+			[
+				'total'   => 2,
+				'indexed' => 0,
+				'failed'  => [],
+			],
+			Index_Status::get_summary( [ 'post' ] )
 		);
+	}
+
+	/**
+	 * A governing site that becomes a consumer drops its jobs about its brand sites, since it no longer has any.
+	 */
+	public function test_switching_governing_site_to_consumer_deletes_its_jobs_about_brand_sites(): void {
+		$this->set_up_governing_credentials();
+		$this->fake_algolia_index();
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Brand A',
+					'url'     => 'https://brand-a.example.com',
+					'api_key' => 'key-a',
+				],
+			]
+		);
+		Jobs::registry()->get( Index_Site_Job::class )->dispatch( [ (string) array_key_first( Settings::get_shared_sites() ), null ] );
+		$this->assertCount( 1, $this->get_statuses_of( 'index_site' ) );
+
+		( new Search_Settings() )->register_hooks();
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+
+		$this->assertSame( [], $this->get_statuses_of( 'index_site' ) );
+	}
+
+	/**
+	 * Removing a brand site deletes the jobs about it, so a failed re-index of it doesn't stay behind.
+	 */
+	public function test_removing_a_brand_site_deletes_its_jobs(): void {
+		$this->set_up_governing_credentials();
+		$this->fake_algolia_index();
+		Jobs::registry()->get( Index_Site_Job::class )->dispatch( [ 'https://child-a.example.com/', null ] );
+		Jobs::registry()->get( Index_Site_Job::class )->dispatch( [ 'https://child-b.example.com/', null ] );
+
+		( new Search_Settings() )->on_shared_sites_change(
+			[
+				[ 'url' => 'https://child-a.example.com/' ],
+				[ 'url' => 'https://child-b.example.com/' ],
+			],
+			[
+				[ 'url' => 'https://child-b.example.com/' ],
+			]
+		);
+
+		$this->assertSame( [ 'https://child-b.example.com/' ], array_column( $this->get_statuses_of( 'index_site' ), 'key' ) );
 	}
 
 	/**

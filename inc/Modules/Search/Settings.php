@@ -12,6 +12,7 @@ namespace OneSearch\Modules\Search;
 use OneSearch\Contracts\Interfaces\Registrable;
 use OneSearch\Encryptor;
 use OneSearch\Modules\Rest\Remote_Client;
+use OneSearch\Modules\Search\Jobs\Jobs;
 use OneSearch\Modules\Settings\Settings as Admin_Settings;
 use OneSearch\Utils;
 
@@ -184,7 +185,7 @@ final class Settings implements Registrable {
 	}
 
 	/**
-	 * Deletes the Algolia index when a governing site is changed to a consumer.
+	 * Deletes the Algolia index when a governing site is changed to a consumer, along with its index status and its jobs about its brand sites.
 	 *
 	 * @internal Hook callback
 	 *
@@ -201,11 +202,15 @@ final class Settings implements Registrable {
 			return;
 		}
 
+		foreach ( array_keys( Admin_Settings::get_shared_sites() ) as $site_url ) {
+			Jobs::registry()->delete_records( $site_url );
+		}
+
 		( new Indexer() )->delete_index();
 	}
 
 	/**
-	 * Deletes algolia entries when a site is removed from the list of shared sites, and cleans it out of the search settings.
+	 * Deletes algolia entries and the jobs about a site when it's removed from the list of shared sites, and cleans it out of the search settings.
 	 *
 	 * @param mixed $old_value The old value.
 	 * @param mixed $new_value The new value.
@@ -235,6 +240,11 @@ final class Settings implements Registrable {
 		}
 
 		$removed_sites = array_values( $removed_sites );
+
+		// Its jobs, like a failed re-index, no longer apply.
+		foreach ( $removed_sites as $site_url ) {
+			Jobs::registry()->delete_records( $site_url );
+		}
 
 		$is_deleted = ( new Indexer() )->delete_site_records( $removed_sites );
 

@@ -305,6 +305,108 @@ class Remote_ClientTest extends TestCase {
 	}
 
 	/**
+	 * A brand site without a stored key isn't sent anything.
+	 */
+	public function test_brand_site_requests_need_the_url_and_key(): void {
+		$requested_urls = [];
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+				$requested_urls[] = $url;
+				return new \WP_Error( 'blocked', 'Intercepted' );
+			},
+			10,
+			3
+		);
+
+		$site = [
+			'url'     => 'https://no-key.example.com/',
+			'api_key' => '',
+		];
+
+		$this->assertSame( 'onesearch_missing_site_data', Remote_Client::reindex_brand_site( $site )->get_error_code() );
+		$this->assertSame( 'onesearch_missing_site_data', Remote_Client::get_brand_status( $site )->get_error_code() );
+		$this->assertSame( [], $requested_urls );
+	}
+
+	/**
+	 * A brand site is told to re-index with its key, and fails with the brand site's own error.
+	 */
+	public function test_brand_site_requests_return_the_brand_sites_answer(): void {
+		$site = [
+			'url'     => 'https://brand.example.com/',
+			'api_key' => 'brand-key',
+		];
+
+		$answer = (object) [
+			'code' => 200,
+			'body' => '{}',
+		];
+		$sent   = [];
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $args, $url ) use ( $answer, &$sent ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+				$sent[] = [ $args['method'] ?? 'GET', $url, $args['headers']['X-OneSearch-Token'] ];
+
+				return [
+					'response' => [
+						'code'    => $answer->code,
+						'message' => '',
+					],
+					'body'     => $answer->body,
+				];
+			},
+			10,
+			3
+		);
+
+		$this->assertTrue( Remote_Client::reindex_brand_site( $site ) );
+		$this->assertSame(
+			[
+				[ 'POST', 'https://brand.example.com/wp-json/onesearch/v1/indexer', 'brand-key' ],
+			],
+			$sent
+		);
+
+		$answer->code = 403;
+		$answer->body = '{"code":"rest_forbidden","message":"Sorry, you are not allowed to do that."}';
+		$this->assertSame( 'Sorry, you are not allowed to do that.', Remote_Client::reindex_brand_site( $site )->get_error_message() );
+	}
+
+	/**
+	 * A brand site's report comes back as it sent it, unless it isn't JSON.
+	 */
+	public function test_get_brand_status(): void {
+		$site = [
+			'url'     => 'https://brand.example.com/',
+			'api_key' => 'brand-key',
+		];
+
+		$body = (object) [ 'json' => '{"sites":{},"jobs":[]}' ];
+		add_filter(
+			'pre_http_request',
+			static fn () => [
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
+				],
+				'body'     => $body->json,
+			]
+		);
+
+		$this->assertSame(
+			[
+				'sites' => [],
+				'jobs'  => [],
+			],
+			Remote_Client::get_brand_status( $site )
+		);
+
+		$body->json = 'not json';
+		$this->assertSame( 'onesearch_rest_invalid_response', Remote_Client::get_brand_status( $site )->get_error_code() );
+	}
+
+	/**
 	 * Successful brand-site/config fetch returns sanitized payload and caches it.
 	 */
 	public function test_get_brand_config_returns_payload_on_success(): void {

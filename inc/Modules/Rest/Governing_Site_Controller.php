@@ -9,6 +9,7 @@ declare(strict_types = 1);
 
 namespace OneSearch\Modules\Rest;
 
+use OneSearch\Modules\Search\Index_Status;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Utils;
 use WP_REST_Response;
@@ -120,6 +121,9 @@ class Governing_Site_Controller extends Abstract_REST_Controller {
 
 		// Clear cached brand configuration.
 		Remote_Client::clear_brand_config_cache();
+
+		// The governing site deletes this site's records when it removes it.
+		Index_Status::clear();
 
 		// If the governing site couldn't be notified, inform the admin through the response message.
 		if ( is_wp_error( $deregistered ) ) {

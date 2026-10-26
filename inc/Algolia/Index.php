@@ -96,17 +96,12 @@ final class Index {
 	 * @see https://www.algolia.com/doc/rest-api/search/delete-by
 	 *
 	 * @param array<string,mixed> $params The delete by params, e.g. `filters`.
-	 * @param bool                $wait   Whether to wait until Algolia has applied the delete.
 	 *
 	 * @return true|\WP_Error
 	 */
-	public function delete_by( array $params, bool $wait = false ): bool|\WP_Error {
+	public function delete_by( array $params ): bool|\WP_Error {
 		try {
-			$response = $this->client->deleteBy( $this->name, $params );
-
-			if ( $wait ) {
-				$this->wait_for_task( $response );
-			}
+			$this->client->deleteBy( $this->name, $params );
 
 			return true;
 		} catch ( \Throwable $e ) {

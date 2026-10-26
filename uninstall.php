@@ -49,6 +49,7 @@ function uninstall(): void {
 	delete_pending_jobs();
 	cleanup_algolia_index();
 	delete_proxy_attachment();
+	delete_index_status_meta();
 
 	// Wait until the end to delete options and transients.
 
@@ -81,6 +82,14 @@ function delete_proxy_attachment(): void {
 	}
 
 	wp_delete_post( $proxy_id, true );
+}
+
+/**
+ * Deletes when each post was indexed, or why it couldn't be.
+ */
+function delete_index_status_meta(): void {
+	delete_post_meta_by_key( '_' . PLUGIN_PREFIX . 'indexed_at' );
+	delete_post_meta_by_key( '_' . PLUGIN_PREFIX . 'index_error' );
 }
 
 /**

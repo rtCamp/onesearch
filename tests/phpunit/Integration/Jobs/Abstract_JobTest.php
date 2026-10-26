@@ -421,7 +421,7 @@ final class Abstract_JobTest extends TestCase {
 	}
 
 	/**
-	 * A job whose record was deleted before its action runs doesn't run, and one whose record was deleted while it ran writes nothing back.
+	 * A job whose record was deleted before its action runs doesn't run, and one whose record was deleted while it ran writes nothing back, e.g. one about a brand site that was removed.
 	 */
 	public function test_a_job_whose_record_was_deleted_writes_nothing_back(): void {
 		$runs                     = 0;

@@ -71,6 +71,26 @@ final class Job_Registry {
 	}
 
 	/**
+	 * Deletes every job's record with a key, e.g. the records about a site that's gone.
+	 *
+	 * @param string $key The records' key.
+	 */
+	public function delete_records( string $key ): void {
+		foreach ( array_keys( $this->jobs ) as $name ) {
+			( new Job_Records( $this->get_hook( $name ) ) )->delete_record( $key );
+		}
+	}
+
+	/**
+	 * Gets the jobs' names.
+	 *
+	 * @return string[]
+	 */
+	public function get_names(): array {
+		return array_keys( $this->jobs );
+	}
+
+	/**
 	 * Gets the statuses every job reports, with the job's name.
 	 *
 	 * @return list<array{ job: string, key: string, status: string, error: ?string, data: array<string, mixed> }>

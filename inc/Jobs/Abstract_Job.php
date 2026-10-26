@@ -178,7 +178,7 @@ abstract class Abstract_Job {
 			] + $record
 		);
 
-		// Bail if deleted.
+		// Bail if deleted, e.g. a job about a site that was removed.
 		if ( null === $record ) {
 			return;
 		}

@@ -15,14 +15,17 @@ import {
  * External dependencies
  */
 import { useState, useEffect } from 'react';
-import { __ } from '@wordpress/i18n';
+import { __, sprintf } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
 
 /**
  * Internal dependencies
  */
 import MultiSelectChips from './MultiSelectChips';
-import { API_NAMESPACE, NONCE, withTrailingSlash } from '@/js/utils';
+import IndexSummary from './IndexSummary';
+import JobStatus from './JobStatus';
+import { withTrailingSlash } from '@/js/utils';
+import { useIndexStatus } from '@/js/use-index-status';
 import type { NoticeType } from '@/admin/settings/page';
 import type { OneSearchSharedSite } from '@/types/global';
 import type { PostTypeOption } from './SiteSearchSettings';
@@ -46,14 +49,6 @@ interface SiteIndexableEntitiesProps {
 	setSaving: ( saving: boolean ) => void;
 }
 
-interface ReIndexResponse {
-	message?: string;
-	errors?: Array< { site_url: string; message: string } >;
-	data?: {
-		status?: number;
-	};
-}
-
 const SiteIndexableEntities = ( {
 	sites,
 	allPostTypes,
@@ -70,10 +65,16 @@ const SiteIndexableEntities = ( {
 		{}
 	);
 	const [ savedEntities, setSavedEntities ] = useState< EntitiesMap >( {} );
-	const [ reindexing, setReindexing ] = useState( false );
-	const [ showReindexingModal, setShowReindexingModal ] = useState( false );
+	const [ isReindexPending, setIsReindexPending ] = useState( false );
+	const [ showReindexModal, setShowReindexModal ] = useState( false );
+	const {
+		sites: siteStatuses,
+		jobs,
+		start: startReindex,
+		isIndexing,
+	} = useIndexStatus();
 
-	const controlsDisabled = saving || reindexing;
+	const controlsDisabled = saving || isReindexPending;
 	const entitiesDisabled = controlsDisabled || loadFailed;
 
 	const normalizeEntities = ( map: EntitiesMap = {} ): EntitiesMap => {
@@ -87,22 +88,6 @@ const SiteIndexableEntities = ( {
 			} );
 
 		return results;
-	};
-
-	const isEmptySavedEntities = (): boolean => {
-		if ( ! savedEntities || typeof savedEntities !== 'object' ) {
-			return true;
-		}
-
-		const keys = Object.keys( savedEntities );
-		if ( keys.length === 0 ) {
-			return true;
-		}
-
-		return keys.every( ( key ) => {
-			const value = savedEntities[ key ];
-			return ! Array.isArray( value ) || value.length === 0;
-		} );
 	};
 
 	useEffect( () => {
@@ -154,49 +139,57 @@ const SiteIndexableEntities = ( {
 
 	const handleReIndex = async (): Promise< boolean > => {
 		try {
-			setReindexing( true );
-			// @todo use @wordpress/api-fetch everywhere internal.
-			const response = await fetch( `${ API_NAMESPACE }/re-index`, {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					'X-WP-Nonce': NONCE,
-				},
-			} );
-
-			const data: ReIndexResponse = await response.json();
-			if ( response.ok && ! data.errors?.length ) {
-				setNotice( {
-					message:
-						data.message ||
-						__( 'Re-indexing complete.', 'onesearch' ),
-					type: 'success',
-				} );
-				return true;
-			} else if ( data.data?.status === 500 ) {
-				setNotice( {
-					message: __( 'Internal server error.', 'onesearch' ),
-					type: 'error',
-				} );
-			} else {
-				setNotice( {
-					message:
-						data.message || __( 'Unknown error.', 'onesearch' ),
-					type: 'error',
-				} );
-			}
-		} catch ( error: unknown ) {
-			const message =
-				error instanceof Error ? error.message : String( error );
+			setIsReindexPending( true );
+			await startReindex();
 			setNotice( {
-				message,
+				message: __(
+					"Indexing started. Each site shows how it's going below.",
+					'onesearch'
+				),
+				type: 'success',
+			} );
+			return true;
+		} catch ( error: unknown ) {
+			setNotice( {
+				message:
+					( error as { message?: string } )?.message ||
+					__( 'Unknown error.', 'onesearch' ),
 				type: 'error',
 			} );
 		} finally {
-			setReindexing( false );
-			setShowReindexingModal( false );
+			setIsReindexPending( false );
+			setShowReindexModal( false );
 		}
 		return false;
+	};
+
+	// A site's index summary and jobs.
+	const renderSiteStatus = ( siteUrl: string ) => {
+		const siteStatus = siteStatuses[ siteUrl ];
+		const siteJobs = jobs.filter( ( job ) => job.site === siteUrl );
+
+		return (
+			<div className="onesearch-site-status">
+				{ siteStatus &&
+					( 'error' in siteStatus ? (
+						<p className="onesearch-job-status-failed">
+							{ sprintf(
+								/* translators: %s: error message. */
+								__(
+									"This site's status couldn't be loaded. Check that the site is reachable. %s",
+									'onesearch'
+								),
+								siteStatus.error
+							) }
+						</p>
+					) : (
+						<IndexSummary index={ siteStatus.index } />
+					) ) }
+				{ siteJobs.map( ( job ) => (
+					<JobStatus key={ job.job } job={ job } />
+				) ) }
+			</div>
+		);
 	};
 
 	const isDirty =
@@ -225,16 +218,11 @@ const SiteIndexableEntities = ( {
 						<div className="onesearch-entities-controls">
 							<Button
 								variant="secondary"
-								onClick={ () => setShowReindexingModal( true ) }
-								isBusy={ reindexing }
-								disabled={
-									reindexing || isEmptySavedEntities()
-								}
+								onClick={ () => setShowReindexModal( true ) }
+								isBusy={ isReindexPending }
 								className="onesearch-btn-reindex"
 							>
-								{ reindexing
-									? __( 'Re-indexing…', 'onesearch' )
-									: __( 'Re-index', 'onesearch' ) }
+								{ __( 'Re-index', 'onesearch' ) }
 							</Button>
 							<Button
 								variant="primary"
@@ -282,6 +270,7 @@ const SiteIndexableEntities = ( {
 							<p className="onesearch-entity-site-url">
 								{ currentSiteUrl }
 							</p>
+							{ renderSiteStatus( currentSiteUrl ) }
 						</div>
 						<div className="onesearch-entity-selector">
 							<MultiSelectChips
@@ -328,6 +317,7 @@ const SiteIndexableEntities = ( {
 									<p className="onesearch-entity-site-url">
 										{ site.url }
 									</p>
+									{ renderSiteStatus( siteKey ) }
 								</div>
 								{ ! allPostTypes?.[ siteKey ] ? (
 									<Text variant="muted">
@@ -369,16 +359,24 @@ const SiteIndexableEntities = ( {
 					} ) }
 				</CardBody>
 			</Card>
-			{ showReindexingModal && (
+			{ showReindexModal && (
 				<Modal
 					title={ __( 'Re-index saved entities', 'onesearch' ) }
-					onRequestClose={ () => setShowReindexingModal( false ) }
+					onRequestClose={ () => setShowReindexModal( false ) }
 					shouldCloseOnClickOutside={ false }
 					size="medium"
 				>
+					{ isIndexing && (
+						<p>
+							{ __(
+								'Indexing is already running. Re-index to start it over.',
+								'onesearch'
+							) }
+						</p>
+					) }
 					<p>
 						{ __(
-							'Re-indexing will only index the entities you have previously saved. To re-index modified entities, please make sure you have saved them.',
+							'Re-index only indexes the entities you saved. Save your changes first to include them.',
 							'onesearch'
 						) }
 					</p>
@@ -391,8 +389,8 @@ const SiteIndexableEntities = ( {
 					>
 						<Button
 							variant="secondary"
-							onClick={ () => setShowReindexingModal( false ) }
-							disabled={ reindexing }
+							onClick={ () => setShowReindexModal( false ) }
+							disabled={ isReindexPending }
 							style={ { marginRight: '8px' } }
 						>
 							{ __( 'Cancel', 'onesearch' ) }
@@ -400,12 +398,10 @@ const SiteIndexableEntities = ( {
 						<Button
 							variant="primary"
 							onClick={ () => handleReIndex() }
-							isBusy={ reindexing }
-							disabled={ reindexing }
+							isBusy={ isReindexPending }
+							disabled={ isReindexPending }
 						>
-							{ reindexing
-								? __( 'Re-indexing…', 'onesearch' )
-								: __( 'Re-index', 'onesearch' ) }
+							{ __( 'Re-index', 'onesearch' ) }
 						</Button>
 					</div>
 				</Modal>

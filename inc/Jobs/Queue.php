@@ -51,6 +51,17 @@ final class Queue {
 	}
 
 	/**
+	 * Starts Action Scheduler's runner at the end of the request, so an admin watching doesn't wait for WP-Cron.
+	 *
+	 * Action Scheduler only does this itself on admin screens, at most once a minute.
+	 *
+	 * @internal Hook callback for `shutdown`.
+	 */
+	public static function start_runner(): void {
+		( new \ActionScheduler_AsyncRequest_QueueRunner( \ActionScheduler::store() ) )->maybe_dispatch();
+	}
+
+	/**
 	 * Gets the IDs of the actions waiting to run, oldest first.
 	 *
 	 * @param string                 $hook  The actions' hook, or '' for any.
