@@ -329,6 +329,42 @@ describe( 'SiteIndexableEntities', () => {
 		}
 	} );
 
+	it( 'checks again when the status fails to load', async () => {
+		let result: unknown = new Error( 'Service unavailable' );
+		answer( { 'GET /onesearch/v1/indexer': () => result } );
+		vi.useFakeTimers();
+
+		try {
+			renderEntities();
+
+			await act( async () => {
+				await vi.advanceTimersByTimeAsync( 0 );
+			} );
+			expect(
+				screen.queryByText( '2 of 2 items are in search.' )
+			).toBeNull();
+
+			result = {
+				sites: {
+					[ currentSiteUrl ]: {
+						index: { total: 2, indexed: 2, failed: [] },
+					},
+				},
+				jobs: [],
+			};
+
+			await act( async () => {
+				await vi.advanceTimersByTimeAsync( POLL_INTERVAL );
+			} );
+
+			expect(
+				screen.getByText( '2 of 2 items are in search.' )
+			).toBeInTheDocument();
+		} finally {
+			vi.useRealTimers();
+		}
+	} );
+
 	it( 'says a re-index starts over while one is queued, or a brand site re-indexes', async () => {
 		const jobs: JobStatusData[] = [
 			{

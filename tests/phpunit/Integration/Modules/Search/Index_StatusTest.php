@@ -19,7 +19,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 #[CoversClass( Index_Status::class )]
 final class Index_StatusTest extends TestCase {
 	/**
-	 * The summary counts the indexable posts and the indexed ones, and lists every post that failed, including ones that left search or were deleted.
+	 * The summary counts the indexable posts and the indexed ones, and lists the posts that failed, including deleted ones but not ones that left the index.
 	 */
 	public function test_get_summary(): void {
 		$indexed = self::factory()->post->create();
@@ -28,18 +28,21 @@ final class Index_StatusTest extends TestCase {
 		self::factory()->post->create();
 		$draft     = self::factory()->post->create( [ 'post_status' => 'draft' ] );
 		$protected = self::factory()->post->create( [ 'post_password' => 'secret' ] );
+		// Its post type is no longer indexed.
+		$page = self::factory()->post->create( [ 'post_type' => 'page' ] );
 
 		Index_Status::record_saved( [ $indexed, $draft ] );
 		Index_Status::record_errors(
 			[
 				$failed    => 'The post is too big to index.',
-				$protected => 'Its records could not be deleted.',
+				$protected => 'The post is too big to index.',
+				$page      => 'The post is too big to index.',
 			]
 		);
 
 		$deleted = self::factory()->post->create();
 		wp_delete_post( $deleted, true );
-		Index_Status::record_errors( [ $deleted => 'Its records could not be deleted.' ] );
+		Index_Status::record_errors( [ $deleted => 'The post is too big to index.' ] );
 
 		$this->assertSame(
 			[
@@ -53,16 +56,10 @@ final class Index_StatusTest extends TestCase {
 						'error'    => 'The post is too big to index.',
 					],
 					[
-						'id'       => $protected,
-						'title'    => get_post( $protected )->post_title,
-						'edit_url' => admin_url( sprintf( 'post.php?post=%d&action=edit', $protected ) ),
-						'error'    => 'Its records could not be deleted.',
-					],
-					[
 						'id'       => $deleted,
 						'title'    => 'Deleted item',
 						'edit_url' => '',
-						'error'    => 'Its records could not be deleted.',
+						'error'    => 'The post is too big to index.',
 					],
 				],
 			],

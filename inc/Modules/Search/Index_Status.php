@@ -99,7 +99,7 @@ final class Index_Status {
 	}
 
 	/**
-	 * Gets how many of the site's indexable posts are indexed, and every post that failed.
+	 * Gets how many of the site's indexable posts are indexed, and the posts that failed, except the ones that left the index since.
 	 *
 	 * @param string[] $post_types The post types the site indexes.
 	 *
@@ -134,6 +134,11 @@ final class Index_Status {
 
 		foreach ( $errors as $post_id => $error ) {
 			$post = get_post( $post_id );
+
+			// E.g. its post type is no longer indexed, so nothing indexes it again to clear the error.
+			if ( $post instanceof \WP_Post && ! Post_Record::is_indexable( $post, $post_types ) ) {
+				continue;
+			}
 
 			$summary['failed'][] = [
 				'id'       => $post_id,

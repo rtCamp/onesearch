@@ -50,21 +50,25 @@ const INDEXER_PATH = '/onesearch/v1/indexer';
 export const POLL_INTERVAL = 10000;
 
 /**
- * Loads the index summary and jobs of the site and its brand sites, and keeps them current while any job is going.
+ * Loads the index summary and jobs of the site and its brand sites, and keeps them current while any job is going or until a check succeeds.
  */
 export const useIndexStatus = () => {
 	const [ status, setStatus ] = useState< StatusResponse >( {
 		sites: {},
 		jobs: [],
 	} );
+	// Whether the status hasn't loaded yet, or the last check failed.
+	const [ isStale, setIsStale ] = useState( true );
 
 	const load = useCallback( async () => {
 		try {
 			setStatus(
 				await apiFetch< StatusResponse >( { path: INDEXER_PATH } )
 			);
+			setIsStale( false );
 		} catch {
 			// Keep showing the last status, and try again on the next check.
+			setIsStale( true );
 		}
 	}, [] );
 
@@ -87,13 +91,13 @@ export const useIndexStatus = () => {
 	);
 
 	useEffect( () => {
-		if ( ! isIndexing ) {
+		if ( ! isIndexing && ! isStale ) {
 			return;
 		}
 
 		const timer = setInterval( load, POLL_INTERVAL );
 		return () => clearInterval( timer );
-	}, [ isIndexing, load ] );
+	}, [ isIndexing, isStale, load ] );
 
 	return {
 		sites: status.sites,

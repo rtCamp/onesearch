@@ -71,6 +71,12 @@ const JobStatus = ( { job }: { job: JobStatusData } ) => {
 				<>
 					<progress
 						className="onesearch-job-status-bar"
+						aria-label={ sprintf(
+							/* translators: 1: what the job does. 2: site URL. */
+							__( '%1$s progress for %2$s', 'onesearch' ),
+							copy.label,
+							job.site
+						) }
 						value={ progress.done }
 						max={ progress.total }
 					/>

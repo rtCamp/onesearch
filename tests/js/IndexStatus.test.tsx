@@ -32,6 +32,11 @@ describe( 'JobStatus', () => {
 			/>
 		);
 		expect( screen.getByText( 'Indexing…' ) ).toBeInTheDocument();
+		expect(
+			screen.getByRole( 'progressbar', {
+				name: 'Indexing progress for https://governing.example.com/',
+			} )
+		).toBeInTheDocument();
 		expect( screen.getByText( '100 of 200 items' ) ).toBeInTheDocument();
 		expect(
 			screen.getByText( "3 items couldn't be indexed." )
