@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: OneSearch - Localhost Helper
- * Description: Rewrites localhost URLs to host.docker.internal for inter-container HTTP requests in wp-env Docker environments. Only affects URLs containing "onesearch/v1".
+ * Description: Rewrites localhost URLs to host.docker.internal for inter-container HTTP requests in wp-env Docker environments. Only affects OneSearch routes and the WP-Cron and Action Scheduler loopbacks.
  * Version: 1.0.0
  * Author: rtCamp
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 add_filter( // phpcs:ignore WordPressVIPMinimum.Hooks.RestrictedHooks.http_request_args
 	'http_request_args',
 	static function ( array $args, string $url ): array {
-		if ( false === strpos( $url, 'onesearch/v1' ) ) {
+		if ( ! str_contains( $url, 'onesearch/v1' ) ) {
 			return $args;
 		}
 
@@ -31,11 +31,15 @@ add_filter( // phpcs:ignore WordPressVIPMinimum.Hooks.RestrictedHooks.http_reque
 	2,
 );
 
-// Reroute localhost requests to host.docker.internal for onesearch endpoints.
+// Reroute localhost requests to host.docker.internal for OneSearch routes and the WP-Cron and Action Scheduler loopbacks.
 add_filter(
 	'pre_http_request',
 	static function ( $preempt, array $args, string $url ) {
-		if ( false === strpos( $url, 'onesearch/v1' ) || false === strpos( $url, '://localhost' ) ) {
+		if ( ! str_contains( $url, '://localhost' ) ) {
+			return $preempt;
+		}
+
+		if ( ! str_contains( $url, 'onesearch/v1' ) && ! str_contains( $url, '/wp-cron.php' ) && ! str_contains( $url, '/wp-admin/admin-ajax.php' ) ) {
 			return $preempt;
 		}
 

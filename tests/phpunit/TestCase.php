@@ -157,5 +157,52 @@ abstract class TestCase extends WP_UnitTestCase {
 		add_filter( 'onesearch_algolia_http_client', static fn () => $http_client );
 	}
 
-	// Add any common setup or utility methods for tests here.
+	/**
+	 * Runs the plugin's queued actions the way Action Scheduler does, along with the actions they queue.
+	 */
+	protected function run_jobs(): void {
+		// Enough rounds for any chain the tests queue.
+		for ( $round = 0; $round < 50; ++$round ) {
+			$action_ids = as_get_scheduled_actions(
+				[
+					'group'    => 'onesearch',
+					'status'   => \ActionScheduler_Store::STATUS_PENDING,
+					'per_page' => -1,
+					'orderby'  => 'action_id',
+					'order'    => 'ASC',
+				],
+				'ids'
+			);
+
+			if ( [] === $action_ids ) {
+				return;
+			}
+
+			foreach ( $action_ids as $action_id ) {
+				\ActionScheduler::runner()->process_action( (int) $action_id, 'PHPUnit' );
+			}
+		}
+
+		$this->fail( 'The jobs kept queueing more jobs.' );
+	}
+
+	/**
+	 * Runs the oldest of the plugin's actions waiting to run.
+	 */
+	protected function run_oldest_action(): void {
+		$action_ids = as_get_scheduled_actions(
+			[
+				'group'    => 'onesearch',
+				'status'   => \ActionScheduler_Store::STATUS_PENDING,
+				'per_page' => 1,
+				'orderby'  => 'action_id',
+				'order'    => 'ASC',
+			],
+			'ids'
+		);
+
+		$this->assertNotEmpty( $action_ids, 'No action is waiting to run.' );
+
+		\ActionScheduler::runner()->process_action( (int) reset( $action_ids ), 'PHPUnit' );
+	}
 }

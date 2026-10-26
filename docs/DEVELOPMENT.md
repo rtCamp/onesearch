@@ -87,6 +87,11 @@ Code contributions, bug reports, and feature requests are welcome! The following
 │   │   │   └── Registrable.php
 │   │   └── Traits/
 │   │       └── Singleton.php
+│   ├── Jobs/ # Background jobs on Action Scheduler.
+│   │   ├── Abstract_Job.php # A job's lifecycle, and the record of its state.
+│   │   ├── Job_Records.php # The records of a job's state, one option each.
+│   │   ├── Job_Registry.php # Builds and registers the jobs of one group, and reports their statuses.
+│   │   └── Queue.php
 │   ├── Modules/
 │   │   ├── Core/
 │   │   │   └── Assets.php  # JS/CSS asset loader.
@@ -277,6 +282,7 @@ You should now have a fully functional local development environment with the pl
 - `npm run wp-env stop`: Stop the local development environment.
 - `npm run wp-env run cli -- --env-cwd=wp-content/plugins/onesearch {YOUR_CMD_HERE}`: Run WP-CLI commands in the local environment.
 - `npm run wp-env:test run cli -- --env-cwd=wp-content/plugins/onesearch {YOUR_CMD_HERE}`: Run Composer/PHP tooling in the tests container.
+- `npm run wp-env run cli -- wp action-scheduler run --group=onesearch`: Run the queued background jobs now instead of waiting for WP-Cron.
 
 For more information on using `wp-env`, see the [wp-env documentation](https://developer.wordpress.org/block-editor/packages/packages-env/).
 

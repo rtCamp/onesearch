@@ -42,7 +42,10 @@
 		"psr-4": {
 			"OneSearch\\": "inc/",
 			"OneSearch\\Tests\\": "tests/phpunit/"
-		}
+		},
+		"files": [
+			"vendor/woocommerce/action-scheduler/action-scheduler.php"
+		]
 	},
 	"repositories": [
 		{
@@ -52,7 +55,8 @@
 	],
 	"require": {
 		"php": "^8.2",
-		"algolia/algoliasearch-client-php": "^4.0"
+		"algolia/algoliasearch-client-php": "^4.0",
+		"woocommerce/action-scheduler": "^4.2"
 	},
 	"require-dev": {
 		"dealerdirect/phpcodesniffer-composer-installer": "^1.2",
