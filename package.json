@@ -35,7 +35,7 @@
 		"plugin-zip": "wp-scripts plugin-zip",
 		"prepare": "lefthook install",
 		"start:js": "wp-scripts start --experimental-modules --blocks-manifest",
-		"test:e2e": "wp-scripts test-playwright",
+		"test:e2e": "wp-scripts test-playwright --config tests/e2e/playwright.config.ts --wp-env-config=.wp-env.test.json",
 		"test:js": "wp-scripts test-unit-js",
 		"test:js:watch": "wp-scripts test-unit-js --watch",
 		"test:js:coverage": "wp-scripts test-unit-js --coverage",

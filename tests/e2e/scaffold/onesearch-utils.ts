@@ -14,198 +14,248 @@ import type { Locator, Page } from '@playwright/test';
 import {
 	ALGOLIA_CREDENTIALS,
 	BRAND_SITE,
-	GOVERNING_SITE_ORIGIN,
 	OPTION,
 	SITE_TYPE,
+	type SiteType,
 } from './constants';
 
-export interface BrandSiteSeed {
-	name: string;
-	url: string;
-	api_key: string;
-	id?: string;
-}
-
-type ManagedOption = ( typeof OPTION )[ keyof typeof OPTION ];
-
-type SeedOptions = Partial< Record< ManagedOption, unknown > >;
-
-interface HelperState {
-	options: Record< string, unknown >;
-	algolia_mode: AlgoliaMode;
-}
+const NAMESPACE = '/onesearch/v1';
 
 /**
- * How the mock Algolia transport should answer.
- *
- * Mocked inside PHP through the `onesearch_algolia_http_client` filter, so the
- * plugin's own REST routes still run.
+ * A request the Algolia stub answered, decoded for assertions.
  */
-export type AlgoliaMode = 'ok' | 'invalid_key' | 'server_error';
-
-const HELPER_ENDPOINT = 'onesearch-e2e/v1/state';
+export interface AlgoliaRequest {
+	path: string;
+	body: {
+		filters?: string;
+		requests?: { action: string; body: Record< string, unknown > }[];
+	};
+}
 
 /**
- * Test helpers for driving one site's OneSearch state.
- *
- * Instantiated once per install — governing on 8889, brand on 8891. State is
- * seeded through the E2E helper mu-plugin rather than the UI, so each spec
- * starts from a known install.
+ * A post a test published.
+ */
+export interface TestPost {
+	id: number;
+	link: string;
+	title: string;
+	content: string;
+}
+
+/**
+ * Drives one site's OneSearch state through core settings and the plugin's own routes.
  */
 export class OneSearchUtils {
-	private readonly requestUtils: RequestUtils;
+	readonly requestUtils: RequestUtils;
+
+	private readonly postIds: number[] = [];
 
 	constructor( { requestUtils }: { requestUtils: RequestUtils } ) {
 		this.requestUtils = requestUtils;
 	}
 
 	/**
-	 * Delete every OneSearch option, returning the site to a freshly installed state.
+	 * Return the site to a fresh install. Algolia credentials stay: no route clears them.
 	 */
 	async resetState(): Promise< void > {
-		await this.requestUtils.rest< HelperState >( {
-			path: HELPER_ENDPOINT,
-			method: 'DELETE',
-		} );
-	}
-
-	/**
-	 * Seed options. A `null` value deletes the option.
-	 *
-	 * @param state             What to seed.
-	 * @param state.options     Option values, keyed by option name.
-	 * @param state.algoliaMode How the mock Algolia transport should answer.
-	 */
-	async setState( state: {
-		options?: SeedOptions;
-		algoliaMode?: AlgoliaMode;
-	} ): Promise< void > {
-		const data: { options: SeedOptions; algolia_mode?: AlgoliaMode } = {
-			options: state.options ?? {},
-		};
-
-		if ( state.algoliaMode ) {
-			data.algolia_mode = state.algoliaMode;
+		for ( const id of this.postIds.splice( 0 ) ) {
+			await this.requestUtils.rest( {
+				method: 'DELETE',
+				path: `/wp/v2/posts/${ id }`,
+				params: { force: true },
+			} );
 		}
 
-		await this.requestUtils.rest< HelperState >( {
-			path: HELPER_ENDPOINT,
+		await this.requestUtils.rest( {
 			method: 'POST',
-			data,
+			path: `${ NAMESPACE }/shared-sites`,
+			data: { sites_data: [] },
+		} );
+
+		// Disconnecting is the only way to drop a brand site's cached copy of its governing site's configuration.
+		try {
+			await this.requestUtils.rest( {
+				method: 'DELETE',
+				path: `${ NAMESPACE }/governing-site`,
+			} );
+		} catch ( error ) {
+			// Only brand sites register the route.
+			if ( ( error as { code?: string } )?.code !== 'rest_no_route' ) {
+				throw error;
+			}
+		}
+
+		for ( const option of Object.values( OPTION ) ) {
+			try {
+				await this.updateSettings( { [ option ]: null } );
+			} catch ( error ) {
+				// Core refuses to null an option that is not stored, which is the state wanted here.
+				if (
+					( error as { code?: string } )?.code !==
+					'rest_invalid_stored_value'
+				) {
+					throw error;
+				}
+			}
+		}
+	}
+
+	/**
+	 * Write settings through `/wp/v2/settings`; `null` deletes an option.
+	 *
+	 * `requestUtils.updateSiteSettings()` is typed for core settings only.
+	 *
+	 * @param settings Values keyed by option name.
+	 */
+	async updateSettings(
+		settings: Record< string, unknown >
+	): Promise< void > {
+		await this.requestUtils.rest( {
+			method: 'POST',
+			path: '/wp/v2/settings',
+			data: settings,
+		} );
+	}
+
+	async setSiteType( siteType: SiteType ): Promise< void > {
+		await this.updateSettings( { [ OPTION.siteType ]: siteType } );
+	}
+
+	async getSettings(): Promise< Record< string, unknown > > {
+		return this.requestUtils.getSiteSettings();
+	}
+
+	/**
+	 * Publish a post, which `resetState()` deletes.
+	 *
+	 * @param title   The post title.
+	 * @param content The post content.
+	 */
+	async createPost( title: string, content = '' ): Promise< TestPost > {
+		const { id, link } = await this.requestUtils.rest< TestPost >( {
+			method: 'POST',
+			path: '/wp/v2/posts',
+			data: { title, content, status: 'publish' },
+		} );
+		this.postIds.push( id );
+
+		return { id, link, title, content };
+	}
+
+	/**
+	 * The requests this site sent to Algolia since the last reset.
+	 */
+	async algoliaRequests(): Promise< AlgoliaRequest[] > {
+		const recorded = ( await this.getSettings() )[ OPTION.algoliaRequests ];
+
+		const requests =
+			typeof recorded === 'string' && recorded
+				? ( JSON.parse( recorded ) as { path: string; body: string }[] )
+				: [];
+
+		return requests.map( ( { path, body } ) => ( {
+			path,
+			body: body ? JSON.parse( body ) : {},
+		} ) );
+	}
+
+	/**
+	 * Answer this site's Algolia searches with the given hits.
+	 *
+	 * @param hits The records returned by the search.
+	 */
+	async setAlgoliaSearchHits(
+		hits: Record< string, unknown >[]
+	): Promise< void > {
+		await this.updateSettings( {
+			[ OPTION.algoliaSearchResponse ]: JSON.stringify( {
+				hits,
+				nbHits: hits.length,
+				nbPages: 1,
+				page: 0,
+			} ),
 		} );
 	}
 
 	/**
-	 * Choose how Algolia answers for the rest of the test.
-	 *
-	 * @param mode The outcome the mock transport should produce.
+	 * Save Algolia credentials through the plugin's route, which validates them against the stub.
 	 */
-	async setAlgoliaMode( mode: AlgoliaMode ): Promise< void > {
-		await this.setState( { algoliaMode: mode } );
-	}
-
-	/**
-	 * Read the stored options back, for asserting on persistence directly.
-	 */
-	async getState(): Promise< HelperState > {
-		return this.requestUtils.rest< HelperState >( {
-			path: HELPER_ENDPOINT,
+	async saveAlgoliaCredentials(): Promise< void > {
+		await this.requestUtils.rest( {
+			method: 'POST',
+			path: `${ NAMESPACE }/algolia-credentials`,
+			data: ALGOLIA_CREDENTIALS,
 		} );
 	}
 
 	/**
-	 * Put the site into the governing role.
-	 *
-	 * Brand sites are stored the way a real save stores them, API key included,
-	 * so requests to them are real. Seed the matching key with `setUpBrandSite()`.
-	 *
-	 * @param seed            What to seed alongside the site type.
-	 * @param seed.brandSites Brand sites to register.
-	 * @param seed.algolia    Whether to store Algolia credentials.
+	 * Regenerate this site's API key, which is how a test learns it.
 	 */
-	async setUpGoverningSite(
-		seed: { brandSites?: BrandSiteSeed[]; algolia?: boolean } = {}
-	): Promise< void > {
-		const options: SeedOptions = {
-			[ OPTION.siteType ]: SITE_TYPE.governing,
-			[ OPTION.sharedSites ]: seed.brandSites ?? [],
-		};
+	async regenerateApiKey(): Promise< string > {
+		const { secret_key: apiKey } = await this.requestUtils.rest< {
+			secret_key: string;
+		} >( {
+			method: 'PUT',
+			path: `${ NAMESPACE }/secret-key`,
+		} );
 
-		if ( seed.algolia ) {
-			options[ OPTION.algoliaCredentials ] = ALGOLIA_CREDENTIALS;
-		}
-
-		await this.setState( { options } );
-	}
-
-	/**
-	 * Put the site into the brand role.
-	 *
-	 * The key is stored encrypted, so the governing site can hold the same
-	 * plaintext key and the comparison here will match. Omitting
-	 * `governingSiteUrl` leaves the connection for a health check to bootstrap.
-	 *
-	 * @param seed                  What to seed alongside the site type.
-	 * @param seed.apiKey           The API key the governing site will present.
-	 * @param seed.governingSiteUrl The governing site to appear connected to.
-	 */
-	async setUpBrandSite(
-		seed: { apiKey?: string; governingSiteUrl?: string } = {}
-	): Promise< void > {
-		const options: SeedOptions = {
-			[ OPTION.siteType ]: SITE_TYPE.brand,
-		};
-
-		if ( seed.apiKey ) {
-			options[ OPTION.consumerApiKey ] = seed.apiKey;
-		}
-
-		if ( seed.governingSiteUrl ) {
-			options[ OPTION.parentSiteUrl ] = seed.governingSiteUrl.replace(
-				/\/$/,
-				''
-			);
-		}
-
-		await this.setState( { options } );
+		return apiKey;
 	}
 }
 
 /**
- * Connect the governing site and the brand site to each other.
+ * An Algolia search hit for a post, shaped like the records the plugin indexes.
  *
- * Both sides must agree on the API key, so this seeds the pair together.
+ * @param post    The post.
+ * @param siteUrl The site the post belongs to, as the plugin keys it.
+ */
+export function searchHit( post: TestPost, siteUrl: string ) {
+	// WordPress's sanitize_key(), as used by Post_Record for site-scoped IDs.
+	const siteKey = siteUrl.toLowerCase().replace( /[^a-z0-9_-]/g, '' );
+	const sitePostId = `${ siteKey }_${ post.id }`;
+	return {
+		objectID: `${ sitePostId }_0`,
+		site_post_id: sitePostId,
+		site_key: siteKey,
+		permalink: post.link,
+		post_id: post.id,
+		post_title: post.title,
+		post_type: 'post',
+		site_url: siteUrl,
+		content: post.content,
+		post_excerpt: '',
+		chunk_index: 0,
+		total_chunks: 1,
+	};
+}
+
+/**
+ * Connect the brand site to the governing site through the plugin's own handshake.
  *
- * @param governing        The governing site helper.
- * @param brand            The brand site helper.
- * @param seed             What to seed.
- * @param seed.brandSites  Brand sites the governing site holds. Defaults to the real one.
- * @param seed.brandApiKey The key the brand site accepts. Defaults to matching.
- * @param seed.algolia     Whether the governing site has Algolia credentials.
- * @param seed.bootstrap   Leave unconnected, so a health check records the governing site.
+ * @param governing       The governing site.
+ * @param brand           The brand site.
+ * @param options         Extra state for the governing site.
+ * @param options.algolia Whether the governing site has Algolia credentials.
  */
 export async function connectSites(
 	governing: OneSearchUtils,
 	brand: OneSearchUtils,
-	seed: {
-		brandSites?: BrandSiteSeed[];
-		brandApiKey?: string;
-		algolia?: boolean;
-		bootstrap?: boolean;
-	} = {}
+	options: { algolia?: boolean } = {}
 ): Promise< void > {
-	await brand.setUpBrandSite(
-		seed.bootstrap
-			? { apiKey: seed.brandApiKey ?? BRAND_SITE.api_key }
-			: {
-					apiKey: seed.brandApiKey ?? BRAND_SITE.api_key,
-					governingSiteUrl: GOVERNING_SITE_ORIGIN,
-				}
-	);
+	await brand.setSiteType( SITE_TYPE.brand );
+	const apiKey = await brand.regenerateApiKey();
 
-	await governing.setUpGoverningSite( {
-		brandSites: seed.brandSites ?? [ BRAND_SITE ],
-		algolia: seed.algolia === true,
+	await governing.setSiteType( SITE_TYPE.governing );
+
+	if ( options.algolia ) {
+		await governing.saveAlgoliaCredentials();
+	}
+
+	// Saving a new brand site health-checks it, and that check connects it.
+	await governing.requestUtils.rest( {
+		method: 'POST',
+		path: `${ NAMESPACE }/shared-sites`,
+		data: { sites_data: [ { ...BRAND_SITE, api_key: apiKey } ] },
 	} );
 }
 
@@ -221,4 +271,17 @@ export function notices( page: Page ): Locator {
 	return page.locator(
 		'.components-snackbar__content, .components-notice__content'
 	);
+}
+
+/**
+ * The link of a search result on the theme's search page, which also lists
+ * recent posts under lower-level headings.
+ *
+ * @param page  The page under test.
+ * @param title The result's title.
+ */
+export function searchResult( page: Page, title: string ): Locator {
+	return page
+		.getByRole( 'heading', { level: 2, name: title } )
+		.getByRole( 'link' );
 }

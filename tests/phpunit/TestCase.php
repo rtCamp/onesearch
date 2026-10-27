@@ -97,17 +97,16 @@ abstract class TestCase extends WP_UnitTestCase {
 	/**
 	 * Intercept Algolia SDK HTTP calls and collect request paths.
 	 *
-	 * The double itself lives in `Mock_Algolia_Http_Client` so the Playwright
-	 * suite's helper mu-plugin can install the same one, and Algolia's response
-	 * shapes stay defined in a single place.
+	 * The double itself lives in `Mock_Algolia_Http_Client` so the E2E sites can
+	 * install the same one, and Algolia's response shapes stay defined in a single place.
 	 *
 	 * @param array<int, string>                                 $recorded_paths Paths captured from outgoing SDK requests.
-	 * @param (callable(string): string)|null                    $body_for_path Optional callback to provide a response body for a given request path.
+	 * @param (callable(string): ?string)|null                   $body_for_path Optional callback receiving the request path; null uses the default response.
 	 * @param string|null                                        $throw_on_path_segment Optional path segment that triggers a RuntimeException when matched.
 	 * @param array<int, array{path: string, body: string}>|null $recorded_requests Optional collector for the full request path and payload.
 	 */
 	public function mock_algolia_http_client( array &$recorded_paths, ?callable $body_for_path = null, ?string $throw_on_path_segment = null, ?array &$recorded_requests = null ): void {
-		$http_client = new Mock_Algolia_Http_Client( $recorded_paths, $body_for_path, $throw_on_path_segment, null, $recorded_requests );
+		$http_client = new Mock_Algolia_Http_Client( $recorded_paths, $body_for_path, $throw_on_path_segment, $recorded_requests );
 
 		add_filter( 'onesearch_algolia_http_client', static fn () => $http_client );
 	}

@@ -24,7 +24,7 @@ ignore:
   - '**/*.spec.ts'
   - '**/*.spec.tsx'
   - '**/types.d.ts'
-  - 'playwright.config.ts'
+  - 'tests/e2e/playwright.config.ts'
 
 comment:
   layout: 'reach,diff,flags,files'

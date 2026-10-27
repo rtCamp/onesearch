@@ -8,10 +8,10 @@
 	"config": {
 		"FS_METHOD": "direct",
 		"WP_DEBUG": true,
+		"ONESEARCH_MOCK_ALGOLIA": true,
 		"WP_DEBUG_LOG": "/var/www/html/wp-content/plugins/onesearch/tests/_output/debug-test-child.log"
 	},
 	"mappings": {
-		"wp-content/plugins/onesearch": ".",
-		"wp-content/mu-plugins": "./tests/_data/mu-plugins"
+		"wp-content/plugins/onesearch": "."
 	}
 }

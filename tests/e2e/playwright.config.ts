@@ -4,7 +4,8 @@
 import { defineConfig, type PlaywrightTestConfig } from '@playwright/test';
 import path from 'path';
 
-const artifactsPath = path.join( process.cwd(), 'tests/_output/e2e' );
+const root = path.resolve( __dirname, '../..' );
+const artifactsPath = path.join( root, 'tests/_output/e2e' );
 
 // Ensure WP artifacts (and storage-state) are written into tests/_output
 process.env[ 'WP_ARTIFACTS_PATH' ] = artifactsPath;
@@ -20,12 +21,13 @@ const baseConfig =
 
 const config = defineConfig( {
 	...baseConfig,
-	testDir: './tests/e2e',
-	outputDir: './tests/_output/e2e',
+	testDir: '.',
+	outputDir: artifactsPath,
 	webServer: [
 		{
 			// Target the dedicated test environment, not the development one the upstream config starts.
 			command: 'npm run wp-env:test start',
+			cwd: root,
 			port: Number(
 				new URL(
 					process.env[ 'WP_BASE_URL' ] || 'http://localhost:8889'
@@ -35,8 +37,9 @@ const config = defineConfig( {
 			reuseExistingServer: true,
 		},
 		{
-			// The brand site half of the pair, so cross-site requests are made for real.
+			// The brand site, for the cross-site requests.
 			command: 'npm run wp-env:test-child start',
+			cwd: root,
 			port: 8891,
 			timeout: 120_000,
 			reuseExistingServer: true,

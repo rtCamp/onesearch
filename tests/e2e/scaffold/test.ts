@@ -41,11 +41,7 @@ async function setUpBrandRequestUtils(): Promise< RequestUtils > {
 	return requestUtils;
 }
 
-/**
- * Both installs are shared across the whole suite, so every spec has to leave
- * the plugin active and its options cleared. Both happen here rather than in
- * each file, which also makes specs independent of the order they run in.
- */
+// Both installs are shared by the whole suite, so each test starts and ends from a reset.
 const test = base.extend<
 	{ oneSearch: OneSearchUtils; brandSite: OneSearchUtils },
 	{ brandRequestUtils: RequestUtils }
@@ -53,14 +49,7 @@ const test = base.extend<
 	oneSearch: async ( { requestUtils }, use ) => {
 		await requestUtils.activatePlugin( 'onesearch' );
 
-		/**
-		 * The fan-out uses `wp_safe_remote_get()`, which refuses a `localhost`
-		 * URL unless this helper relaxes `reject_unsafe_urls`. Without it the
-		 * brand site just looks like it has no entities — a failure that reads
-		 * as a missing element, not a missing plugin.
-		 *
-		 * The slug comes from the plugin's Name header, not its filename.
-		 */
+		// Cross-site calls to `localhost` and the Algolia stub both live in this helper; the slug comes from its Name header.
 		await requestUtils.activatePlugin( 'onesearch-localhost-helper' );
 
 		const oneSearch = new OneSearchUtils( { requestUtils } );
@@ -80,6 +69,8 @@ const test = base.extend<
 
 	brandSite: async ( { brandRequestUtils }, use ) => {
 		await brandRequestUtils.activatePlugin( 'onesearch' );
+		// Brand sites index with the governing site's credentials, so they need the Algolia stub too.
+		await brandRequestUtils.activatePlugin( 'onesearch-localhost-helper' );
 
 		const brandSite = new OneSearchUtils( {
 			requestUtils: brandRequestUtils,
