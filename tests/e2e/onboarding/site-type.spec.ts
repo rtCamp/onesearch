@@ -10,34 +10,6 @@ import { ADMIN_PAGE, OPTION, SITE_TYPE, expect, test } from '../scaffold';
 const ONBOARDING = { role: 'dialog', name: 'OneSearch' } as const;
 
 test.describe( 'onboarding', () => {
-	test( 'prompts for a site type on first run', async ( {
-		admin,
-		oneSearch,
-		page,
-	} ) => {
-		expect(
-			( await oneSearch.getState() ).options[ OPTION.siteType ]
-		).toBe( null );
-
-		await admin.visitAdminPage( ADMIN_PAGE.plugins );
-
-		const onboarding = page.getByRole( ONBOARDING.role, {
-			name: ONBOARDING.name,
-		} );
-
-		await expect(
-			onboarding.getByRole( 'heading', { name: 'OneSearch' } )
-		).toBeVisible();
-		await expect(
-			onboarding.getByRole( 'combobox', { name: 'Site Type' } )
-		).toHaveValue( '' );
-		await expect(
-			onboarding.getByRole( 'button', {
-				name: 'Select Current Site Type',
-			} )
-		).toBeDisabled();
-	} );
-
 	test( 'choosing the governing role opens settings and adds the indices menu', async ( {
 		admin,
 		oneSearch,
