@@ -106,11 +106,6 @@ add_action(
 			return;
 		}
 
-		// The smoke suite opts out so it can exercise the real service.
-		if ( Mock_Algolia_Http_Client::MODE_LIVE === algolia_mode() ) {
-			return;
-		}
-
 		// Held by reference for the client's lifetime; the suite does not read it.
 		$recorded_paths = [];
 

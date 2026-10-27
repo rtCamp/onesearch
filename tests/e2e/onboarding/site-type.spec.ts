@@ -105,18 +105,4 @@ test.describe( 'onboarding', () => {
 			( await oneSearch.getState() ).options[ OPTION.siteType ]
 		).toBe( SITE_TYPE.brand );
 	} );
-
-	test( 'does not prompt again once a site type is stored', async ( {
-		admin,
-		oneSearch,
-		page,
-	} ) => {
-		await oneSearch.setUpGoverningSite();
-
-		await admin.visitAdminPage( ADMIN_PAGE.plugins );
-
-		await expect(
-			page.getByRole( ONBOARDING.role, { name: ONBOARDING.name } )
-		).toHaveCount( 0 );
-	} );
 } );

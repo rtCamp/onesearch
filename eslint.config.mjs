@@ -64,8 +64,6 @@ export default [
 					devDependencies: [
 						'**/*.@(spec|test).@(j|t)s?(x)',
 						'**/@(webpack|vitest|babel|playwright).config.@(j|t|mj)s',
-						// Variants such as `playwright.smoke.config.ts`.
-						'**/@(webpack|vitest|babel|playwright).*.config.@(j|t|mj)s',
 						'**/scripts/**',
 						'**/tests/**',
 					],

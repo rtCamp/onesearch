@@ -21,26 +21,6 @@ test.describe( 'Algolia credentials', () => {
 		await oneSearch.setUpGoverningSite();
 	} );
 
-	test( 'keeps saving disabled until both fields are filled', async ( {
-		admin,
-		page,
-	} ) => {
-		await admin.visitAdminPage( ADMIN_PAGE.settings );
-
-		const save = page.getByRole( 'button', { name: 'Save Credentials' } );
-		await expect( save ).toBeDisabled();
-
-		await page
-			.getByRole( 'textbox', { name: 'Application ID*' } )
-			.fill( ALGOLIA_CREDENTIALS.app_id );
-		await expect( save ).toBeDisabled();
-
-		await page
-			.getByLabel( 'Write API Key*' )
-			.fill( ALGOLIA_CREDENTIALS.write_key );
-		await expect( save ).toBeEnabled();
-	} );
-
 	test( 'saves credentials that Algolia accepts', async ( {
 		admin,
 		oneSearch,

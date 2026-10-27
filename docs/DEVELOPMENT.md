@@ -590,12 +590,11 @@ the outbound call is answered from a canned payload.
 
 `oneSearch.setAlgoliaMode()` chooses what that payload says:
 
-| Mode           | Algolia behaves as though…                          | Exercises                   |
-| -------------- | --------------------------------------------------- | --------------------------- |
-| `ok` (default) | the key can write and indexing succeeds             | the success path            |
-| `invalid_key`  | the key exists but lacks `addObject`/`deleteObject` | credential rejection, 400   |
-| `server_error` | Algolia answers 500                                 | the re-index failure path   |
-| `live`         | no mock at all                                      | the opt-in smoke suite only |
+| Mode           | Algolia behaves as though…                          | Exercises                 |
+| -------------- | --------------------------------------------------- | ------------------------- |
+| `ok` (default) | the key can write and indexing succeeds             | the success path          |
+| `invalid_key`  | the key exists but lacks `addObject`/`deleteObject` | credential rejection, 400 |
+| `server_error` | Algolia answers 500                                 | the re-index failure path |
 
 Both suites install the **same** double —
 `OneSearch\Tests\Support\Mock_Algolia_Http_Client` — so Algolia's response
@@ -608,20 +607,6 @@ one exists here at all.
 It is autoloadable at WordPress runtime because Composer maps `OneSearch\Tests\`
 in its `autoload` block, and it never ships: `.gitattributes` marks `/tests/` as
 `export-ignore`.
-
-#### The optional live Algolia suite
-
-`tests/e2e-smoke/` holds the one suite that talks to Algolia for real. It has
-its own config and `testDir` so the default run cannot pick it up, and it skips
-unless credentials are present:
-
-```bash
-ALGOLIA_APP_ID=… ALGOLIA_WRITE_KEY=… npm run test:e2e:smoke
-```
-
-It is deliberately **not** part of pull-request CI: it needs paid credentials,
-writes to a shared mutable index, and goes red whenever Algolia does. Run it
-before a release, or when changing anything about credential handling.
 
 When asserting on a notice, use the `notices()` helper rather than
 `page.getByText()`: WordPress mirrors notice text into an `aria-live` region,

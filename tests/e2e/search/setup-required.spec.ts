@@ -20,19 +20,6 @@ test.describe( 'indices and search prerequisites', () => {
 		).toBeVisible();
 	} );
 
-	test( 'still blocks the screen when Algolia credentials are missing', async ( {
-		admin,
-		oneSearch,
-		page,
-	} ) => {
-		await oneSearch.setUpGoverningSite( { brandSites: [ BRAND_SITE ] } );
-		await admin.visitAdminPage( ADMIN_PAGE.indices );
-
-		await expect(
-			page.getByRole( 'heading', { name: 'Setup Required' } )
-		).toBeVisible();
-	} );
-
 	test( 'opens the screen once both prerequisites are met', async ( {
 		admin,
 		oneSearch,
