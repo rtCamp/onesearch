@@ -39,10 +39,9 @@ interface HelperState {
  * How the mock Algolia transport should answer.
  *
  * Mocked inside PHP through the `onesearch_algolia_http_client` filter, so the
- * plugin's own REST routes still run for real. `live` drops the mock, for the
- * smoke suite.
+ * plugin's own REST routes still run.
  */
-export type AlgoliaMode = 'ok' | 'invalid_key' | 'server_error' | 'live';
+export type AlgoliaMode = 'ok' | 'invalid_key' | 'server_error';
 
 const HELPER_ENDPOINT = 'onesearch-e2e/v1/state';
 

@@ -43,14 +43,6 @@ final class Mock_Algolia_Http_Client implements HttpClientInterface {
 	public const MODE_SERVER_ERROR = 'server_error';
 
 	/**
-	 * Do not stand in for Algolia at all.
-	 *
-	 * The client never receives this mode — it tells whoever installs the client
-	 * to leave the SDK's real transport alone. Only the smoke suite asks for it.
-	 */
-	public const MODE_LIVE = 'live';
-
-	/**
 	 * Every mode the modes resolver may return.
 	 *
 	 * @var list<string>
@@ -59,7 +51,6 @@ final class Mock_Algolia_Http_Client implements HttpClientInterface {
 		self::MODE_OK,
 		self::MODE_INVALID_KEY,
 		self::MODE_SERVER_ERROR,
-		self::MODE_LIVE,
 	];
 
 	/**

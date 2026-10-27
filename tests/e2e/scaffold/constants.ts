@@ -47,11 +47,6 @@ export const GOVERNING_SITE_ORIGIN = 'http://localhost:8889';
 export const BRAND_SITE_URL = 'http://localhost:8891';
 
 /**
- * The brand site as the plugin keys it, trailing slash included.
- */
-export const BRAND_SITE_KEY = `${ BRAND_SITE_URL }/`;
-
-/**
  * The real brand site, as the governing site stores it.
  *
  * `api_key` must be seeded on both sides — see `setUpBrandSite()` — since the
@@ -61,19 +56,6 @@ export const BRAND_SITE = {
 	name: 'Brand Alpha',
 	url: BRAND_SITE_URL,
 	api_key: 'e2e-brand-api-key-0123456789',
-} as const;
-
-/**
- * A brand site on a host that does not resolve.
- *
- * Used for the two cases a reachable site cannot cover: a second row on the
- * settings screen, which never probes the network, and the governing site's
- * fan-out failing against a site it cannot reach.
- */
-export const UNREACHABLE_BRAND = {
-	name: 'Brand Beta',
-	url: 'https://brand-beta.test',
-	api_key: 'beta-api-key-0123456789',
 } as const;
 
 /**
