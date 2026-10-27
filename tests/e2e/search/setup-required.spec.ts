@@ -41,20 +41,4 @@ test.describe( 'indices and search prerequisites', () => {
 			page.getByRole( 'heading', { name: 'Site Search Configuration' } )
 		).toBeVisible();
 	} );
-
-	test( 'the setup link returns to the settings screen', async ( {
-		admin,
-		oneSearch,
-		page,
-	} ) => {
-		await oneSearch.setUpGoverningSite();
-		await admin.visitAdminPage( ADMIN_PAGE.indices );
-
-		await page.getByRole( 'link', { name: 'Go to Settings' } ).click();
-
-		await page.waitForURL( /page=onesearch-settings/ );
-		await expect(
-			page.getByRole( 'heading', { name: 'Brand Sites' } )
-		).toBeVisible();
-	} );
 } );

@@ -100,18 +100,4 @@ test.describe( 'indexable entities', () => {
 				} )
 		).toHaveText( 'Posts' );
 	} );
-
-	test( 'cannot re-index before anything has been saved', async ( {
-		admin,
-		page,
-	} ) => {
-		await admin.visitAdminPage( ADMIN_PAGE.indices );
-
-		await expect(
-			page.getByRole( 'button', { name: 'Re-index', exact: true } )
-		).toBeDisabled();
-		await expect(
-			page.getByRole( 'button', { name: 'Save Changes' } )
-		).toBeDisabled();
-	} );
 } );

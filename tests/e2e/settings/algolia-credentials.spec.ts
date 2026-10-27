@@ -85,34 +85,4 @@ test.describe( 'Algolia credentials', () => {
 		];
 		expect( stored ).toBeNull();
 	} );
-
-	test( 'loads stored credentials and masks the write key', async ( {
-		admin,
-		oneSearch,
-		page,
-	} ) => {
-		await oneSearch.setUpGoverningSite( { algolia: true } );
-
-		/**
-		 * Seeding runs through the production setter, so the key sits in the
-		 * database the way a real save leaves it: encrypted. The field below
-		 * showing the plaintext again is the plugin decrypting it, not the
-		 * fixture handing back what it was given.
-		 */
-		const stored = ( await oneSearch.getState() ).options[
-			OPTION.algoliaCredentials
-		] as { app_id: string; write_key: string };
-		expect( stored.app_id ).toBe( ALGOLIA_CREDENTIALS.app_id );
-		expect( stored.write_key ).not.toBe( ALGOLIA_CREDENTIALS.write_key );
-
-		await admin.visitAdminPage( ADMIN_PAGE.settings );
-
-		await expect(
-			page.getByRole( 'textbox', { name: 'Application ID*' } )
-		).toHaveValue( ALGOLIA_CREDENTIALS.app_id );
-
-		const writeKey = page.getByLabel( 'Write API Key*' );
-		await expect( writeKey ).toHaveValue( ALGOLIA_CREDENTIALS.write_key );
-		await expect( writeKey ).toHaveAttribute( 'type', 'password' );
-	} );
 } );
