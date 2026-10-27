@@ -10,7 +10,6 @@ const EDITOR = {
 	roles: [ 'editor' ],
 };
 
-// PHPUnit's RouteAuthorizationTest covers the REST routes; this covers the screens.
 test.describe( 'screen access', () => {
 	test.use( { storageState: { cookies: [], origins: [] } } );
 
