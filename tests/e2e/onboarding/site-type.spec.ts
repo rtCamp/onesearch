@@ -1,80 +1,99 @@
 /**
- * Internal dependencies
+ * External dependencies
  */
-import { ADMIN_PAGE, OPTION, SITE_TYPE, expect, test } from '../scaffold';
+import type { Page } from '@playwright/test';
 
 /**
- * The onboarding screen is a real dialog, named by its own heading, so it is
- * addressed the way a screen reader would find it.
+ * Internal dependencies
  */
-const ONBOARDING = { role: 'dialog', name: 'OneSearch' } as const;
+import {
+	ADMIN_PAGE,
+	OPTION,
+	SITE_TYPE,
+	type SiteType,
+	expect,
+	test,
+} from '../scaffold';
 
-test.describe( 'onboarding', () => {
-	test( 'choosing the governing role opens settings and adds the indices menu', async ( {
+function indicesMenuLink( page: Page ) {
+	return page
+		.getByRole( 'navigation', { name: 'Main menu' } )
+		.getByRole( 'link', { name: 'Indices and Search' } );
+}
+
+test.describe( 'first-run setup', () => {
+	// Called from the tests, so the `oneSearch` fixture has reset the plugin before its notice is followed.
+	async function chooseSiteType( page: Page, siteType: SiteType ) {
+		await page
+			.getByRole( 'link', {
+				name: 'Choose whether this is a governing or a brand site',
+			} )
+			.click();
+		await page
+			.getByRole( 'combobox', { name: 'Site Type' } )
+			.selectOption( siteType );
+		await page
+			.getByRole( 'button', { name: 'Select Current Site Type' } )
+			.click();
+	}
+
+	test( 'choosing governing shows the governing screens and menu', async ( {
 		admin,
 		oneSearch,
 		page,
 	} ) => {
+		const uncaught: string[] = [];
+		page.on( 'pageerror', ( error ) => uncaught.push( error.message ) );
+
 		await admin.visitAdminPage( ADMIN_PAGE.plugins );
-
-		const onboarding = page.getByRole( ONBOARDING.role, {
-			name: ONBOARDING.name,
-		} );
-
-		await onboarding
-			.getByRole( 'combobox', { name: 'Site Type' } )
-			.selectOption( SITE_TYPE.governing );
-		await onboarding
-			.getByRole( 'button', { name: 'Select Current Site Type' } )
-			.click();
-
-		await page.waitForURL( /page=onesearch-settings/ );
+		await chooseSiteType( page, SITE_TYPE.governing );
 
 		await expect(
 			page.getByRole( 'heading', { name: 'Brand Sites' } )
 		).toBeVisible();
 		await expect(
-			page
-				.getByRole( 'navigation', { name: 'Main menu' } )
-				.getByRole( 'link', { name: 'Indices and Search' } )
+			page.getByRole( 'heading', { name: 'Algolia Credentials' } )
 		).toBeVisible();
+		await expect(
+			page.getByRole( 'heading', { name: 'API Key' } )
+		).toHaveCount( 0 );
+		await expect( indicesMenuLink( page ) ).toBeVisible();
 
-		expect(
-			( await oneSearch.getState() ).options[ OPTION.siteType ]
-		).toBe( SITE_TYPE.governing );
+		await expect
+			.poll(
+				async () => ( await oneSearch.getSettings() )[ OPTION.siteType ]
+			)
+			.toBe( SITE_TYPE.governing );
+		expect( uncaught ).toEqual( [] );
 	} );
 
-	test( 'choosing the brand role exposes the API key and hides the indices menu', async ( {
+	test( 'choosing brand shows the API key and no indices menu', async ( {
 		admin,
 		oneSearch,
 		page,
 	} ) => {
+		const uncaught: string[] = [];
+		page.on( 'pageerror', ( error ) => uncaught.push( error.message ) );
+
 		await admin.visitAdminPage( ADMIN_PAGE.plugins );
-
-		const onboarding = page.getByRole( ONBOARDING.role, {
-			name: ONBOARDING.name,
-		} );
-
-		await onboarding
-			.getByRole( 'combobox', { name: 'Site Type' } )
-			.selectOption( SITE_TYPE.brand );
-		await onboarding
-			.getByRole( 'button', { name: 'Select Current Site Type' } )
-			.click();
-
-		await page.waitForURL( /page=onesearch-settings/ );
+		await chooseSiteType( page, SITE_TYPE.brand );
 
 		await expect(
 			page.getByRole( 'heading', { name: 'API Key' } )
 		).toBeVisible();
 		await expect(
-			page
-				.getByRole( 'navigation', { name: 'Main menu' } )
-				.getByRole( 'link', { name: 'Indices and Search' } )
+			page.getByRole( 'heading', { name: 'Governing Site Connection' } )
+		).toBeVisible();
+		await expect(
+			page.getByRole( 'heading', { name: 'Brand Sites' } )
 		).toHaveCount( 0 );
+		await expect( indicesMenuLink( page ) ).toHaveCount( 0 );
 
-		expect(
-			( await oneSearch.getState() ).options[ OPTION.siteType ]
-		).toBe( SITE_TYPE.brand );
+		await expect
+			.poll(
+				async () => ( await oneSearch.getSettings() )[ OPTION.siteType ]
+			)
+			.toBe( SITE_TYPE.brand );
+		expect( uncaught ).toEqual( [] );
 	} );
 } );

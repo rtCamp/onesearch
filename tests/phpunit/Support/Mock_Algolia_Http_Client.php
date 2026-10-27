@@ -28,32 +28,6 @@ use OneSearch\Vendor\Psr\Http\Message\ResponseInterface;
  */
 final class Mock_Algolia_Http_Client implements HttpClientInterface {
 	/**
-	 * The key can write, and indexing succeeds.
-	 */
-	public const MODE_OK = 'ok';
-
-	/**
-	 * The key resolves but lacks the ACL needed to write.
-	 */
-	public const MODE_INVALID_KEY = 'invalid_key';
-
-	/**
-	 * Algolia answers 500 for anything but a key lookup.
-	 */
-	public const MODE_SERVER_ERROR = 'server_error';
-
-	/**
-	 * Every mode the modes resolver may return.
-	 *
-	 * @var list<string>
-	 */
-	public const MODES = [
-		self::MODE_OK,
-		self::MODE_INVALID_KEY,
-		self::MODE_SERVER_ERROR,
-	];
-
-	/**
 	 * Paths requested so far, by reference so the caller can inspect them.
 	 *
 	 * @var array<int, string>
@@ -61,9 +35,9 @@ final class Mock_Algolia_Http_Client implements HttpClientInterface {
 	private array $paths;
 
 	/**
-	 * Supplies a response body for a given path, when set.
+	 * Supplies a response for a path. Null falls through to the defaults.
 	 *
-	 * @var (callable(string): string)|null
+	 * @var (callable(string): ?string)|null
 	 */
 	private $body_for_path;
 
@@ -71,13 +45,6 @@ final class Mock_Algolia_Http_Client implements HttpClientInterface {
 	 * Path fragment that makes the request throw, when set.
 	 */
 	private ?string $throw_on_path_segment;
-
-	/**
-	 * Returns the mode for the current request, when set.
-	 *
-	 * @var (callable(): string)|null
-	 */
-	private $mode_resolver;
 
 	/**
 	 * Paths requested so far with their payloads, by reference, when set.
@@ -88,22 +55,19 @@ final class Mock_Algolia_Http_Client implements HttpClientInterface {
 
 	/**
 	 * @param array<int, string>                                 $recorded_paths        Reference to the array that records requested paths.
-	 * @param (callable(string): string)|null                    $body_for_path         Optional body for a given path, which wins over every default.
+	 * @param (callable(string): ?string)|null                   $body_for_path         Optional response for a path; null uses the default.
 	 * @param string|null                                        $throw_on_path_segment Optional path fragment that triggers a RuntimeException.
-	 * @param (callable(): string)|null                          $mode_resolver         Optional mode lookup; without one every request behaves as `MODE_OK`.
 	 * @param array<int, array{path: string, body: string}>|null $recorded_requests Optional reference to an array that records requested paths with their payloads.
 	 */
 	public function __construct(
 		array &$recorded_paths,
 		?callable $body_for_path = null,
 		?string $throw_on_path_segment = null,
-		?callable $mode_resolver = null,
 		?array &$recorded_requests = null
 	) {
 		$this->paths                 = &$recorded_paths;
 		$this->body_for_path         = $body_for_path;
 		$this->throw_on_path_segment = $throw_on_path_segment;
-		$this->mode_resolver         = $mode_resolver;
 		$this->requests              = &$recorded_requests;
 	}
 
@@ -131,27 +95,15 @@ final class Mock_Algolia_Http_Client implements HttpClientInterface {
 			throw new \RuntimeException( 'forced test exception' );
 		}
 
-		// An explicit body outranks every default, including the modes below.
-		if ( null !== $this->body_for_path ) {
-			return self::respond( 200, (string) call_user_func( $this->body_for_path, $path ) );
+		// An explicit body outranks every default below.
+		$body = null !== $this->body_for_path ? call_user_func( $this->body_for_path, $path ) : null;
+		if ( null !== $body ) {
+			return self::respond( 200, (string) $body );
 		}
 
-		$mode = null !== $this->mode_resolver
-			? (string) call_user_func( $this->mode_resolver )
-			: self::MODE_OK;
-
-		// The plugin validates credentials by asking Algolia for the key's ACL.
+		// The plugin validates credentials by asking Algolia for the key's ACL, so grant all it asks for.
 		if ( str_contains( $path, '/1/keys/' ) ) {
-			$acl = self::MODE_INVALID_KEY === $mode
-				? [ 'search' ]
-				: [ 'search', 'addObject', 'deleteObject' ];
-
-			return self::json( 200, [ 'acl' => $acl ] );
-		}
-
-		// Everything else is indexing, which is what a re-index exercises.
-		if ( self::MODE_SERVER_ERROR === $mode ) {
-			return self::json( 500, [ 'message' => 'Internal error.' ] );
+			return self::json( 200, [ 'acl' => [ 'search', 'browse', 'addObject', 'deleteObject', 'deleteIndex', 'settings', 'editSettings' ] ] );
 		}
 
 		if ( str_contains( $path, '/task/' ) ) {

@@ -1,7 +1,7 @@
 /**
  * Internal dependencies
  */
-import { ADMIN_PAGE, expect, test } from '../scaffold';
+import { ADMIN_PAGE, SITE_TYPE, expect, test } from '../scaffold';
 
 const EDITOR = {
 	username: 'onesearch-editor',
@@ -10,8 +10,8 @@ const EDITOR = {
 	roles: [ 'editor' ],
 };
 
-test.describe( 'settings screen access', () => {
-	// Sign in as the editor rather than reusing the stored admin session.
+// PHPUnit's RouteAuthorizationTest covers the REST routes; this covers the screens.
+test.describe( 'screen access', () => {
 	test.use( { storageState: { cookies: [], origins: [] } } );
 
 	test.beforeAll( async ( { requestUtils } ) => {
@@ -23,11 +23,11 @@ test.describe( 'settings screen access', () => {
 		await requestUtils.deleteAllUsers();
 	} );
 
-	test( 'is closed to users without manage_options', async ( {
+	test( 'an editor cannot reach either OneSearch screen', async ( {
 		oneSearch,
 		page,
 	} ) => {
-		await oneSearch.setUpGoverningSite();
+		await oneSearch.setSiteType( SITE_TYPE.governing );
 
 		await page.goto( '/wp-login.php' );
 		await page
@@ -39,16 +39,19 @@ test.describe( 'settings screen access', () => {
 		await page.getByRole( 'button', { name: 'Log In' } ).click();
 		await page.waitForURL( /wp-admin/ );
 
-		// The menu is registered for manage_options only.
 		await expect(
 			page
 				.getByRole( 'navigation', { name: 'Main menu' } )
 				.getByRole( 'link', { name: 'OneSearch' } )
 		).toHaveCount( 0 );
 
-		await page.goto( `/wp-admin/${ ADMIN_PAGE.settings }` );
-		await expect(
-			page.getByText( 'Sorry, you are not allowed to access this page.' )
-		).toBeVisible();
+		for ( const screen of [ ADMIN_PAGE.settings, ADMIN_PAGE.indices ] ) {
+			await page.goto( `/wp-admin/${ screen }` );
+			await expect(
+				page.getByText(
+					'Sorry, you are not allowed to access this page.'
+				)
+			).toBeVisible();
+		}
 	} );
 } );
