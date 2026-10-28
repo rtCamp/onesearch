@@ -19,6 +19,11 @@ use OneSearch\Utils;
  */
 final class Watcher implements Registrable {
 	/**
+	 * The default most posts per sync, which fits post IDs of up to 7 digits in an Action Scheduler action.
+	 */
+	private const DEFAULT_SYNC_BATCH_SIZE = 900;
+
+	/**
 	 * The posts to sync at the end of the request, keyed by ID.
 	 *
 	 * @var array<int, true>
@@ -198,8 +203,23 @@ final class Watcher implements Registrable {
 		$post_ids      = array_keys( $this->pending );
 		$this->pending = [];
 
-		if ( [] !== $post_ids ) {
-			Jobs::registry()->get( Index_Site_Job::class )->dispatch( [ Utils::get_current_site_url(), $post_ids ] );
+		if ( [] === $post_ids ) {
+			return;
+		}
+
+		/**
+		 * The maximum number of post IDs to process in one sync batch.
+		 *
+		 * A list of post IDs larger than the batch size will be split into multiple Index_Site_Job dispatches.
+		 *
+		 * This is needed because Action Scheduler can't queue a job whose args are over 8,000 characters as JSON. The 900 default batch size is chosen to accommodate post IDs of up 7 digits (e.g., 1,000,000) within the 8,000 character limit. If your site has larger post IDs, you may need to reduce this number.
+		 *
+		 * @param int $batch_size The number of posts. Default 900.
+		 */
+		$batch_size = max( 1, (int) apply_filters( 'onesearch_sync_queue_batch_size', self::DEFAULT_SYNC_BATCH_SIZE ) );
+
+		foreach ( array_chunk( $post_ids, $batch_size ) as $batch ) {
+			Jobs::registry()->get( Index_Site_Job::class )->dispatch( [ Utils::get_current_site_url(), $batch ] );
 		}
 	}
 

@@ -278,6 +278,36 @@ final class WatcherTest extends TestCase {
 	}
 
 	/**
+	 * Posts changed in one request are all synced, even more than Action Scheduler can queue in one job.
+	 */
+	public function test_syncs_more_posts_than_one_job_can_hold(): void {
+		$this->set_up_governing_site();
+		$this->fake_algolia_index();
+		$this->watcher->register_hooks();
+
+		// Enough 7-digit IDs to go past the 8,000 characters Action Scheduler allows for a job's args.
+		$count    = intdiv( 8000, strlen( ',1000000' ) ) + 1;
+		$post_ids = [];
+
+		for ( $i = 0; $i < $count; ++$i ) {
+			$post_ids[] = self::factory()->post->create(
+				[
+					'import_id'   => 1000000 + $i,
+					'post_status' => 'publish',
+				]
+			);
+		}
+		$this->sync();
+
+		$this->assertSame( $post_ids, $this->get_algolia_post_ids() );
+
+		array_map( 'wp_trash_post', $post_ids );
+		$this->sync();
+
+		$this->assertSame( [], $this->get_algolia_post_ids() );
+	}
+
+	/**
 	 * Terms and a featured image saved after the post itself, as the REST API does, are in the record.
 	 */
 	public function test_indexes_terms_and_featured_image_saved_during_the_request(): void {

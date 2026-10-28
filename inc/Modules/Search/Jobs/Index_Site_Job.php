@@ -24,9 +24,9 @@ final class Index_Site_Job extends Abstract_Job {
 	use Parent_Job_Trait;
 
 	/**
-	 * The number of posts per child.
+	 * The default number of posts per child.
 	 */
-	private const CHUNK_SIZE = 100;
+	private const DEFAULT_BATCH_SIZE = 100;
 
 	/**
 	 * {@inheritDoc}
@@ -125,10 +125,19 @@ final class Index_Site_Job extends Abstract_Job {
 			$this->save_data( $key, [ 'started_at' => time() ] );
 		}
 
+		/**
+		 * Filters the number of posts sent to Algolia at a time.
+		 *
+		 * Lower it if indexing fails with time or memory errors, e.g. on sites with very long posts. Raise it to index sites with short posts in fewer requests.
+		 *
+		 * @param int $batch_size The number of posts. Default 100.
+		 */
+		$batch_size = max( 1, (int) apply_filters( 'onesearch_index_batch_size', self::DEFAULT_BATCH_SIZE ) );
+
 		// Batch into multiple child jobs.
 		return $this->dispatch_children(
 			$key,
-			array_map( static fn ( array $chunk ): array => [ $chunk ], array_chunk( $post_ids, self::CHUNK_SIZE ) ),
+			array_map( static fn ( array $chunk ): array => [ $chunk ], array_chunk( $post_ids, $batch_size ) ),
 			count( $post_ids )
 		);
 	}
