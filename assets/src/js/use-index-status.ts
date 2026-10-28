@@ -4,6 +4,11 @@
 import { useCallback, useEffect, useState } from '@wordpress/element';
 import apiFetch from '@wordpress/api-fetch';
 
+/**
+ * Internal dependencies
+ */
+import { REST_NAMESPACE } from './utils';
+
 export type JobState = 'queued' | 'running' | 'completed' | 'failed';
 
 /**
@@ -14,7 +19,7 @@ export interface JobStatusData {
 	// The site the job is about.
 	site: string;
 	status: JobState;
-	// Why the job failed.
+	// Null unless the job failed.
 	error: string | null;
 	// Only for the jobs that count their items, once they're counted.
 	progress?: { total: number; done: number; failed: number };
@@ -44,7 +49,7 @@ interface StatusResponse {
 	jobs: JobStatusData[];
 }
 
-const INDEXER_PATH = '/onesearch/v1/indexer';
+const INDEXER_PATH = `/${ REST_NAMESPACE }/indexer`;
 
 // How often to check on the jobs while any of them is going, in milliseconds.
 export const POLL_INTERVAL = 10000;
