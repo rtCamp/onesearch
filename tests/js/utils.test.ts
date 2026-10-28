@@ -4,9 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	API_KEY,
-	API_NAMESPACE,
 	CURRENT_SITE_URL,
-	NONCE,
 	REST_NAMESPACE,
 	isValidUrl,
 	withTrailingSlash,
@@ -36,11 +34,7 @@ describe( 'utils', () => {
 	} );
 
 	it( 'reads wordpress settings constants from the global config', () => {
-		expect( API_NAMESPACE ).toBe(
-			'https://example.com/wp-json/onesearch/v1'
-		);
 		expect( API_KEY ).toBe( 'api-key' );
-		expect( NONCE ).toBe( 'nonce' );
 		expect( REST_NAMESPACE ).toBe( 'onesearch/v1' );
 		expect( CURRENT_SITE_URL ).toBe( 'https://governing.example.com/' );
 	} );

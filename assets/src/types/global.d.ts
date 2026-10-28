@@ -13,8 +13,6 @@ export interface OneSearchSharedSite {
 }
 
 export interface OneSearchSettings {
-	restUrl: string;
-	nonce: string;
 	api_key: string;
 	setupUrl: string;
 	siteType: SiteType;

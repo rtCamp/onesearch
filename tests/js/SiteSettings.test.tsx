@@ -1,69 +1,67 @@
 /**
  * External dependencies
  */
-import { describe, expect, it, type Mock, vi } from 'vitest';
+import { describe, expect, it, type MockedFunction, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+
+/**
+ * WordPress dependencies
+ */
+import apiFetch from '@wordpress/api-fetch';
 
 import SiteSettings from '@/components/SiteSettings';
 
-const okJson = ( data: unknown ) =>
-	( {
-		ok: true,
-		json: vi.fn().mockResolvedValue( data ),
-	} ) as unknown as Response;
+const mockedApiFetch = apiFetch as MockedFunction< typeof apiFetch >;
 
-const siteSettingsFetch = ( handlers: {
+const mockRequests = ( handlers: {
 	governingSiteUrl?: string;
 	regeneratedKey?: string;
-	deleteOk?: boolean;
 	disconnectResponse?: Record< string, unknown >;
 	failGoverningSite?: boolean;
 	failRegenerate?: boolean;
 	failDisconnect?: boolean;
 } ) =>
-	vi.fn( async ( input: RequestInfo | URL, init?: RequestInit ) => {
-		const url = String( input );
-		const method = init?.method ?? 'GET';
-
-		if ( url.includes( '/secret-key' ) && method === 'POST' ) {
+	mockedApiFetch.mockImplementation( ( async ( {
+		path,
+		method = 'GET',
+	}: {
+		path?: string;
+		method?: string;
+	} ) => {
+		if ( path === '/onesearch/v1/secret-key' && method === 'POST' ) {
 			if ( handlers.failRegenerate ) {
-				return { ok: false } as Response;
+				throw new Error( 'Request failed' );
 			}
 
-			return okJson( { secret_key: handlers.regeneratedKey ?? '' } );
+			return { secret_key: handlers.regeneratedKey ?? '' };
 		}
 
-		if ( url.endsWith( '/wp/v2/settings' ) && method === 'GET' ) {
+		if ( path === '/wp/v2/settings' && method === 'GET' ) {
 			if ( handlers.failGoverningSite ) {
-				return { ok: false } as Response;
-			}
-
-			return okJson( {
-				onesearch_parent_site_url: handlers.governingSiteUrl ?? '',
-			} );
-		}
-
-		if ( url.endsWith( '/governing-site' ) && method === 'DELETE' ) {
-			if ( handlers.failDisconnect ) {
-				return { ok: false } as Response;
+				throw new Error( 'Request failed' );
 			}
 
 			return {
-				ok: handlers.deleteOk ?? true,
-				json: vi.fn().mockResolvedValue(
-					handlers.disconnectResponse ?? {
-						governing_site_notified: true,
-					}
-				),
-			} as unknown as Response;
+				onesearch_parent_site_url: handlers.governingSiteUrl ?? '',
+			};
 		}
 
-		return { ok: false } as Response;
-	} );
+		if ( path === '/onesearch/v1/governing-site' && method === 'DELETE' ) {
+			if ( handlers.failDisconnect ) {
+				throw new Error( 'Request failed' );
+			}
+
+			return (
+				handlers.disconnectResponse ?? { governing_site_notified: true }
+			);
+		}
+
+		throw new Error( `Unexpected request: ${ method } ${ path }` );
+	} ) as unknown as typeof apiFetch );
 
 describe( 'SiteSettings', () => {
 	it( 'loads the api key and governing site details', async () => {
-		global.fetch = siteSettingsFetch( {
+		mockRequests( {
 			governingSiteUrl: 'https://governing.example.com/',
 		} );
 
@@ -78,7 +76,7 @@ describe( 'SiteSettings', () => {
 	} );
 
 	it( 'copies the api key to the clipboard and shows success feedback', async () => {
-		global.fetch = siteSettingsFetch( {
+		mockRequests( {
 			governingSiteUrl: 'https://governing.example.com/',
 		} );
 
@@ -103,7 +101,7 @@ describe( 'SiteSettings', () => {
 	} );
 
 	it( 'regenerates the api key and reports success', async () => {
-		global.fetch = siteSettingsFetch( {
+		mockRequests( {
 			governingSiteUrl: 'https://governing.example.com/',
 			regeneratedKey: 'new-secret',
 		} );
@@ -115,19 +113,18 @@ describe( 'SiteSettings', () => {
 			screen.getByRole( 'button', { name: 'Regenerate API Key' } )
 		);
 
-		// Wait for the API call to complete - that's the important behavior
-		await waitFor( () => {
-			expect( global.fetch ).toHaveBeenCalledWith(
-				expect.stringContaining( '/secret-key' ),
-				expect.objectContaining( { method: 'POST' } )
-			);
-		} );
+		expect( await screen.findByDisplayValue( 'new-secret' ) ).toBeVisible();
+		expect(
+			screen.getByText(
+				'API key regenerated successfully. Please update your old key with this newly generated key to make sure plugin works properly.',
+				{ selector: '.components-notice__content' }
+			)
+		).toBeInTheDocument();
 	} );
 
 	it( 'disconnects from the governing site after confirmation', async () => {
-		global.fetch = siteSettingsFetch( {
+		mockRequests( {
 			governingSiteUrl: 'https://governing.example.com/',
-			deleteOk: true,
 		} );
 
 		render( <SiteSettings /> );
@@ -150,7 +147,7 @@ describe( 'SiteSettings', () => {
 	} );
 
 	it( 'warns when the governing site could not be notified of the disconnection', async () => {
-		global.fetch = siteSettingsFetch( {
+		mockRequests( {
 			governingSiteUrl: 'https://governing.example.com/',
 			disconnectResponse: {
 				governing_site_notified: false,
@@ -181,7 +178,7 @@ describe( 'SiteSettings', () => {
 	} );
 
 	it( 'shows an error notice when copying the api key fails', async () => {
-		global.fetch = siteSettingsFetch( {
+		mockRequests( {
 			governingSiteUrl: 'https://governing.example.com/',
 		} );
 		navigator.clipboard.writeText = vi
@@ -204,7 +201,7 @@ describe( 'SiteSettings', () => {
 	} );
 
 	it( 'shows an error notice when the clipboard api is unavailable', async () => {
-		global.fetch = siteSettingsFetch( {
+		mockRequests( {
 			governingSiteUrl: 'https://governing.example.com/',
 		} );
 		const clipboard = navigator.clipboard;
@@ -236,7 +233,7 @@ describe( 'SiteSettings', () => {
 	} );
 
 	it( 'shows an error notice when disconnecting the governing site fails', async () => {
-		global.fetch = siteSettingsFetch( {
+		mockRequests( {
 			governingSiteUrl: 'https://governing.example.com/',
 			failDisconnect: true,
 		} );
@@ -258,7 +255,7 @@ describe( 'SiteSettings', () => {
 	} );
 
 	it( 'shows an error notice when loading the governing site fails', async () => {
-		global.fetch = siteSettingsFetch( {
+		mockRequests( {
 			failGoverningSite: true,
 		} );
 
@@ -273,7 +270,7 @@ describe( 'SiteSettings', () => {
 	} );
 
 	it( 'shows an error notice when regeneration returns no secret key', async () => {
-		global.fetch = siteSettingsFetch( {
+		mockRequests( {
 			governingSiteUrl: 'https://governing.example.com/',
 			regeneratedKey: '',
 		} );
@@ -294,7 +291,7 @@ describe( 'SiteSettings', () => {
 	} );
 
 	it( 'shows an error notice when regenerating the api key fails', async () => {
-		global.fetch = siteSettingsFetch( {
+		mockRequests( {
 			governingSiteUrl: 'https://governing.example.com/',
 			failRegenerate: true,
 		} );
@@ -315,7 +312,7 @@ describe( 'SiteSettings', () => {
 	} );
 
 	it( 'closes the disconnect modal when cancel is clicked', async () => {
-		global.fetch = siteSettingsFetch( {
+		mockRequests( {
 			governingSiteUrl: 'https://governing.example.com/',
 		} );
 
@@ -343,8 +340,8 @@ describe( 'SiteSettings', () => {
 		} );
 	} );
 
-	it( 'loads once on mount with the nonce only, and does not reload after regenerating', async () => {
-		global.fetch = siteSettingsFetch( {
+	it( 'loads once on mount, and does not reload after regenerating', async () => {
+		mockRequests( {
 			governingSiteUrl: 'https://governing.example.com/',
 			regeneratedKey: 'new-secret',
 		} );
@@ -352,11 +349,7 @@ describe( 'SiteSettings', () => {
 		render( <SiteSettings /> );
 
 		await screen.findByDisplayValue( 'api-key' );
-		expect( global.fetch ).toHaveBeenCalledTimes( 1 );
-		( global.fetch as Mock ).mock.calls.forEach( ( [ , init ] ) => {
-			expect( init?.headers ).not.toHaveProperty( 'X-OneSearch-Token' );
-			expect( init?.headers ).toHaveProperty( 'X-WP-Nonce', 'nonce' );
-		} );
+		expect( mockedApiFetch ).toHaveBeenCalledTimes( 1 );
 
 		fireEvent.click(
 			screen.getByRole( 'button', { name: 'Regenerate API Key' } )
@@ -364,11 +357,11 @@ describe( 'SiteSettings', () => {
 
 		expect( await screen.findByDisplayValue( 'new-secret' ) ).toBeVisible();
 		// Nothing but the regeneration request was made after the initial load.
-		expect( global.fetch ).toHaveBeenCalledTimes( 2 );
+		expect( mockedApiFetch ).toHaveBeenCalledTimes( 2 );
 	} );
 
 	it( 'keeps the key field selectable for a manual copy', async () => {
-		global.fetch = siteSettingsFetch( {
+		mockRequests( {
 			governingSiteUrl: 'https://governing.example.com/',
 		} );
 

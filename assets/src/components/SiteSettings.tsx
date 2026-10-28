@@ -17,12 +17,13 @@ import {
 	Modal,
 } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
+import apiFetch from '@wordpress/api-fetch';
 
 /**
  * Internal dependencies
  */
 import type { NoticeType } from '@/admin/settings/page';
-import { API_KEY, API_NAMESPACE, NONCE } from '@/js/utils';
+import { API_KEY, REST_NAMESPACE } from '@/js/utils';
 
 const SiteSettings = () => {
 	const [ apiKey, setApiKey ] = useState( API_KEY );
@@ -32,19 +33,12 @@ const SiteSettings = () => {
 	const [ showDisconnectionModal, setShowDisconnectionModal ] =
 		useState( false );
 
-	// The admin nonce authenticates these same-site requests.
 	const regenerateApiKey = useCallback( async () => {
 		try {
-			const response = await fetch( API_NAMESPACE + '/secret-key', {
+			const data = await apiFetch< { secret_key?: string } >( {
+				path: `/${ REST_NAMESPACE }/secret-key`,
 				method: 'POST',
-				headers: {
-					'X-WP-Nonce': NONCE,
-				},
 			} );
-			if ( ! response.ok ) {
-				throw new Error( 'Network response was not ok' );
-			}
-			const data = await response.json();
 			if ( data?.secret_key ) {
 				setApiKey( data.secret_key );
 				setNotice( {
@@ -76,20 +70,9 @@ const SiteSettings = () => {
 
 	const fetchCurrentGoverningSite = useCallback( async () => {
 		try {
-			const response = await fetch(
-				`${ window.OneSearchSettings.restUrl }wp/v2/settings`,
-				{
-					method: 'GET',
-					headers: {
-						'Content-Type': 'application/json',
-						'X-WP-Nonce': NONCE,
-					},
-				}
-			);
-			if ( ! response.ok ) {
-				throw new Error( 'Network response was not ok' );
-			}
-			const data = await response.json();
+			const data = await apiFetch< {
+				onesearch_parent_site_url?: string;
+			} >( { path: '/wp/v2/settings' } );
 			setGoverningSite( data?.onesearch_parent_site_url || '' );
 		} catch {
 			setNotice( {
@@ -104,17 +87,13 @@ const SiteSettings = () => {
 
 	const deleteGoverningSiteConnection = useCallback( async () => {
 		try {
-			const response = await fetch( `${ API_NAMESPACE }/governing-site`, {
+			const data = await apiFetch< {
+				governing_site_notified: boolean;
+				message: string;
+			} >( {
+				path: `/${ REST_NAMESPACE }/governing-site`,
 				method: 'DELETE',
-				headers: {
-					'Content-Type': 'application/json',
-					'X-WP-Nonce': NONCE,
-				},
 			} );
-			if ( ! response.ok ) {
-				throw new Error( 'Network response was not ok' );
-			}
-			const data = await response.json();
 			setGoverningSite( '' );
 
 			// Disconnected locally, but the governing site may still list this site.
