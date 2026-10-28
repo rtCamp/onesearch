@@ -175,6 +175,25 @@ describe( 'SiteIndexableEntities', () => {
 		).toBeDisabled();
 	} );
 
+	it( 'disables saving again after a change is undone on a site with nothing saved', async () => {
+		answer( {} );
+		renderEntities( { indexableEntities: {} } );
+
+		await screen.findByText( 'Select Entities to Index' );
+		fireEvent.click(
+			screen.getByRole( 'button', { name: 'Select entities…' } )
+		);
+		fireEvent.click( screen.getByLabelText( 'Posts' ) );
+		expect(
+			screen.getByRole( 'button', { name: 'Save Changes' } )
+		).toBeEnabled();
+
+		fireEvent.click( screen.getByLabelText( 'Posts' ) );
+		expect(
+			screen.getByRole( 'button', { name: 'Save Changes' } )
+		).toBeDisabled();
+	} );
+
 	it( 'shows the error notice when saving entities fails', async () => {
 		const setNotice = vi.fn();
 		const setSaving = vi.fn();

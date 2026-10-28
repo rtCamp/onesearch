@@ -84,7 +84,9 @@ const SiteIndexableEntities = ( {
 			.forEach( ( site ) => {
 				const arr = Array.isArray( map[ site ] ) ? map[ site ] : [];
 				const clean = Array.from( new Set( arr.map( String ) ) ).sort();
-				results[ site ] = clean;
+				if ( clean.length ) {
+					results[ site ] = clean;
+				}
 			} );
 
 		return results;
