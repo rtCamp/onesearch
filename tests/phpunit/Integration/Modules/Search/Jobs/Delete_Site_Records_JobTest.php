@@ -9,6 +9,7 @@ declare(strict_types = 1);
 
 namespace OneSearch\Tests\Integration\Modules\Search\Jobs;
 
+use OneSearch\Jobs\Job_Records;
 use OneSearch\Modules\Search\Jobs\Delete_Site_Records_Job;
 use OneSearch\Modules\Search\Jobs\Jobs;
 use OneSearch\Tests\TestCase;
@@ -57,6 +58,7 @@ final class Delete_Site_Records_JobTest extends TestCase {
 			$this->get_statuses_of( 'delete_site_records' )
 		);
 		$this->assertCount( 3, $this->algolia_records );
+		$this->assertCount( 2, ( new Job_Records( 'onesearch_job_delete_site_records' ) )->get_records(), 'A failed delete keeps its record.' );
 
 		$this->fake_algolia_index();
 		Jobs::registry()->get( Delete_Site_Records_Job::class )->retry();
@@ -64,5 +66,6 @@ final class Delete_Site_Records_JobTest extends TestCase {
 
 		$this->assertSame( [], $this->get_statuses_of( 'delete_site_records' ) );
 		$this->assertSame( [ 'other_post' ], array_keys( $this->algolia_records ) );
+		$this->assertSame( [], ( new Job_Records( 'onesearch_job_delete_site_records' ) )->get_records(), 'A finished delete leaves no record.' );
 	}
 }
