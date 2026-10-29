@@ -22,12 +22,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  * Internal dependencies
  */
 import type { NoticeType } from '@/admin/settings/page';
-import { NONCE, withTrailingSlash } from '../js/utils';
-
-/**
- * Create NONCE middleware for apiFetch
- */
-apiFetch.use( apiFetch.createNonceMiddleware( NONCE ) );
+import { withTrailingSlash } from '../js/utils';
 
 export interface PostTypeOption {
 	slug: string;

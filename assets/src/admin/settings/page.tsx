@@ -18,7 +18,7 @@ import SiteSettings from '@/components/SiteSettings';
 import AlgoliaSettings from '@/components/AlgoliaSettings';
 import SiteTypeSettings from '@/components/SiteTypeSettings';
 import type { SiteType } from '@/types/global';
-import { NONCE, REST_NAMESPACE } from '@/js/utils';
+import { REST_NAMESPACE } from '@/js/utils';
 
 export interface NoticeType {
 	// Set by the settings page, so each notice gets its own Snackbar.
@@ -45,11 +45,6 @@ export type EditingIndex = number | null;
 
 const SITE_TYPE = ( window.OneSearchSettings.siteType as SiteType ) || '';
 const SHARED_SITES_ENDPOINT = `/${ REST_NAMESPACE }/shared-sites`;
-
-/**
- * Create NONCE middleware for apiFetch
- */
-apiFetch.use( apiFetch.createNonceMiddleware( NONCE ) );
 
 interface DeleteSiteResponse {
 	governing_site_notified?: boolean;

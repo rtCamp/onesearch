@@ -27,26 +27,9 @@ export const withTrailingSlash = ( url: string ): string => {
 };
 
 /**
- * WordPress REST API base URL for OneSearch plugin requests.
- *
- * @constant
- * @type {string}
- */
-export const API_NAMESPACE =
-	window.OneSearchSettings.restUrl + window.OneSearchSettings.restNamespace;
-
-/**
  * The API key used for authenticating requests to the OneSearch REST API.
  */
 export const API_KEY = window.OneSearchSettings.api_key;
-
-/**
- * WordPress REST API nonce for authenticated requests.
- *
- * @constant
- * @type {string}
- */
-export const NONCE = window.OneSearchSettings.nonce as string;
 
 /**
  * REST namespace used by the OneSearch plugin.

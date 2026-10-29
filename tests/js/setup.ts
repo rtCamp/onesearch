@@ -30,9 +30,7 @@ Object.defineProperty( global, 'fetch', {
 
 Object.defineProperty( window, 'OneSearchSettings', {
 	value: {
-		restUrl: 'https://example.com/wp-json/',
 		restNamespace: 'onesearch/v1',
-		nonce: 'nonce',
 		api_key: 'api-key',
 		currentSiteUrl: 'https://governing.example.com/',
 		siteType: 'governing-site',

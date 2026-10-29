@@ -44,43 +44,34 @@ vi.mock( '@/components/SiteSearchSettings', () => ( {
 	default: () => <div data-testid="search-settings" />,
 } ) );
 
-const json = ( data: unknown, ok = true ) =>
-	( {
-		ok,
-		status: ok ? 200 : 500,
-		json: () => Promise.resolve( data ),
-	} ) as unknown as Response;
+let answerRequest: ( options: { path?: string } ) => Promise< unknown >;
 
-let loadEntities: () => Promise< unknown >;
-
-const mockFetch = ( {
+const mockRequests = ( {
 	allPostTypes = { sites: {}, errors: [] },
 	entitiesOk = true,
 }: {
 	allPostTypes?: Record< string, unknown >;
 	entitiesOk?: boolean;
 } = {} ) => {
-	global.fetch = vi.fn( async ( input: RequestInfo | URL ) => {
-		const url = String( input );
-		if ( url.endsWith( '/all-post-types' ) ) {
-			return json( allPostTypes );
+	answerRequest = async ( { path } ) => {
+		if ( path === '/onesearch/v1/all-post-types' ) {
+			return allPostTypes;
 		}
-		return json( {}, false );
-	} ) as unknown as typeof fetch;
-	loadEntities = () =>
-		entitiesOk
-			? Promise.resolve( {
-					onesearch_indexable_entities: { entities: {} },
-				} )
-			: Promise.reject( new Error( 'load failed' ) );
+		if ( ! entitiesOk ) {
+			throw new Error( 'load failed' );
+		}
+		return { onesearch_indexable_entities: { entities: {} } };
+	};
 };
 
 const mountPage = async () => {
 	document.body.innerHTML = '<div id="onesearch-search-settings"></div>';
 	vi.resetModules();
-	// The fresh modules get their own apiFetch mock, which loads the entities from /wp/v2/settings.
+	// The fresh modules get their own apiFetch mock.
 	const { default: apiFetch } = await import( '@wordpress/api-fetch' );
-	vi.mocked( apiFetch ).mockImplementation( loadEntities );
+	vi.mocked( apiFetch ).mockImplementation(
+		answerRequest as unknown as typeof apiFetch
+	);
 	// The entry point mounts itself into the container on import.
 	await import( '@/admin/search/index' );
 };
@@ -110,7 +101,7 @@ describe( 'search settings page', () => {
 	} );
 
 	it( 'reads the site type and brand sites from the localized data', async () => {
-		mockFetch();
+		mockRequests();
 		await mountPage();
 
 		expect( await screen.findByTestId( 'sites' ) ).toHaveTextContent(
@@ -119,7 +110,7 @@ describe( 'search settings page', () => {
 	} );
 
 	it( 'flags the entities as failed to load after an error response', async () => {
-		mockFetch( { entitiesOk: false } );
+		mockRequests( { entitiesOk: false } );
 		await mountPage();
 
 		await waitFor( () => {
@@ -130,7 +121,7 @@ describe( 'search settings page', () => {
 	} );
 
 	it( 'passes on the sites that failed to return post types', async () => {
-		mockFetch( {
+		mockRequests( {
 			allPostTypes: {
 				sites: {},
 				errors: [
@@ -155,7 +146,7 @@ describe( 'search settings page', () => {
 			...window.OneSearchSettings,
 			hasAlgoliaCredentials: false,
 		};
-		mockFetch();
+		mockRequests();
 		await mountPage();
 
 		expect(
@@ -164,7 +155,7 @@ describe( 'search settings page', () => {
 	} );
 
 	it( 'removes the snackbar once it times out', async () => {
-		mockFetch();
+		mockRequests();
 		await mountPage();
 
 		const notify = await screen.findByRole( 'button', { name: 'Notify' } );

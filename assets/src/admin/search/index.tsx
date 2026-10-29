@@ -15,9 +15,8 @@ import SiteSearchSettings, {
 	type PostTypeOption,
 } from '@/components/SiteSearchSettings';
 import {
-	API_NAMESPACE,
 	CURRENT_SITE_URL,
-	NONCE,
+	REST_NAMESPACE,
 	withTrailingSlash,
 } from '@/js/utils';
 import type { SiteType } from '@/types/global';
@@ -101,8 +100,6 @@ const OneSearchSettingsPage = () => {
 
 	// Fetch all post types.
 	useEffect( () => {
-		const token = NONCE;
-
 		const toEntitiesMap = (
 			data: FetchAllPostTypesResponse
 		): AllPostTypesMap => {
@@ -136,16 +133,9 @@ const OneSearchSettingsPage = () => {
 
 		const fetchAllPostTypes = async () => {
 			try {
-				const res = await fetch( `${ API_NAMESPACE }/all-post-types`, {
-					headers: {
-						Accept: 'application/json',
-						'X-WP-NONCE': token,
-					},
+				const data = await apiFetch< FetchAllPostTypesResponse >( {
+					path: `/${ REST_NAMESPACE }/all-post-types`,
 				} );
-				if ( ! res.ok ) {
-					throw new Error( `HTTP ${ res.status }` );
-				}
-				const data: FetchAllPostTypesResponse = await res.json();
 				const mapped = toEntitiesMap( data );
 				setAllPostTypes( mapped );
 				setPostTypeErrors(
