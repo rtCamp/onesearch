@@ -46,13 +46,25 @@ function run_uninstaller(): void {
  * The (site-specific) uninstall function.
  */
 function uninstall(): void {
+	delete_pending_jobs();
 	cleanup_algolia_index();
 	delete_proxy_attachment();
+	delete_index_status_meta();
 
 	// Wait until the end to delete options and transients.
 
 	delete_transients();
 	delete_options();
+	delete_job_records();
+}
+
+/**
+ * Deletes the plugin's background jobs that are waiting to run.
+ */
+function delete_pending_jobs(): void {
+	if ( load_dependencies() ) {
+		( new \OneSearch\Jobs\Queue( 'onesearch' ) )->delete_pending();
+	}
 }
 
 /**
@@ -70,6 +82,14 @@ function delete_proxy_attachment(): void {
 	}
 
 	wp_delete_post( $proxy_id, true );
+}
+
+/**
+ * Deletes when each post was indexed, or why it couldn't be.
+ */
+function delete_index_status_meta(): void {
+	delete_post_meta_by_key( '_' . PLUGIN_PREFIX . 'indexed_at' );
+	delete_post_meta_by_key( '_' . PLUGIN_PREFIX . 'index_error' );
 }
 
 /**
@@ -151,6 +171,16 @@ function cleanup_algolia_index(): void {
 		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Nowhere else to report it during uninstall.
 		error_log( sprintf( 'OneSearch uninstall: Algolia cleanup failed: %s %s', $is_deleted->get_error_message(), $data['message'] ?? '' ) );
 	}
+}
+
+/**
+ * Deletes the background jobs' records, which have an option each.
+ */
+function delete_job_records(): void {
+	global $wpdb;
+
+	// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- No API deletes options by name.
+	$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( '_' . PLUGIN_PREFIX ) . '%' ) );
 }
 
 /**

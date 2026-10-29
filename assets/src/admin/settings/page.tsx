@@ -18,6 +18,7 @@ import SiteSettings from '@/components/SiteSettings';
 import AlgoliaSettings from '@/components/AlgoliaSettings';
 import SiteTypeSettings from '@/components/SiteTypeSettings';
 import type { SiteType } from '@/types/global';
+import { NONCE, REST_NAMESPACE } from '@/js/utils';
 
 export interface NoticeType {
 	// Set by the settings page, so each notice gets its own Snackbar.
@@ -42,9 +43,8 @@ export const defaultBrandSite: BrandSite = {
 
 export type EditingIndex = number | null;
 
-const NONCE = window.OneSearchSettings.nonce;
 const SITE_TYPE = ( window.OneSearchSettings.siteType as SiteType ) || '';
-const SHARED_SITES_ENDPOINT = '/onesearch/v1/shared-sites';
+const SHARED_SITES_ENDPOINT = `/${ REST_NAMESPACE }/shared-sites`;
 
 /**
  * Create NONCE middleware for apiFetch

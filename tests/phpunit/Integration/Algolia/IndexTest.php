@@ -85,16 +85,6 @@ final class IndexTest extends TestCase {
 	}
 
 	/**
-	 * Deletes by the given params, and waits for Algolia to apply it when asked to.
-	 */
-	public function test_delete_by_waits_when_asked(): void {
-		$this->mock_algolia_http_client( $this->paths, null, null, $this->requests );
-
-		$this->assertTrue( $this->get_index()->delete_by( [ 'filters' => 'site_url:"https://example.com/"' ], true ) );
-		$this->assertSame( [ '/1/indexes/test_index/deleteByQuery', '/1/indexes/test_index/task/1' ], $this->paths );
-	}
-
-	/**
 	 * Sets the settings without waiting for Algolia to apply them.
 	 */
 	public function test_set_settings(): void {

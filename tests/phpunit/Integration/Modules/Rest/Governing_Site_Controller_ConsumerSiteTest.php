@@ -12,6 +12,7 @@ namespace OneSearch\Tests\Integration\Modules\Rest;
 use OneSearch\Modules\Rest\Abstract_REST_Controller;
 use OneSearch\Modules\Rest\Governing_Site_Controller;
 use OneSearch\Modules\Rest\Remote_Client;
+use OneSearch\Modules\Search\Index_Status;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -31,8 +32,8 @@ class Governing_Site_Controller_ConsumerSiteTest extends TestCase {
 	/**
 	 * {@inheritDoc}
 	 */
-	public function set_up(): void {
-		parent::set_up();
+	public function setUp(): void {
+		parent::setUp();
 
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
 
@@ -50,11 +51,11 @@ class Governing_Site_Controller_ConsumerSiteTest extends TestCase {
 	/**
 	 * {@inheritDoc}
 	 */
-	public function tear_down(): void {
+	public function tearDown(): void {
 		global $wp_rest_server;
 		$wp_rest_server = null;
 
-		parent::tear_down();
+		parent::tearDown();
 	}
 
 	/**
@@ -257,6 +258,30 @@ class Governing_Site_Controller_ConsumerSiteTest extends TestCase {
 		$this->assertSame( 200, $response->get_status() );
 		$this->assertNull( Settings::get_parent_site_url() );
 		$this->assertFalse( get_transient( Remote_Client::TRANSIENT_KEY ) );
+	}
+
+	/**
+	 * A brand site removed by its governing site forgets which posts were in search, since the governing site deletes its records.
+	 */
+	public function test_remove_governing_site_clears_the_index_status(): void {
+		$indexed = self::factory()->post->create();
+		$failed  = self::factory()->post->create();
+		Index_Status::record_saved( [ $indexed ] );
+		Index_Status::record_errors( [ $failed => 'Too big' ] );
+		$this->assertSame( 1, Index_Status::get_summary( [ 'post' ] )['indexed'] );
+
+		wp_set_current_user( 0 );
+		$response = $this->server->dispatch( $this->governing_request( 'DELETE', '/onesearch/v1/governing-site' ) );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame(
+			[
+				'total'   => 2,
+				'indexed' => 0,
+				'failed'  => [],
+			],
+			Index_Status::get_summary( [ 'post' ] )
+		);
 	}
 
 	/**

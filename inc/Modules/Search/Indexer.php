@@ -35,11 +35,6 @@ final class Indexer {
 	private const REQUIRED_ACL = [ 'search', 'addObject', 'deleteIndex', 'settings', 'editSettings' ];
 
 	/**
-	 * The default batch size for indexing.
-	 */
-	private const DEFAULT_BATCH_SIZE = 100;
-
-	/**
 	 * The number of posts whose records are fetched per request, so they fit in a single page of results.
 	 */
 	private const POST_RECORDS_BATCH_SIZE = 20;
@@ -106,6 +101,17 @@ final class Indexer {
 	}
 
 	/**
+	 * Gets an error's message, along with the details Algolia gave.
+	 *
+	 * @param \WP_Error $error The error.
+	 */
+	public static function get_error_message( \WP_Error $error ): string {
+		$data = $error->get_error_data();
+
+		return trim( $error->get_error_message() . ' ' . ( is_array( $data ) && is_string( $data['message'] ?? null ) ? $data['message'] : '' ) );
+	}
+
+	/**
 	 * Searches the index.
 	 *
 	 * @param string              $query  The search query.
@@ -164,82 +170,65 @@ final class Indexer {
 	}
 
 	/**
-	 * Replaces this site's records with its current indexable posts.
+	 * Saves the records of the given posts with one request, and deletes the chunks they had when they were longer.
 	 *
-	 * Batches that fail to save are skipped, and reported in the returned error.
+	 * @param \WP_Post[] $posts The posts.
 	 *
-	 * @return true|\WP_Error
+	 * @return array<int, \WP_Error>|\WP_Error The errors of the posts that couldn't be saved, keyed by post ID, or the error of a request.
 	 */
-	public function reindex(): bool|\WP_Error {
-		$post_types = self::get_indexable_post_types();
-		if ( is_wp_error( $post_types ) ) {
-			return $post_types;
+	public function save_posts( array $posts ): array|\WP_Error {
+		$records = [];
+		$errors  = [];
+
+		// The posts' `site_post_id`s, by how many records each has.
+		$by_count = [];
+
+		foreach ( $posts as $post ) {
+			$post_record  = new Post_Record();
+			$post_records = $post_record->to_records( $post );
+
+			if ( [] === $post_records ) {
+				$errors[ $post->ID ] = new \WP_Error( 'onesearch_post_too_big', __( 'The post is too big to index.', 'onesearch' ) );
+				continue;
+			}
+
+			array_push( $records, ...$post_records );
+			$by_count[ count( $post_records ) ][] = $post_record->get_site_post_id( $post->ID );
 		}
 
-		// Set up the index first, since it may not exist yet.
-		$index = $this->get_initialized_index();
-		if ( is_wp_error( $index ) ) {
-			return $index;
-		}
-
-		// Wait until the old records are gone, so a failed delete doesn't leave them mixed in with the new ones.
-		$is_deleted = $this->delete_site_records( [ Utils::get_current_site_url() ], true );
-		if ( is_wp_error( $is_deleted ) ) {
-			return $is_deleted;
-		}
-
-		if ( empty( $post_types ) ) {
-			return true;
-		}
-
-		$errors = new \WP_Error();
-
-		foreach ( $this->generate_post_batches( $post_types, self::DEFAULT_BATCH_SIZE ) as $records ) {
+		if ( [] !== $records ) {
 			$is_saved = $this->save_records( $records );
-
 			if ( is_wp_error( $is_saved ) ) {
-				$data = $is_saved->get_error_data();
+				return $is_saved;
+			}
 
-				Utils::log(
-					sprintf(
-						'Algolia indexing error: %s %s',
-						$is_saved->get_error_message(),
-						is_array( $data ) ? (string) ( $data['message'] ?? '' ) : ''
-					)
+			// Chunks from when a post was longer would still match searches, so delete them.
+			foreach ( $by_count as $count => $site_post_ids ) {
+				$is_deleted = $this->delete_by_filter(
+					sprintf( '(%s) AND chunk_index >= %d', self::filter_any_of( 'site_post_id', $site_post_ids ), $count )
 				);
-				$errors->merge_from( $is_saved );
+
+				if ( is_wp_error( $is_deleted ) ) {
+					return $is_deleted;
+				}
 			}
 		}
 
-		return $errors->has_errors() ? $errors : true;
-	}
-
-	/**
-	 * Adds or updates a post's records.
-	 *
-	 * @param \WP_Post $post The post.
-	 *
-	 * @return true|\WP_Error
-	 */
-	public function save_post( \WP_Post $post ): bool|\WP_Error {
-		$post_record  = new Post_Record();
-		$site_post_id = $post_record->get_site_post_id( $post->ID );
-		$records      = $post_record->to_records( $post );
-
-		// Sometimes the first chunk is too big, e.g too many terms or filtering `onesearch_algolia_base_record_data`.
-		if ( [] === $records ) {
-			return new \WP_Error( 'onesearch_post_too_big', __( 'The post is too big to index.', 'onesearch' ) );
-		}
-
-		$is_saved = $this->save_records( $records );
-		if ( is_wp_error( $is_saved ) ) {
-			return $is_saved;
-		}
-
-		// Chunks from when the post was longer would still match searches, so delete them.
-		return $this->delete_by_filter(
-			sprintf( '%s AND chunk_index >= %d', self::filter_any_of( 'site_post_id', [ $site_post_id ] ), count( $records ) )
+		// Record which posts were successfully saved and which had errors.
+		$post_ids = array_map(
+			static fn ( \WP_Post $post ): int => $post->ID,
+			$posts
 		);
+
+		Index_Status::record_saved( array_values( array_diff( $post_ids, array_keys( $errors ) ) ) );
+		Index_Status::record_errors(
+			array_map(
+				static fn ( \WP_Error $error ): string => $error->get_error_message(),
+				$errors
+			)
+		);
+
+		return $errors;
 	}
 
 	/**
@@ -254,7 +243,7 @@ final class Indexer {
 			return true;
 		}
 
-		return $this->delete_by_filter(
+		$is_deleted = $this->delete_by_filter(
 			self::filter_any_of(
 				'site_post_id',
 				array_map(
@@ -263,25 +252,56 @@ final class Indexer {
 				)
 			)
 		);
+
+		if ( is_wp_error( $is_deleted ) ) {
+			return $is_deleted;
+		}
+
+		Index_Status::record_removed( $post_ids );
+
+		return true;
 	}
 
 	/**
 	 * Deletes all records belonging to the given sites.
 	 *
 	 * @param string[] $site_urls The site URLs.
-	 * @param bool     $wait      Whether to wait until Algolia has deleted them.
 	 *
 	 * @return true|\WP_Error
 	 */
-	public function delete_site_records( array $site_urls, bool $wait = false ): bool|\WP_Error {
+	public function delete_site_records( array $site_urls ): bool|\WP_Error {
 		if ( empty( $site_urls ) ) {
 			return true;
 		}
 
 		return $this->delete_by_filter(
-			self::filter_any_of( 'site_url', array_map( [ Utils::class, 'normalize_url' ], $site_urls ) ),
-			$wait
+			self::filter_any_of( 'site_url', array_map( [ Utils::class, 'normalize_url' ], $site_urls ) )
 		);
+	}
+
+	/**
+	 * Deletes this site's records saved before the given time, e.g. the ones an indexing run didn't save again.
+	 *
+	 * @param int $before The Unix timestamp.
+	 *
+	 * @return true|\WP_Error
+	 */
+	public function delete_stale_site_records( int $before ): bool|\WP_Error {
+		// Set up the index first, since it may not exist yet when there was nothing to save.
+		$index = $this->get_initialized_index();
+		if ( is_wp_error( $index ) ) {
+			return $index;
+		}
+
+		$is_deleted = $this->delete_by_filter(
+			sprintf( '%s AND indexed_at < %d', self::filter_any_of( 'site_url', [ Utils::get_current_site_url() ] ), $before )
+		);
+
+		if ( true === $is_deleted ) {
+			Index_Status::delete_stale( $before );
+		}
+
+		return $is_deleted;
 	}
 
 	/**
@@ -299,6 +319,7 @@ final class Indexer {
 		if ( true === $is_deleted ) {
 			// The settings went with the index.
 			$this->index_settings_initialized = false;
+			Index_Status::clear();
 		}
 
 		return $is_deleted;
@@ -324,17 +345,16 @@ final class Indexer {
 	 * Deletes the records matching a filter.
 	 *
 	 * @param string $filter The Algolia filter.
-	 * @param bool   $wait   Whether to wait until Algolia has applied the delete.
 	 *
 	 * @return true|\WP_Error
 	 */
-	private function delete_by_filter( string $filter, bool $wait = false ): bool|\WP_Error {
+	private function delete_by_filter( string $filter ): bool|\WP_Error {
 		$index = $this->get_index();
 		if ( is_wp_error( $index ) ) {
 			return $index;
 		}
 
-		return $index->delete_by( [ 'filters' => $filter ], $wait );
+		return $index->delete_by( [ 'filters' => $filter ] );
 	}
 
 	/**
@@ -441,40 +461,5 @@ final class Indexer {
 			'app_id'    => $config['algolia_credentials']['app_id'] ?? null,
 			'write_key' => $config['algolia_credentials']['write_key'] ?? null,
 		];
-	}
-
-	/**
-	 * Generator that yields batches of Algolia records for indexing.
-	 *
-	 * We `yield` to avoid loading all posts into memory at once.
-	 *
-	 * @param string[] $post_types The post types to index.
-	 * @param int      $batch_size The number of posts to process per batch.
-	 *
-	 * @return \Generator<list<PostRecord>>
-	 */
-	private function generate_post_batches( array $post_types, int $batch_size ): \Generator {
-		$page = 1;
-
-		while ( true ) {
-			$posts = Post_Record::get_indexable_posts( $post_types, $page, $batch_size );
-
-			if ( empty( $posts ) ) {
-				break;
-			}
-
-			$records = [];
-			foreach ( $posts as $post ) {
-				// Password-protected posts, and media attached to a post that isn't public.
-				if ( Post_Record::is_protected( $post ) ) {
-					continue;
-				}
-
-				$records = array_merge( $records, ( new Post_Record() )->to_records( $post ) );
-			}
-			yield $records;
-
-			++$page;
-		}
 	}
 }

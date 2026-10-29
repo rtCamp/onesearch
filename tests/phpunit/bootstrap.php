@@ -37,10 +37,19 @@ require_once $_test_root . '/includes/functions.php';
 tests_add_filter(
 	'muplugins_loaded',
 	static function (): void {
+		// Composer loaded Action Scheduler before WordPress, when it couldn't register itself yet.
+		require TESTS_REPO_ROOT_DIR . '/vendor/woocommerce/action-scheduler/action-scheduler.php';
+
 		// Require ( to bypass require_once ).
 		require TESTS_REPO_ROOT_DIR . '/onesearch.php';
 	}
 );
+
+// The tests run the queued actions themselves, so Action Scheduler doesn't send requests to start its runner.
+tests_add_filter( 'action_scheduler_allow_async_request_runner', '__return_false' );
+
+// The test site has no actions from older Action Scheduler versions to migrate.
+tests_add_filter( 'pre_option_action_scheduler_migration_status', static fn () => 'complete' );
 
 // Start up the WP testing environment.
 require $_test_root . '/includes/bootstrap.php';

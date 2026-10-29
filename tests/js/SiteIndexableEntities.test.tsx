@@ -3,6 +3,7 @@
  */
 import { describe, expect, it, type MockedFunction, vi } from 'vitest';
 import {
+	act,
 	fireEvent,
 	render,
 	screen,
@@ -16,64 +17,76 @@ import {
 import apiFetch from '@wordpress/api-fetch';
 
 import SiteIndexableEntities from '@/components/SiteIndexableEntities';
+import { POLL_INTERVAL, type JobStatusData } from '@/js/use-index-status';
 
 const mockedApiFetch = apiFetch as MockedFunction< typeof apiFetch >;
 
 const currentSiteUrl = 'https://governing.example.com/';
 const brandSiteUrl = 'https://brand.example.com/';
 
-const okJson = ( data: unknown ) =>
-	( {
-		ok: true,
-		json: vi.fn().mockResolvedValue( data ),
-	} ) as unknown as Response;
+type Options = { path?: string; method?: string };
+
+/**
+ * Answers the requests the component sends, by path and method.
+ *
+ * @param answers The answers, keyed by method and path, e.g. `GET /onesearch/v1/indexer`. A function is called with the options, and its result is the answer.
+ */
+const answer = ( answers: Record< string, unknown > ) =>
+	mockedApiFetch.mockImplementation( ( async ( options: Options ) => {
+		const key = `${ options.method ?? 'GET' } ${ options.path }`;
+		const value = answers[ key ];
+
+		if ( value === undefined ) {
+			return { sites: {}, jobs: [] };
+		}
+
+		const result =
+			typeof value === 'function' ? await value( options ) : value;
+		if ( result instanceof Error ) {
+			throw result;
+		}
+
+		return result;
+	} ) as unknown as typeof apiFetch );
+
+const renderEntities = (
+	props: Partial< Parameters< typeof SiteIndexableEntities >[ 0 ] > = {}
+) =>
+	render(
+		<SiteIndexableEntities
+			sites={ [] }
+			allPostTypes={ {
+				[ currentSiteUrl ]: [ { slug: 'post', label: 'Posts' } ],
+			} }
+			currentSiteUrl={ currentSiteUrl }
+			indexableEntities={ { [ currentSiteUrl ]: [ 'post' ] } }
+			setNotice={ vi.fn() }
+			onEntitiesSaved={ vi.fn() }
+			saving={ false }
+			setSaving={ vi.fn() }
+			{ ...props }
+		/>
+	);
 
 describe( 'SiteIndexableEntities', () => {
-	it( 'loads saved entities and enables reindexing when data exists', async () => {
-		render(
-			<SiteIndexableEntities
-				sites={ [] }
-				allPostTypes={ {
-					[ currentSiteUrl ]: [ { slug: 'post', label: 'Posts' } ],
-				} }
-				currentSiteUrl={ currentSiteUrl }
-				indexableEntities={ { [ currentSiteUrl ]: [ 'post' ] } }
-				setNotice={ vi.fn() }
-				onEntitiesSaved={ vi.fn() }
-				saving={ false }
-				setSaving={ vi.fn() }
-			/>
-		);
+	it( 'can re-index whatever is saved', async () => {
+		answer( {} );
+		renderEntities( { indexableEntities: {} } );
 
 		await screen.findByText( 'Select Entities to Index' );
-		await waitFor( () => {
-			expect(
-				screen.getByRole( 'button', { name: 'Re-index' } )
-			).toBeEnabled();
-		} );
+		expect(
+			screen.getByRole( 'button', { name: 'Re-index' } )
+		).toBeEnabled();
 	} );
 
 	it( 'shows a message when a brand site has no selectable entities', async () => {
-		render(
-			<SiteIndexableEntities
-				sites={ [
-					{
-						name: 'Brand Site',
-						url: brandSiteUrl,
-						api_key: 'brand-key',
-					},
-				] }
-				allPostTypes={ {
-					[ currentSiteUrl ]: [ { slug: 'post', label: 'Posts' } ],
-				} }
-				currentSiteUrl={ currentSiteUrl }
-				indexableEntities={ {} }
-				setNotice={ vi.fn() }
-				onEntitiesSaved={ vi.fn() }
-				saving={ false }
-				setSaving={ vi.fn() }
-			/>
-		);
+		answer( {} );
+		renderEntities( {
+			sites: [
+				{ name: 'Brand Site', url: brandSiteUrl, api_key: 'brand-key' },
+			],
+			indexableEntities: {},
+		} );
 
 		expect(
 			await screen.findByText(
@@ -82,33 +95,23 @@ describe( 'SiteIndexableEntities', () => {
 		).toBeInTheDocument();
 	} );
 
-	it( 'saves entities and reindexes after changes', async () => {
+	it( 'saves entities and re-indexes after changes', async () => {
 		const setNotice = vi.fn();
 		const onEntitiesSaved = vi.fn();
 		const setSaving = vi.fn();
+		const saved = vi.fn( () => ( {} ) );
+		const reindexed = vi.fn( () => ( { started: true } ) );
 
-		mockedApiFetch.mockResolvedValueOnce( {} );
-		global.fetch = vi.fn().mockResolvedValueOnce(
-			okJson( {
-				message: 'Reindex complete.',
-				errors: [],
-			} )
-		) as typeof fetch;
-
-		render(
-			<SiteIndexableEntities
-				sites={ [] }
-				allPostTypes={ {
-					[ currentSiteUrl ]: [ { slug: 'post', label: 'Posts' } ],
-				} }
-				currentSiteUrl={ currentSiteUrl }
-				indexableEntities={ {} }
-				setNotice={ setNotice }
-				onEntitiesSaved={ onEntitiesSaved }
-				saving={ false }
-				setSaving={ setSaving }
-			/>
-		);
+		answer( {
+			'POST /wp/v2/settings': saved,
+			'POST /onesearch/v1/indexer': reindexed,
+		} );
+		renderEntities( {
+			indexableEntities: {},
+			setNotice,
+			onEntitiesSaved,
+			setSaving,
+		} );
 
 		await screen.findByText( 'Select Entities to Index' );
 		fireEvent.click(
@@ -120,10 +123,14 @@ describe( 'SiteIndexableEntities', () => {
 		);
 
 		await waitFor( () => {
-			expect( onEntitiesSaved ).toHaveBeenCalled();
+			expect( setNotice ).toHaveBeenCalledWith( {
+				message:
+					"Indexing started. Each site shows how it's going below.",
+				type: 'success',
+			} );
 		} );
 
-		expect( mockedApiFetch ).toHaveBeenLastCalledWith( {
+		expect( saved ).toHaveBeenCalledWith( {
 			path: '/wp/v2/settings',
 			method: 'POST',
 			data: {
@@ -132,32 +139,21 @@ describe( 'SiteIndexableEntities', () => {
 				},
 			},
 		} );
-
+		expect( reindexed ).toHaveBeenCalled();
+		expect( onEntitiesSaved ).toHaveBeenCalled();
 		expect( setSaving ).toHaveBeenCalledWith( true );
 		expect( setSaving ).toHaveBeenLastCalledWith( false );
-		expect( setNotice ).toHaveBeenCalledWith( {
-			message: 'Reindex complete.',
-			type: 'success',
-		} );
 	} );
 
 	it( 'shows why post types failed to load for a brand site', () => {
-		render(
-			<SiteIndexableEntities
-				sites={ [ { name: 'Brand Site', url: brandSiteUrl } ] }
-				allPostTypes={ {
-					[ currentSiteUrl ]: [ { slug: 'post', label: 'Posts' } ],
-				} }
-				currentSiteUrl={ currentSiteUrl }
-				indexableEntities={ {} }
-				postTypeErrors={ [
-					{ site_url: brandSiteUrl, message: 'Request timed out.' },
-				] }
-				setNotice={ vi.fn() }
-				saving={ false }
-				setSaving={ vi.fn() }
-			/>
-		);
+		answer( {} );
+		renderEntities( {
+			sites: [ { name: 'Brand Site', url: brandSiteUrl } ],
+			indexableEntities: {},
+			postTypeErrors: [
+				{ site_url: brandSiteUrl, message: 'Request timed out.' },
+			],
+		} );
 
 		expect( screen.getByText( 'Request timed out.' ) ).toBeInTheDocument();
 		expect(
@@ -168,20 +164,8 @@ describe( 'SiteIndexableEntities', () => {
 	} );
 
 	it( 'disables saving when the saved entities failed to load', () => {
-		render(
-			<SiteIndexableEntities
-				sites={ [] }
-				allPostTypes={ {
-					[ currentSiteUrl ]: [ { slug: 'post', label: 'Posts' } ],
-				} }
-				currentSiteUrl={ currentSiteUrl }
-				indexableEntities={ {} }
-				loadFailed
-				setNotice={ vi.fn() }
-				saving={ false }
-				setSaving={ vi.fn() }
-			/>
-		);
+		answer( {} );
+		renderEntities( { indexableEntities: {}, loadFailed: true } );
 
 		expect(
 			screen.getByRole( 'button', { name: 'Select entities…' } )
@@ -195,25 +179,12 @@ describe( 'SiteIndexableEntities', () => {
 		const setNotice = vi.fn();
 		const setSaving = vi.fn();
 
-		mockedApiFetch.mockRejectedValueOnce( {
-			code: 'rest_invalid_param',
-			message: 'Invalid parameter(s): onesearch_indexable_entities',
+		answer( {
+			'POST /wp/v2/settings': new Error(
+				'Invalid parameter(s): onesearch_indexable_entities'
+			),
 		} );
-
-		render(
-			<SiteIndexableEntities
-				sites={ [] }
-				allPostTypes={ {
-					[ currentSiteUrl ]: [ { slug: 'post', label: 'Posts' } ],
-				} }
-				currentSiteUrl={ currentSiteUrl }
-				indexableEntities={ {} }
-				setNotice={ setNotice }
-				onEntitiesSaved={ vi.fn() }
-				saving={ false }
-				setSaving={ setSaving }
-			/>
-		);
+		renderEntities( { indexableEntities: {}, setNotice, setSaving } );
 
 		await screen.findByText( 'Select Entities to Index' );
 		fireEvent.click(
@@ -233,55 +204,19 @@ describe( 'SiteIndexableEntities', () => {
 		expect( setSaving ).toHaveBeenLastCalledWith( false );
 	} );
 
-	it( 'opens and closes re-index modal and handles server errors', async () => {
+	it( 'opens and closes the re-index modal, and says why the re-index failed', async () => {
 		const setNotice = vi.fn();
 
-		mockedApiFetch.mockRejectedValueOnce( {
-			code: 'internal_server_error',
-			message: 'Internal server error.',
+		answer( {
+			'POST /onesearch/v1/indexer': new Error(
+				"The job couldn't be queued."
+			),
 		} );
-
-		render(
-			<SiteIndexableEntities
-				sites={ [] }
-				allPostTypes={ {
-					[ currentSiteUrl ]: [ { slug: 'post', label: 'Posts' } ],
-				} }
-				currentSiteUrl={ currentSiteUrl }
-				indexableEntities={ { [ currentSiteUrl ]: [ 'post' ] } }
-				setNotice={ setNotice }
-				onEntitiesSaved={ vi.fn() }
-				saving={ false }
-				setSaving={ vi.fn() }
-			/>
-		);
-
-		await screen.findByText( 'Select Entities to Index' );
+		renderEntities( { setNotice } );
 
 		fireEvent.click(
-			screen.getByRole( 'button', { name: 'Select entities…' } )
+			await screen.findByRole( 'button', { name: 'Re-index' } )
 		);
-		fireEvent.click( screen.getByLabelText( 'Posts' ) );
-		fireEvent.click(
-			screen.getByRole( 'button', { name: 'Save Changes' } )
-		);
-
-		await waitFor( () => {
-			expect( setNotice ).toHaveBeenCalledWith( {
-				message: 'Internal server error.',
-				type: 'error',
-			} );
-		} );
-
-		global.fetch = vi.fn().mockResolvedValueOnce(
-			okJson( {
-				message: 'failed',
-				errors: [ { site_url: currentSiteUrl, message: 'timed out' } ],
-			} )
-		) as typeof fetch;
-
-		fireEvent.click( screen.getByRole( 'button', { name: 'Re-index' } ) );
-
 		expect(
 			await screen.findByText( 'Re-index saved entities' )
 		).toBeInTheDocument();
@@ -297,11 +232,183 @@ describe( 'SiteIndexableEntities', () => {
 				name: 'Re-index',
 			} )
 		);
+
 		await waitFor( () => {
 			expect( setNotice ).toHaveBeenCalledWith( {
-				message: 'failed',
+				message: "The job couldn't be queued.",
 				type: 'error',
 			} );
 		} );
+	} );
+
+	it( "shows each site's index, or why its status couldn't be loaded", async () => {
+		answer( {
+			'GET /onesearch/v1/indexer': {
+				sites: {
+					[ currentSiteUrl ]: {
+						index: { total: 10, indexed: 9, failed: [] },
+					},
+					[ brandSiteUrl ]: { error: 'cURL error 7' },
+				},
+				jobs: [
+					{
+						job: 'index_site',
+						site: currentSiteUrl,
+						status: 'completed',
+						error: null,
+					},
+				],
+			},
+		} );
+		renderEntities( {
+			sites: [ { name: 'Brand Site', url: brandSiteUrl } ],
+		} );
+
+		await screen.findByText( '9 of 10 items are in search.' );
+		const brand = screen
+			.getByText( 'Brand Site' )
+			.closest( '.onesearch-entity-site' ) as HTMLElement;
+
+		expect(
+			within( brand ).getByText(
+				"This site's status couldn't be loaded. Check that the site is reachable. cURL error 7"
+			)
+		).toBeInTheDocument();
+	} );
+
+	it( 'shows indexing while it runs, and checks on it until it ends', async () => {
+		const running: JobStatusData = {
+			job: 'index_site',
+			site: currentSiteUrl,
+			status: 'running',
+			error: null,
+			progress: { total: 2, done: 1, failed: 0 },
+		};
+		let status = {
+			sites: {
+				[ currentSiteUrl ]: {
+					index: { total: 2, indexed: 0, failed: [] },
+				},
+			},
+			jobs: [ running ],
+		};
+		answer( { 'GET /onesearch/v1/indexer': () => status } );
+		vi.useFakeTimers();
+
+		try {
+			renderEntities();
+
+			expect(
+				await screen.findByText( 'Indexing…' )
+			).toBeInTheDocument();
+			expect( screen.getByText( '1 of 2 items' ) ).toBeInTheDocument();
+
+			status = {
+				...status,
+				sites: {
+					[ currentSiteUrl ]: {
+						index: { total: 2, indexed: 2, failed: [] },
+					},
+				},
+				jobs: [ { ...running, status: 'completed' } ],
+			};
+
+			await act( async () => {
+				await vi.advanceTimersByTimeAsync( POLL_INTERVAL );
+			} );
+
+			expect(
+				screen.getByRole( 'button', { name: 'Re-index' } )
+			).toBeEnabled();
+			expect(
+				screen.getByText( '2 of 2 items are in search.' )
+			).toBeInTheDocument();
+			expect( screen.queryByText( 'Indexing…' ) ).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
+	} );
+
+	it( 'checks again when the status fails to load', async () => {
+		let result: unknown = new Error( 'Service unavailable' );
+		answer( { 'GET /onesearch/v1/indexer': () => result } );
+		vi.useFakeTimers();
+
+		try {
+			renderEntities();
+
+			await act( async () => {
+				await vi.advanceTimersByTimeAsync( 0 );
+			} );
+			expect(
+				screen.queryByText( '2 of 2 items are in search.' )
+			).toBeNull();
+
+			result = {
+				sites: {
+					[ currentSiteUrl ]: {
+						index: { total: 2, indexed: 2, failed: [] },
+					},
+				},
+				jobs: [],
+			};
+
+			await act( async () => {
+				await vi.advanceTimersByTimeAsync( POLL_INTERVAL );
+			} );
+
+			expect(
+				screen.getByText( '2 of 2 items are in search.' )
+			).toBeInTheDocument();
+		} finally {
+			vi.useRealTimers();
+		}
+	} );
+
+	it( 'says a re-index starts over while one is queued, or a brand site re-indexes', async () => {
+		const jobs: JobStatusData[] = [
+			{
+				job: 'index_site',
+				site: currentSiteUrl,
+				status: 'queued',
+				error: null,
+			},
+		];
+		answer( {
+			'GET /onesearch/v1/indexer': () => ( { sites: {}, jobs } ),
+		} );
+		const { unmount } = renderEntities( {
+			sites: [ { name: 'Brand Site', url: brandSiteUrl } ],
+		} );
+
+		expect(
+			await screen.findByText( 'Indexing will start soon.' )
+		).toBeInTheDocument();
+		fireEvent.click( screen.getByRole( 'button', { name: 'Re-index' } ) );
+		expect(
+			screen.getByText(
+				'Indexing is already running. Re-index to start it over.'
+			)
+		).toBeInTheDocument();
+
+		unmount();
+		jobs[ 0 ] = {
+			job: 'index_site',
+			site: brandSiteUrl,
+			status: 'running',
+			error: null,
+			progress: { total: 3, done: 1, failed: 0 },
+		};
+		renderEntities( {
+			sites: [ { name: 'Brand Site', url: brandSiteUrl } ],
+		} );
+
+		expect( await screen.findByText( 'Indexing…' ) ).toBeInTheDocument();
+		fireEvent.click( screen.getByRole( 'button', { name: 'Re-index' } ) );
+		expect(
+			screen.getByText(
+				'Indexing is already running. Re-index to start it over.'
+			)
+		).toBeInTheDocument();
 	} );
 } );

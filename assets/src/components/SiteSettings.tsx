@@ -22,10 +22,7 @@ import { __ } from '@wordpress/i18n';
  * Internal dependencies
  */
 import type { NoticeType } from '@/admin/settings/page';
-
-const API_NAMESPACE = window.OneSearchSettings.restUrl + 'onesearch/v1';
-const NONCE = window.OneSearchSettings.nonce as string;
-const API_KEY = window.OneSearchSettings.api_key;
+import { API_KEY, API_NAMESPACE, NONCE } from '@/js/utils';
 
 const SiteSettings = () => {
 	const [ apiKey, setApiKey ] = useState( API_KEY );

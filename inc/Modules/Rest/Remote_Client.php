@@ -375,57 +375,35 @@ class Remote_Client {
 	}
 
 	/**
-	 * Trigger batch reindexing of all child sites (for governing sites).
+	 * Tells a brand site to re-index itself. The brand site only queues its indexing run.
 	 *
-	 * @return true|array{site_url: string, message: string}[] Array of errors encountered, true if successful.
+	 * @param array{url: string, api_key: string} $site_data The brand site, with its stored key.
+	 *
+	 * @return true|\WP_Error True if the brand site started it.
 	 */
-	public static function reindex_brand_sites() {
-		$shared_sites = Settings::get_shared_sites();
+	public static function reindex_brand_site( array $site_data ): true|\WP_Error {
+		$response = self::request_brand_site( 'indexer', $site_data, [ 'method' => \WP_REST_Server::CREATABLE ] );
 
-		$errors = [];
-		// Build the requests array for each site.
-		foreach ( $shared_sites as $site_data ) {
-			if ( empty( $site_data['url'] ) || empty( $site_data['api_key'] ) ) {
-				$errors[] = [
-					'site_url' => $site_data['url'] ?: '(missing)',
-					'message'  => __( 'Missing url or api_key.', 'onesearch' ),
-				];
-				continue;
-			}
+		return is_wp_error( $response ) ? $response : true;
+	}
 
-			$response = self::request(
-				$site_data['url'],
-				're-index',
-				$site_data['api_key'],
-				[
-					'method'  => \WP_REST_Server::CREATABLE,
-					'timeout' => 45, // phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout -- Allow longer timeout for reindexing.
-				]
-			);
+	/**
+	 * Gets a brand site's report about its index and jobs.
+	 *
+	 * @param array{url: string, api_key: string} $site_data The brand site, with its stored key.
+	 *
+	 * @return array<mixed>|\WP_Error The report as the brand site sent it.
+	 */
+	public static function get_brand_status( array $site_data ): array|\WP_Error {
+		$response = self::request_brand_site( 'indexer', $site_data );
 
-			if ( is_wp_error( $response ) ) {
-				$errors[] = [
-					'site_url' => $site_data['url'],
-					// translators: %s is the error message.
-					'message'  => sprintf( __( 'Invalid response received. Error %s', 'onesearch' ), esc_html( $response->get_error_message() ) ),
-				];
-				continue;
-			}
-
-			$code = wp_remote_retrieve_response_code( $response );
-
-			if ( 200 !== $code ) {
-				$site_error = json_decode( wp_remote_retrieve_body( $response ), true );
-
-				$errors[] = [
-					'site_url' => $site_data['url'],
-					// translators: %s is the error code.
-					'message'  => is_string( $site_error['message'] ?? null ) ? $site_error['message'] : sprintf( esc_html__( 'Failed to connect to the child site. Error code %s', 'onesearch' ), esc_html( (string) $code ) ),
-				];
-			}
+		if ( is_wp_error( $response ) ) {
+			return $response;
 		}
 
-		return $errors ?: true;
+		$report = json_decode( wp_remote_retrieve_body( $response ), true );
+
+		return is_array( $report ) ? $report : new \WP_Error( 'onesearch_rest_invalid_response', __( 'The site returned an invalid response.', 'onesearch' ) );
 	}
 
 	/**
@@ -469,6 +447,44 @@ class Remote_Client {
 				]
 			);
 		}
+	}
+
+	/**
+	 * Sends a request to a OneSearch route on a brand site, and fails unless the brand site answers with a 200.
+	 *
+	 * @param string                              $route     The route, relative to the OneSearch namespace.
+	 * @param array{url: string, api_key: string} $site_data The brand site, with its stored key.
+	 * @param array<string,mixed>                 $args      Extra request arguments, like the method.
+	 *
+	 * @return array<string,mixed>|\WP_Error The response, or the brand site's error.
+	 */
+	private static function request_brand_site( string $route, array $site_data, array $args = [] ): array|\WP_Error {
+		if ( empty( $site_data['url'] ) || empty( $site_data['api_key'] ) ) {
+			return new \WP_Error( 'onesearch_missing_site_data', __( "This site's URL or API key is missing. Remove the site and add it again.", 'onesearch' ) );
+		}
+
+		$response = self::request( $site_data['url'], $route, $site_data['api_key'], $args );
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$code = (int) wp_remote_retrieve_response_code( $response );
+
+		if ( 200 !== $code ) {
+			$site_error = json_decode( wp_remote_retrieve_body( $response ), true );
+
+			return new \WP_Error(
+				'onesearch_rest_failed_to_connect',
+				is_string( $site_error['message'] ?? null )
+					? $site_error['message']
+					/* translators: %d: HTTP status code. */
+					: sprintf( __( 'The brand site answered with error %d.', 'onesearch' ), $code ),
+				[ 'status' => $code ]
+			);
+		}
+
+		return $response;
 	}
 
 	/**

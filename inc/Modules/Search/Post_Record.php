@@ -16,6 +16,7 @@ use OneSearch\Utils;
  *
  * @phpstan-type BaseRecordData array{
  *  site_post_id: string,
+ *  indexed_at: int,
  *  is_sticky: 0|1,
  *  permalink: string,
  *  post_date_gmt: int,
@@ -57,6 +58,7 @@ use OneSearch\Utils;
  *  objectID: string,
  *  total_chunks: int,
  *  site_post_id: string,
+ *  indexed_at: int,
  *  is_sticky: 0|1,
  *  permalink: string,
  *  post_date_gmt: int,
@@ -246,39 +248,56 @@ final class Post_Record {
 	}
 
 	/**
-	 * Gets the WP_Post objects that can be indexed.
+	 * Whether a post belongs in the index.
 	 *
-	 * @param string[] $post_types The post types to get posts for.
-	 * @param int      $page       The page number.
-	 * @param int      $posts_per_page The number of posts per page.
-	 *
-	 * @return \WP_Post[] The posts to index.
+	 * @param \WP_Post $post       The post.
+	 * @param string[] $post_types The post types the site indexes.
 	 */
-	public static function get_indexable_posts( array $post_types, int $page = 1, int $posts_per_page = -1 ): array {
-		$args = [
-			'post_type'              => $post_types,
-			'post_status'            => self::get_allowed_statuses( $post_types ),
-			'posts_per_page'         => $posts_per_page,
-			// Records need the meta and terms of every post, so load them with one query per batch.
-			'update_post_meta_cache' => true,
-			'update_post_term_cache' => true,
-			'ignore_sticky_posts'    => true,
-			'no_found_rows'          => true,
-		];
+	public static function is_indexable( \WP_Post $post, array $post_types ): bool {
+		return in_array( $post->post_type, $post_types, true )
+			&& in_array( $post->post_status, self::get_allowed_statuses( [ $post->post_type ] ), true )
+			&& ! self::is_protected( $post );
+	}
 
-		// Enable pagination when batching.
-		if ( $posts_per_page > 0 ) {
-			$args['paged'] = $page;
-		}
+	/**
+	 * Queries the posts that belong in the index, the way is_indexable() checks one.
+	 *
+	 * @param string[]            $post_types The post types the site indexes. WP_Query falls back to posts without any.
+	 * @param array<string,mixed> $args       More WP_Query args.
+	 */
+	public static function query_indexable_posts( array $post_types, array $args = [] ): \WP_Query {
+		$query    = new \WP_Query();
+		$statuses = array_values( array_filter( get_post_stati(), 'is_post_status_viewable' ) );
 
-		$query = new \WP_Query( $args );
-		/** @var \WP_Post[] $posts */
-		$posts = $query->get_posts();
+		$where = static function ( string $where, \WP_Query $filtered ) use ( $query, $statuses ): string {
+			global $wpdb;
 
-		// Records include the featured images too.
-		update_post_thumbnail_cache( $query );
+			if ( $filtered !== $query ) {
+				return $where;
+			}
 
-		return $posts;
+			// Media stays when it's unattached or its parent is public, as in is_protected().
+			$where .= $wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- The placeholders are built from the statuses.
+				" AND ( {$wpdb->posts}.post_type <> 'attachment' OR {$wpdb->posts}.post_parent = 0 OR {$wpdb->posts}.post_parent IN ( SELECT parents.ID FROM {$wpdb->posts} AS parents WHERE parents.post_password = '' AND parents.post_status IN ( " . implode( ', ', array_fill( 0, count( $statuses ), '%s' ) ) . ' ) ) )',
+				$statuses
+			);
+
+			return $where;
+		};
+
+		add_filter( 'posts_where', $where, 10, 2 );
+		$query->query(
+			$args + [
+				'post_type'           => $post_types,
+				'post_status'         => self::get_allowed_statuses( $post_types ),
+				'has_password'        => false,
+				'ignore_sticky_posts' => true,
+			]
+		);
+		remove_filter( 'posts_where', $where );
+
+		return $query;
 	}
 
 	/**
@@ -432,6 +451,8 @@ final class Post_Record {
 		$base_record = [
 			// The unique site post ID used for distinct filtering.
 			'site_post_id'      => $this->get_site_post_id( $post->ID ),
+			// When the record was saved, so an indexing run can delete the ones it didn't save again.
+			'indexed_at'        => time(),
 			'is_sticky'         => (int) is_sticky( $post->ID ),
 			'permalink'         => get_permalink( $post ),
 			'post_date_gmt'     => (int) get_post_time( 'U', true, $post ),

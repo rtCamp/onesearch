@@ -27,6 +27,8 @@ parameters:
 		- onesearch.php
 		- uninstall.php
 		- inc/
+	scanDirectories:
+		- vendor/woocommerce/action-scheduler/
 	excludePaths:
 		analyse:
 			- tests/

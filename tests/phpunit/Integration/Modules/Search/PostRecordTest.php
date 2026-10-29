@@ -115,12 +115,32 @@ final class PostRecordTest extends TestCase {
 	}
 
 	/**
-	 * Ensures get_indexable_posts returns an array.
+	 * The indexable posts leave out drafts, password-protected posts, and media attached to a post that isn't public, like is_indexable() does.
 	 */
-	public function test_get_indexable_posts_returns_array(): void {
-		$posts = Post_Record::get_indexable_posts( [ 'post' ] );
+	public function test_query_indexable_posts_leaves_out_protected_posts_and_their_media(): void {
+		$public    = self::factory()->post->create();
+		$protected = self::factory()->post->create( [ 'post_password' => 'secret' ] );
+		$draft     = self::factory()->post->create( [ 'post_status' => 'draft' ] );
 
-		$this->assertIsArray( $posts );
+		$public_media    = self::factory()->attachment->create( [ 'post_parent' => $public ] );
+		$unattached      = self::factory()->attachment->create( [ 'post_parent' => 0 ] );
+		$protected_media = self::factory()->attachment->create( [ 'post_parent' => $protected ] );
+		$draft_media     = self::factory()->attachment->create( [ 'post_parent' => $draft ] );
+
+		$post_types = [ 'post', 'attachment' ];
+		$post_ids   = Post_Record::query_indexable_posts(
+			$post_types,
+			[
+				'fields'         => 'ids',
+				'posts_per_page' => -1, // phpcs:ignore WordPressVIPMinimum.Performance.NoPaging.posts_per_page_posts_per_page
+			]
+		)->posts;
+
+		$this->assertEqualsCanonicalizing( [ $public, $public_media, $unattached ], $post_ids );
+
+		foreach ( [ $public, $protected, $draft, $public_media, $unattached, $protected_media, $draft_media ] as $post_id ) {
+			$this->assertSame( in_array( $post_id, $post_ids, true ), Post_Record::is_indexable( get_post( $post_id ), $post_types ), (string) $post_id );
+		}
 	}
 
 	/**
@@ -137,29 +157,11 @@ final class PostRecordTest extends TestCase {
 			]
 		);
 
-		$posts   = Post_Record::get_indexable_posts( [ 'post' ], 1, 10 );
+		$posts   = Post_Record::query_indexable_posts( [ 'post' ] )->posts;
 		$records = ( new Post_Record() )->to_records( $posts[0] );
 
 		$this->assertSame( $category->term_id, $records[0]['taxonomies']['category'][0]['term_id'] );
 		$this->assertSame( 'breaking', $records[0]['taxonomies']['post_tag'][0]['slug'] );
-	}
-
-	/**
-	 * Tests that get_indexable_posts sets paged when batching.
-	 */
-	public function test_get_indexable_posts_sets_paged_when_batching(): void {
-		$paged    = null;
-		$callback = static function ( \WP_Query $query ) use ( &$paged ): void {
-			$paged = $query->query_vars['paged'] ?? null;
-		};
-
-		add_action( 'pre_get_posts', $callback );
-
-		Post_Record::get_indexable_posts( [ 'post' ], 3, 5 );
-
-		remove_action( 'pre_get_posts', $callback );
-
-		$this->assertSame( 3, $paged );
 	}
 
 	/**
