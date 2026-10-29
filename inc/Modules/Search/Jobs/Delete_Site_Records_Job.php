@@ -77,4 +77,13 @@ final class Delete_Site_Records_Job extends Abstract_Job {
 
 		return true;
 	}
+
+	/**
+	 * {@inheritDoc}
+	 *
+	 * A delete that's done means nothing for search, so its record goes.
+	 */
+	protected function on_complete( string $key, array $record ): void { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter -- The parent's signature.
+		$this->records->delete_record( $key );
+	}
 }
