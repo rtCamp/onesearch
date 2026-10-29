@@ -62,6 +62,25 @@ describe( 'JobStatus', () => {
 		expect( screen.getByText( 'cURL error 7' ) ).toBeInTheDocument();
 	} );
 
+	it( "says what a failed delete of a removed site's content means for search", () => {
+		render(
+			<JobStatus
+				job={ job( {
+					job: 'delete_site_records',
+					status: 'failed',
+					error: 'Algolia is down.',
+				} ) }
+			/>
+		);
+
+		expect(
+			screen.getByText(
+				'Content from a removed site may still show in search. Re-index to try again.'
+			)
+		).toBeInTheDocument();
+		expect( screen.getByText( 'Algolia is down.' ) ).toBeInTheDocument();
+	} );
+
 	it( 'shows nothing for a completed job, or one it has no copy for', () => {
 		const { container, rerender } = render(
 			<JobStatus job={ job( { status: 'completed' } ) } />
@@ -69,6 +88,14 @@ describe( 'JobStatus', () => {
 		expect( container ).toBeEmptyDOMElement();
 
 		rerender( <JobStatus job={ job( { job: 'unknown' } ) } /> );
+		expect( container ).toBeEmptyDOMElement();
+
+		// A job that only reports its failures.
+		rerender(
+			<JobStatus
+				job={ job( { job: 'delete_site_records', status: 'running' } ) }
+			/>
+		);
 		expect( container ).toBeEmptyDOMElement();
 	} );
 } );

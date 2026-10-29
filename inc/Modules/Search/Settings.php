@@ -12,6 +12,7 @@ namespace OneSearch\Modules\Search;
 use OneSearch\Contracts\Interfaces\Registrable;
 use OneSearch\Encryptor;
 use OneSearch\Modules\Rest\Remote_Client;
+use OneSearch\Modules\Search\Jobs\Delete_Site_Records_Job;
 use OneSearch\Modules\Search\Jobs\Jobs;
 use OneSearch\Modules\Settings\Settings as Admin_Settings;
 use OneSearch\Utils;
@@ -185,7 +186,7 @@ final class Settings implements Registrable {
 	}
 
 	/**
-	 * Deletes the Algolia index when a governing site is changed to a consumer, along with its index status and its jobs about its brand sites.
+	 * Deletes the Algolia index when a governing site is changed to a consumer, along with its index status and its jobs about its brand sites and the sites it removed.
 	 *
 	 * @internal Hook callback
 	 *
@@ -206,33 +207,39 @@ final class Settings implements Registrable {
 			Jobs::registry()->delete_records( $site_url );
 		}
 
+		Jobs::registry()->get( Delete_Site_Records_Job::class )->clear();
+
 		( new Indexer() )->delete_index();
 	}
 
 	/**
-	 * Deletes algolia entries and the jobs about a site when it's removed from the list of shared sites, and cleans it out of the search settings.
+	 * Deletes the jobs about a site when it's removed from the list of shared sites, queues the job that deletes its Algolia records, and cleans it out of the search settings.
+	 *
+	 * A site that's added back forgets its jobs too, so a delete from its removal doesn't run or show.
+	 *
+	 * @internal Hook callback
 	 *
 	 * @param mixed $old_value The old value.
 	 * @param mixed $new_value The new value.
 	 */
 	public function on_shared_sites_change( $old_value, $new_value ): void {
-		// If there is no old value, nothing to do.
-		if ( ! is_array( $old_value ) || empty( $old_value ) ) {
-			return;
-		}
-
-		$old_site_urls = array_map(
+		$old_site_urls = is_array( $old_value ) ? array_map(
 			static function ( $site ) {
 				return ! empty( $site['url'] ) ? Utils::normalize_url( $site['url'] ) : null;
 			},
 			$old_value
-		);
+		) : [];
 		$new_site_urls = is_array( $new_value ) ? array_map(
 			static function ( $site ) {
 				return ! empty( $site['url'] ) ? Utils::normalize_url( $site['url'] ) : null;
 			},
 			$new_value
 		) : [];
+
+		// A site that's added back forgets a failed delete of its records from when it was removed.
+		foreach ( array_filter( array_diff( $new_site_urls, $old_site_urls ) ) as $site_url ) {
+			Jobs::registry()->delete_records( $site_url );
+		}
 
 		$removed_sites = array_filter( array_diff( $old_site_urls, $new_site_urls ) );
 		if ( empty( $removed_sites ) ) {
@@ -244,12 +251,7 @@ final class Settings implements Registrable {
 		// Its jobs, like a failed re-index, no longer apply.
 		foreach ( $removed_sites as $site_url ) {
 			Jobs::registry()->delete_records( $site_url );
-		}
-
-		$is_deleted = ( new Indexer() )->delete_site_records( $removed_sites );
-
-		if ( is_wp_error( $is_deleted ) ) {
-			Utils::log( sprintf( 'Failed to delete the records of removed sites: %s', $is_deleted->get_error_message() ) );
+			Jobs::registry()->get( Delete_Site_Records_Job::class )->dispatch( [ $site_url ] );
 		}
 
 		// Remove from indexable entities.

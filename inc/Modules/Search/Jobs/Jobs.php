@@ -27,8 +27,9 @@ final class Jobs implements Registrable {
 	 * The jobs, by name.
 	 */
 	private const JOBS = [
-		'index_site'  => Index_Site_Job::class,
-		'index_posts' => Index_Posts_Job::class,
+		'index_site'          => Index_Site_Job::class,
+		'index_posts'         => Index_Posts_Job::class,
+		'delete_site_records' => Delete_Site_Records_Job::class,
 	];
 
 	/**

@@ -12,6 +12,7 @@ namespace OneSearch\Modules\Rest;
 use OneSearch\Jobs\Queue;
 use OneSearch\Modules\Search\Index_Status;
 use OneSearch\Modules\Search\Indexer;
+use OneSearch\Modules\Search\Jobs\Delete_Site_Records_Job;
 use OneSearch\Modules\Search\Jobs\Index_Site_Job;
 use OneSearch\Modules\Search\Jobs\Jobs;
 use OneSearch\Modules\Settings\Settings;
@@ -71,12 +72,15 @@ class Indexer_Controller extends Abstract_REST_Controller {
 
 	/**
 	 * Starts indexing all of the site's posts, and on a governing site all of each brand site's posts too. Indexing that's going starts over.
+	 *
+	 * A governing site also tries again to delete the records of the sites it removed, where that failed.
 	 */
 	public function reindex(): \WP_REST_Response|\WP_Error {
 		$sites = [ Utils::get_current_site_url() ];
 
 		if ( Settings::is_governing_site() ) {
 			$sites = [ ...$sites, ...array_keys( Settings::get_shared_sites() ) ];
+			Jobs::registry()->get( Delete_Site_Records_Job::class )->retry();
 		}
 
 		// An admin is watching.
@@ -108,7 +112,7 @@ class Indexer_Controller extends Abstract_REST_Controller {
 		];
 		$jobs  = array_map(
 			static function ( array $reported ): array {
-				// Every job that reports a status keys its records by the site it's about.
+				// Every job that reports a status keys it by the site it shows on.
 				$status = [
 					'job'    => $reported['job'],
 					'site'   => $reported['key'],

@@ -11,13 +11,20 @@ import type { JobStatusData } from '@/js/use-index-status';
 // What each job is, and what its failure means for search and what to do.
 const getJobCopy = (
 	job: JobStatusData
-): { label: string; failed: string } | null => {
+): { label?: string; failed: string } | null => {
 	switch ( job.job ) {
 		case 'index_site':
 			return {
 				label: __( 'Indexing', 'onesearch' ),
 				failed: __(
 					'Search may show outdated or missing content from this site. Re-index to try again.',
+					'onesearch'
+				),
+			};
+		case 'delete_site_records':
+			return {
+				failed: __(
+					'Content from a removed site may still show in search. Re-index to try again.',
 					'onesearch'
 				),
 			};
@@ -35,7 +42,7 @@ const getJobCopy = (
 const JobStatus = ( { job }: { job: JobStatusData } ) => {
 	const copy = getJobCopy( job );
 
-	if ( ! copy || job.status === 'completed' ) {
+	if ( ! copy ) {
 		return null;
 	}
 
@@ -48,6 +55,10 @@ const JobStatus = ( { job }: { job: JobStatusData } ) => {
 				) }
 			</div>
 		);
+	}
+
+	if ( job.status === 'completed' || ! copy.label ) {
+		return null;
 	}
 
 	const { progress } = job;

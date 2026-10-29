@@ -11,6 +11,7 @@ namespace OneSearch\Tests\Integration\Modules\Search;
 
 use OneSearch\Modules\Rest\Remote_Client;
 use OneSearch\Modules\Search\Index_Status;
+use OneSearch\Modules\Search\Jobs\Delete_Site_Records_Job;
 use OneSearch\Modules\Search\Jobs\Index_Site_Job;
 use OneSearch\Modules\Search\Jobs\Jobs;
 use OneSearch\Modules\Search\Settings as Search_Settings;
@@ -319,10 +320,18 @@ final class SettingsTest extends TestCase {
 	}
 
 	/**
-	 * A governing site that becomes a consumer drops its jobs about its brand sites, since it no longer has any.
+	 * A governing site that becomes a consumer drops its jobs about its brand sites and the sites it removed, since it no longer has any.
 	 */
 	public function test_switching_governing_site_to_consumer_deletes_its_jobs_about_brand_sites(): void {
+		( new Jobs() )->register_hooks();
 		$this->set_up_governing_credentials();
+
+		// Algolia couldn't delete the records of a removed site.
+		$this->fake_algolia_index( '/deleteByQuery' );
+		Jobs::registry()->get( Delete_Site_Records_Job::class )->dispatch( [ 'https://removed.example.com/' ] );
+		$this->run_jobs();
+		$this->assertSame( 'failed', $this->get_statuses_of( 'delete_site_records' )[0]['status'] );
+
 		$this->fake_algolia_index();
 		Settings::set_shared_sites(
 			[
@@ -340,6 +349,7 @@ final class SettingsTest extends TestCase {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
 
 		$this->assertSame( [], $this->get_statuses_of( 'index_site' ) );
+		$this->assertSame( [], $this->get_statuses_of( 'delete_site_records' ) );
 	}
 
 	/**
@@ -365,9 +375,9 @@ final class SettingsTest extends TestCase {
 	}
 
 	/**
-	 * Does nothing when old value is empty.
+	 * An empty old value only adds sites.
 	 */
-	public function test_on_shared_sites_change_skips_empty_old_value(): void {
+	public function test_on_shared_sites_change_with_empty_old_value(): void {
 		$settings = new Search_Settings();
 
 		$settings->on_shared_sites_change( [], [ [ 'url' => 'https://new.example.com' ] ] );
@@ -376,9 +386,9 @@ final class SettingsTest extends TestCase {
 	}
 
 	/**
-	 * Does nothing when old value is not an array.
+	 * An old value that isn't an array only adds sites.
 	 */
-	public function test_on_shared_sites_change_skips_non_array_old_value(): void {
+	public function test_on_shared_sites_change_with_non_array_old_value(): void {
 		$settings = new Search_Settings();
 
 		$settings->on_shared_sites_change( 'not-array', [ [ 'url' => 'https://new.example.com' ] ] );
@@ -396,38 +406,6 @@ final class SettingsTest extends TestCase {
 		$settings->on_shared_sites_change( $sites, $sites );
 
 		$this->assertTrue( true );
-	}
-
-	/**
-	 * Removed sites are cleaned out of the settings even when their records could not be deleted from Algolia.
-	 */
-	public function test_on_shared_sites_change_cleans_entities_even_when_delete_fails(): void {
-		$settings = new Search_Settings();
-
-		$initial_entities = [
-			'entities' => [
-				'https://child-a.example.com/' => [ 'post' ],
-				'https://child-b.example.com/' => [ 'post' ],
-			],
-		];
-
-		update_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES, $initial_entities );
-		delete_option( Search_Settings::OPTION_GOVERNING_ALGOLIA_CREDENTIALS );
-
-		$old_sites = [
-			[ 'url' => 'https://child-a.example.com/' ],
-			[ 'url' => 'https://child-b.example.com/' ],
-		];
-		$new_sites = [
-			[ 'url' => 'https://child-b.example.com/' ],
-		];
-
-		$settings->on_shared_sites_change( $old_sites, $new_sites );
-
-		$this->assertSame(
-			[ 'entities' => [ 'https://child-b.example.com/' => [ 'post' ] ] ],
-			get_option( Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES )
-		);
 	}
 
 	/**
@@ -475,9 +453,6 @@ final class SettingsTest extends TestCase {
 	public function test_on_shared_sites_change_removes_removed_sites_entities(): void {
 		$this->set_up_governing_credentials();
 
-		$recorded_paths = [];
-		$this->mock_algolia_http_client( $recorded_paths );
-
 		update_option(
 			Search_Settings::OPTION_GOVERNING_INDEXABLE_SITES,
 			[
@@ -509,14 +484,15 @@ final class SettingsTest extends TestCase {
 	}
 
 	/**
-	 * Removing shared sites deletes their records with a valid filter.
+	 * Removing shared sites deletes their records in the background, and the remaining sites keep theirs.
 	 */
 	public function test_on_shared_sites_change_deletes_removed_sites_records(): void {
+		( new Jobs() )->register_hooks();
 		$this->set_up_governing_credentials();
-
-		$recorded_paths    = [];
-		$recorded_requests = [];
-		$this->mock_algolia_http_client( $recorded_paths, null, null, $recorded_requests );
+		$this->fake_algolia_index();
+		$this->add_algolia_record( 'a_post', 'https://child-a.example.com/' );
+		$this->add_algolia_record( 'b_post', 'https://child-b.example.com/' );
+		$this->add_algolia_record( 'c_post', 'https://child-c.example.com/' );
 
 		( new Search_Settings() )->on_shared_sites_change(
 			[
@@ -528,14 +504,38 @@ final class SettingsTest extends TestCase {
 				[ 'url' => 'https://child-c.example.com/' ],
 			]
 		);
+		$this->assertCount( 3, $this->algolia_records, 'The records are deleted in the background.' );
 
-		$delete_requests = array_values( array_filter( $recorded_requests, static fn ( array $request ) => str_contains( $request['path'], '/deleteByQuery' ) ) );
+		$this->run_jobs();
 
-		$this->assertCount( 1, $delete_requests );
-		$this->assertSame(
-			'site_url:"https://child-a.example.com/" OR site_url:"https://child-b.example.com/"',
-			json_decode( $delete_requests[0]['body'], true )['filters']
-		);
+		$this->assertSame( [ 'c_post' ], array_keys( $this->algolia_records ) );
+	}
+
+	/**
+	 * A brand site that's added back no longer shows the failed delete of its records from when it was removed.
+	 */
+	public function test_a_brand_site_added_back_forgets_its_failed_removal(): void {
+		( new Jobs() )->register_hooks();
+		( new Search_Settings() )->register_hooks();
+		$this->set_up_governing_credentials();
+		$brand = [
+			[
+				'name'    => 'Brand',
+				'url'     => 'https://brand.example.com',
+				'api_key' => 'brand-key',
+			],
+		];
+		Settings::set_shared_sites( $brand );
+
+		// Algolia is down when the brand site is removed.
+		$this->fake_algolia_index( '/deleteByQuery' );
+		Settings::remove_shared_site( 'https://brand.example.com/' );
+		$this->run_jobs();
+		$this->assertSame( 'failed', $this->get_statuses_of( 'delete_site_records' )[0]['status'] );
+
+		Settings::set_shared_sites( $brand );
+
+		$this->assertSame( [], $this->get_statuses_of( 'delete_site_records' ) );
 	}
 
 	/**

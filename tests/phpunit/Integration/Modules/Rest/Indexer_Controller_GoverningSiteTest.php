@@ -12,6 +12,7 @@ namespace OneSearch\Tests\Integration\Modules\Rest;
 use OneSearch\Modules\Rest\Indexer_Controller;
 use OneSearch\Modules\Search\Jobs\Index_Site_Job;
 use OneSearch\Modules\Search\Jobs\Jobs;
+use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use OneSearch\Utils;
@@ -232,6 +233,39 @@ class Indexer_Controller_GoverningSiteTest extends TestCase {
 
 		$this->assertSame( 'completed', $this->get_statuses_of( 'index_site' )[0]['status'] );
 		$this->assertSame( [ $post_id ], $this->get_algolia_post_ids() );
+	}
+
+	/**
+	 * A removed site's records that couldn't be deleted show on this site's row, and the next re-index deletes them.
+	 */
+	public function test_a_reindex_retries_a_failed_delete_of_a_removed_sites_records(): void {
+		( new Search_Settings() )->register_hooks();
+		$this->share_brand_sites( [ 'old' ] );
+		$this->add_algolia_record( 'old_post', 'https://old.example.com/' );
+
+		// Algolia is down when the brand site is removed.
+		$this->fake_algolia_index( '/deleteByQuery' );
+		Settings::remove_shared_site( 'https://old.example.com/' );
+		$this->run_jobs();
+
+		$this->assertSame(
+			[
+				[
+					'job'    => 'delete_site_records',
+					'site'   => Utils::get_current_site_url(),
+					'status' => 'failed',
+					'error'  => 'Failed to delete Algolia records by given args. forced test exception',
+				],
+			],
+			$this->get_status()['jobs']
+		);
+
+		$this->fake_algolia_index();
+		$this->reindex();
+		$this->run_jobs();
+
+		$this->assertSame( [ 'index_site' ], array_column( $this->get_status()['jobs'], 'job' ) );
+		$this->assertSame( [], $this->algolia_records );
 	}
 
 	/**
