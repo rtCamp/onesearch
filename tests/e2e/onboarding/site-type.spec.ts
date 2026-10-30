@@ -13,7 +13,7 @@ import {
 	type SiteType,
 	expect,
 	test,
-} from '../scaffold';
+} from '../_support';
 
 function indicesMenuLink( page: Page ) {
 	return page

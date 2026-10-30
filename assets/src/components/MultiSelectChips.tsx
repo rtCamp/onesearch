@@ -5,11 +5,6 @@ import { useState, useRef, useEffect } from '@wordpress/element';
 
 interface MultiSelectChipsProps {
 	label?: string;
-
-	/**
-	 * Accessible name for the control, for when several appear on one screen
-	 * and the visible placeholder is the same for all of them.
-	 */
 	ariaLabel?: string;
 	placeholder?: string;
 	options: Array< Record< string, string | number > >;

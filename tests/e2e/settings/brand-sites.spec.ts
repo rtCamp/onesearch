@@ -16,7 +16,7 @@ import {
 	searchHit,
 	searchResult,
 	test,
-} from '../scaffold';
+} from '../_support';
 
 test.describe( 'brand sites', () => {
 	test( 'adding a brand site connects both sites and survives a reload', async ( {

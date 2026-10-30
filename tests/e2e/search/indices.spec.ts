@@ -17,7 +17,7 @@ import {
 	notices,
 	test,
 	type OneSearchUtils,
-} from '../scaffold';
+} from '../_support';
 
 // The open entity picker: a list of post-type checkboxes in a popover.
 function entityMenu( page: Page ) {

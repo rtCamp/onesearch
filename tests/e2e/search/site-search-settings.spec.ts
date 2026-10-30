@@ -14,7 +14,7 @@ import {
 	searchHit,
 	searchResult,
 	test,
-} from '../scaffold';
+} from '../_support';
 
 test.describe( 'site search settings', () => {
 	test( 'a brand site searches the sites picked for it, and falls back to WordPress search once Algolia is off', async ( {
