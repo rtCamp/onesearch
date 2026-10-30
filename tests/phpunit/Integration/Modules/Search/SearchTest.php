@@ -9,12 +9,16 @@ declare(strict_types = 1);
 
 namespace OneSearch\Tests\Integration\Modules\Search;
 
+use OneSearch\Encryptor;
+use OneSearch\Modules\Rest\Remote_Client;
+use OneSearch\Modules\Search\Indexer;
 use OneSearch\Modules\Search\Search;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use OneSearch\Utils;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Tests for the Search class.
@@ -213,6 +217,140 @@ final class SearchTest extends TestCase {
 
 		$this->assertNull( $result );
 		$this->assertFalse( (bool) ( $wp_query->is_algolia_search ?? false ) );
+	}
+
+	/**
+	 * A brand site searches only itself and its selected sites.
+	 */
+	public function test_brand_site_searches_its_own_site_and_the_selected_sites_only(): void {
+		$own_site      = Utils::get_current_site_url();
+		$selected_site = 'https://selected.example.com/';
+
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( 'https://governing.example.com' );
+		set_transient(
+			Remote_Client::TRANSIENT_KEY,
+			[
+				'algolia_credentials' => [
+					'app_id'    => 'TEST_APP',
+					'write_key' => (string) Encryptor::encrypt( 'TEST_KEY' ),
+				],
+				'search_settings'     => [
+					'algolia_enabled'  => true,
+					'searchable_sites' => [ $own_site, $selected_site ],
+				],
+				'indexable_entities'  => [ 'post' ],
+				'available_sites'     => [ $own_site, $selected_site, 'https://unselected.example.com/' ],
+			],
+			HOUR_IN_SECONDS
+		);
+
+		$local_id = self::factory()->post->create( [ 'post_title' => 'Local Post' ] );
+		$requests = [];
+		$this->mock_search_response(
+			[
+				'hits' => [
+					self::get_remote_hit(
+						[
+							'objectID'     => 'local_' . $local_id . '_0',
+							'site_post_id' => 'local_' . $local_id,
+							'post_id'      => $local_id,
+							'post_title'   => 'Local Post',
+							'site_url'     => $own_site,
+						]
+					),
+					self::get_remote_hit(
+						[
+							'post_title' => 'Selected Post',
+							'site_url'   => $selected_site,
+						]
+					),
+				],
+			],
+			$requests
+		);
+
+		remove_all_filters( 'posts_pre_query' );
+		$this->prime_main_search_query( 'remote test' );
+
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Reading query prepared by helper.
+		global $wp_query;
+
+		$result = ( new Search() )->get_algolia_results( null, $wp_query );
+
+		$this->assertSame( [ 'Local Post', 'Selected Post' ], wp_list_pluck( (array) $result, 'post_title' ) );
+
+		$params = json_decode( $requests[0]['body'], true );
+
+		$this->assertIsArray( $params );
+		$this->assertSame( Indexer::filter_any_of( 'site_url', [ $own_site, $selected_site ] ), $params['filters'] );
+	}
+
+	/**
+	 * Special characters are searched as typed and shown escaped.
+	 */
+	public function test_special_characters_are_searched_as_typed_and_shown_as_plain_text(): void {
+		$term = '"quoted" 100% 😀 <script>alert(1)</script>';
+
+		$this->enable_search_with_credentials();
+		$requests = [];
+		$this->mock_search_response( [ 'hits' => [] ], $requests );
+
+		remove_all_filters( 'posts_pre_query' );
+		$this->prime_main_search_query( $term );
+
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Reading query prepared by helper.
+		global $wp_query;
+
+		$result = ( new Search() )->get_algolia_results( null, $wp_query );
+
+		$this->assertSame( [], $result );
+
+		$params = json_decode( $requests[0]['body'], true );
+
+		$this->assertIsArray( $params );
+		$this->assertSame( $term, $params['query'] );
+		$this->assertStringNotContainsString( '<script>', get_search_query() );
+		$this->assertStringContainsString( '&lt;script&gt;', get_search_query() );
+	}
+
+	/**
+	 * wp-admin searches never ask Algolia.
+	 *
+	 * @param string $screen The admin screen searched from.
+	 */
+	#[DataProvider( 'admin_search_screen_provider' )]
+	public function test_admin_searches_use_wordpress_results( string $screen ): void {
+		$this->enable_search_with_credentials();
+		$recorded_paths = [];
+		$this->mock_algolia_http_client( $recorded_paths );
+
+		// The plugin's own instance is hooked at boot, and would run the search while the query is primed.
+		remove_all_filters( 'posts_pre_query' );
+		$this->prime_main_search_query( 'remote test' );
+		set_current_screen( $screen );
+
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Reading query prepared by helper.
+		global $wp_query;
+
+		$original = [ self::factory()->post->create_and_get() ];
+		$result   = ( new Search() )->get_algolia_results( $original, $wp_query );
+
+		$this->assertSame( $original, $result );
+		$this->assertSame( [], $recorded_paths );
+	}
+
+	/**
+	 * Provides the admin screens that search Posts, Pages and Media.
+	 *
+	 * @return array<string, array{0: string}>
+	 */
+	public static function admin_search_screen_provider(): array {
+		return [
+			'posts' => [ 'edit-post' ],
+			'pages' => [ 'edit-page' ],
+			'media' => [ 'upload' ],
+		];
 	}
 
 	/**

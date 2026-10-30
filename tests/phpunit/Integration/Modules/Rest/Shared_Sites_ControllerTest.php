@@ -15,6 +15,7 @@ use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use OneSearch\Utils;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use WP_REST_Request;
 
 /**
@@ -366,6 +367,111 @@ class Shared_Sites_ControllerTest extends TestCase {
 		$this->assertSame( 'onesearch_already_connected', $responses['connected']->get_data()['code'] );
 		$this->assertSame( 'onesearch_health_check_failed', $responses['good']->get_data()['code'] );
 		$this->assertSame( [], Settings::get_shared_sites() );
+	}
+
+	/**
+	 * A key the brand site rejects tells the admin to copy the key from the brand site, and the site isn't saved.
+	 *
+	 * @param int $code The brand site's answer.
+	 */
+	#[DataProvider( 'rejected_key_provider' )]
+	public function test_set_shared_sites_explains_a_wrong_api_key( int $code ): void {
+		$filter = static fn (): array => [
+			'response' => [
+				'code'    => $code,
+				'message' => '',
+			],
+			'body'     => '',
+			'headers'  => [],
+			'cookies'  => [],
+		];
+		add_filter( 'pre_http_request', $filter );
+
+		$response = $this->set_shared_sites(
+			[
+				[
+					'name'    => 'B',
+					'url'     => 'https://b.example.com/',
+					'api_key' => 'random-key',
+				],
+			]
+		);
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'The brand site rejected this API key. Copy the key from the brand site\'s OneSearch settings and try again.', $response->get_data()['message'] );
+		$this->assertSame( [], Settings::get_shared_sites() );
+	}
+
+	/**
+	 * Provides the answers of a brand site that rejects the key.
+	 *
+	 * @return array<string, array{0: int}>
+	 */
+	public static function rejected_key_provider(): array {
+		return [
+			'unauthorized' => [ 401 ],
+			'forbidden'    => [ 403 ],
+		];
+	}
+
+	/**
+	 * A site that can't be reached, or doesn't run OneSearch, is reported within 5 seconds, and isn't saved.
+	 *
+	 * @param string $answer How the site answers.
+	 */
+	#[DataProvider( 'unreachable_site_provider' )]
+	public function test_set_shared_sites_explains_an_unreachable_brand_site( string $answer ): void {
+		$timeouts = [];
+		$filter   = static function ( $preempt, array $args ) use ( $answer, &$timeouts ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$timeouts[] = $args['timeout'];
+
+			if ( 'not installed' === $answer ) {
+				return [
+					'response' => [
+						'code'    => 404,
+						'message' => 'Not Found',
+					],
+					'body'     => '{"code":"rest_no_route"}',
+					'headers'  => [],
+					'cookies'  => [],
+				];
+			}
+
+			return new \WP_Error( 'http_request_failed', 'timed out' === $answer ? 'cURL error 28: Operation timed out after 5000 milliseconds' : 'cURL error 6: Could not resolve host' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 2 );
+
+		$response = $this->set_shared_sites(
+			[
+				[
+					'name'    => 'B',
+					'url'     => 'https://b.example.com/',
+					'api_key' => 'key',
+				],
+			]
+		);
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertSame( [ 5 ], $timeouts );
+		$this->assertSame( 502, $response->get_status() );
+		$this->assertSame( 'Could not reach the brand site. Check the URL, and that OneSearch is active there, then try again.', $response->get_data()['message'] );
+		$this->assertSame( [], Settings::get_shared_sites() );
+	}
+
+	/**
+	 * Provides the ways a brand site can't be reached.
+	 *
+	 * @return array<string, array{0: string}>
+	 */
+	public static function unreachable_site_provider(): array {
+		return [
+			'non-existent domain'     => [ 'unknown host' ],
+			'no answer within 5s'     => [ 'timed out' ],
+			'OneSearch not installed' => [ 'not installed' ],
+		];
 	}
 
 	/**
