@@ -315,7 +315,7 @@ final class SearchTest extends TestCase {
 	}
 
 	/**
-	 * wp-admin searches never ask Algolia.
+	 * Searches in wp-admin never ask Algolia.
 	 *
 	 * @param string $screen The admin screen searched from.
 	 */
