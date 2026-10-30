@@ -1,6 +1,6 @@
 /**
  * The OneSearch options exposed through core's `/wp/v2/settings`, and the
- * Algolia stub's, which `localhost-helper.php` exposes the same way.
+ * Algolia stub's, which `algolia-helper.php` exposes the same way.
  */
 export const OPTION = {
 	indexableEntities: 'onesearch_indexable_entities',
@@ -48,7 +48,7 @@ export const BRAND_SITE = {
 } as const;
 
 /**
- * Accepted by the Algolia stub in `localhost-helper.php`.
+ * Accepted by the Algolia stub in `algolia-helper.php`.
  */
 export const ALGOLIA_CREDENTIALS = {
 	app_id: 'E2EAPPID',

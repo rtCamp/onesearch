@@ -140,6 +140,7 @@ Code contributions, bug reports, and feature requests are welcome! The following
 │   │   # Artifacts used for testing.
 │   ├── _data/
 │   │   └── plugins/
+│   │       ├── algolia-helper.php
 │   │       └── localhost-helper.php # Plugin used to allow docker containers to connect to each other.
 │   ├── e2e/
 │   │   ├── _support/         # Shared fixtures, helpers and constants.
@@ -488,7 +489,7 @@ End-to-end tests using Playwright can be run with the following command:
 npm run test:e2e
 ```
 
-The tests run against the built plugin, so run `npm run build:prod` and `composer install` first. They use two sites, started if they are not already running: the governing site on port 8889 (`npm run wp-env:test start`) and a brand site on port 8891 (`npm run wp-env:test-child start`). Algolia is stubbed by `tests/_data/plugins/localhost-helper.php` in both test environments. Specs import their fixtures and helpers from `tests/e2e/_support`.
+The tests run against the built plugin, so run `npm run build:prod` and `composer install` first. They use two sites, started if they are not already running: the governing site on port 8889 (`npm run wp-env:test start`) and a brand site on port 8891 (`npm run wp-env:test-child start`). Algolia is stubbed by `tests/_data/plugins/algolia-helper.php` in both test environments. Specs import their fixtures and helpers from `tests/e2e/_support`.
 
 PHPUnit shares the governing site's database, clears its permalink structure, which the plugin needs for its `/wp-json/` URLs, and switches it to a theme that doesn't exist. After `npm run test:php`, run `npm run wp-env:test start -- --update` and `npm run wp-env:test -- run cli wp theme activate twentytwentyfive` before the E2E tests.
 

@@ -4,7 +4,11 @@
 	"core": null,
 	"port": 8891,
 	"testsEnvironment": false,
-	"plugins": [ ".", "./tests/_data/plugins/localhost-helper.php" ],
+	"plugins": [
+		".",
+		"./tests/_data/plugins/localhost-helper.php",
+		"./tests/_data/plugins/algolia-helper.php"
+	],
 	"config": {
 		"FS_METHOD": "direct",
 		"WP_DEBUG": true,
