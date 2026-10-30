@@ -107,12 +107,21 @@ vi.mock( '@/components/AlgoliaSettings', () => ( {
 } ) );
 
 import SettingsPage, { type BrandSite } from '@/admin/settings/page';
+import type { SiteType } from '@/types/global';
 
 const mockedApiFetch = apiFetch as MockedFunction< typeof apiFetch >;
 
 // The page starts from the brand sites the server localized.
 const setSharedSites = ( sharedSites: BrandSite[] ) => {
 	window.OneSearchSettings = { ...window.OneSearchSettings, sharedSites };
+};
+
+const renderForSiteType = async ( siteType: SiteType ) => {
+	window.OneSearchSettings = { ...window.OneSearchSettings, siteType };
+	// The page reads the site type once, when its module loads.
+	vi.resetModules();
+	const { default: Page } = await import( '@/admin/settings/page' );
+	render( <Page /> );
 };
 
 describe( 'SettingsPage', () => {
@@ -150,6 +159,27 @@ describe( 'SettingsPage', () => {
 		} );
 
 		expect( screen.getByTestId( 'algolia-settings' ) ).toBeInTheDocument();
+	} );
+
+	it( 'shows only the brand site settings on a brand site', async () => {
+		await renderForSiteType( 'brand-site' );
+
+		expect( screen.getByTestId( 'site-settings' ) ).toBeInTheDocument();
+		expect( screen.queryByTestId( 'site-table' ) ).not.toBeInTheDocument();
+		expect(
+			screen.queryByTestId( 'algolia-settings' )
+		).not.toBeInTheDocument();
+	} );
+
+	it( 'asks for the site type on the settings screen, not in a pop-up', async () => {
+		await renderForSiteType( '' );
+
+		expect( screen.getByLabelText( 'Site Type' ) ).toBeInTheDocument();
+		expect( screen.queryByRole( 'dialog' ) ).not.toBeInTheDocument();
+		expect(
+			screen.queryByTestId( 'site-settings' )
+		).not.toBeInTheDocument();
+		expect( screen.queryByTestId( 'site-table' ) ).not.toBeInTheDocument();
 	} );
 
 	it( 'saves site changes and shows success feedback', async () => {

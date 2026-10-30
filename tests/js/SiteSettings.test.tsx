@@ -75,6 +75,50 @@ describe( 'SiteSettings', () => {
 		).toBeInTheDocument();
 	} );
 
+	it( 'keeps the disconnect button disabled until a governing site connects', async () => {
+		mockRequests( {} );
+
+		render( <SiteSettings /> );
+
+		await screen.findByDisplayValue( 'api-key' );
+		expect( screen.getByLabelText( 'Governing Site URL' ) ).toHaveValue(
+			''
+		);
+		expect(
+			screen.getByRole( 'button', { name: 'Disconnect Governing Site' } )
+		).toBeDisabled();
+	} );
+
+	it( 'shows the api key and governing site connection cards', async () => {
+		mockRequests( {
+			governingSiteUrl: 'https://governing.example.com/',
+		} );
+
+		render( <SiteSettings /> );
+
+		expect(
+			await screen.findByRole( 'heading', { name: 'API Key' } )
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole( 'button', { name: 'Copy API Key' } )
+		).toBeEnabled();
+		expect(
+			screen.getByRole( 'button', { name: 'Regenerate API Key' } )
+		).toBeEnabled();
+
+		expect(
+			screen.getByRole( 'heading', { name: 'Governing Site Connection' } )
+		).toBeInTheDocument();
+		const governingSiteUrl = screen.getByLabelText( 'Governing Site URL' );
+		expect( governingSiteUrl ).toHaveValue(
+			'https://governing.example.com/'
+		);
+		expect( governingSiteUrl ).toBeDisabled();
+		expect(
+			screen.getByRole( 'button', { name: 'Disconnect Governing Site' } )
+		).toBeEnabled();
+	} );
+
 	it( 'copies the api key to the clipboard and shows success feedback', async () => {
 		mockRequests( {
 			governingSiteUrl: 'https://governing.example.com/',

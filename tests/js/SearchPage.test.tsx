@@ -1,8 +1,8 @@
 /**
  * External dependencies
  */
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
 
 vi.mock( '@/components/SiteIndexableEntities', () => ( {
 	__esModule: true,
@@ -44,7 +44,10 @@ vi.mock( '@/components/SiteSearchSettings', () => ( {
 	default: () => <div data-testid="search-settings" />,
 } ) );
 
-let answerRequest: ( options: { path?: string } ) => Promise< unknown >;
+let answerRequest: ( options: {
+	path?: string;
+	method?: string;
+} ) => Promise< unknown >;
 
 const mockRequests = ( {
 	allPostTypes = { sites: {}, errors: [] },
@@ -64,8 +67,11 @@ const mockRequests = ( {
 	};
 };
 
-const mountPage = async () => {
-	document.body.innerHTML = '<div id="onesearch-search-settings"></div>';
+const mountEntry = async (
+	containerId: string,
+	loadEntry: () => Promise< unknown >
+) => {
+	document.body.innerHTML = `<div id="${ containerId }"></div>`;
 	vi.resetModules();
 	// The fresh modules get their own apiFetch mock.
 	const { default: apiFetch } = await import( '@wordpress/api-fetch' );
@@ -73,8 +79,14 @@ const mountPage = async () => {
 		answerRequest as unknown as typeof apiFetch
 	);
 	// The entry point mounts itself into the container on import.
-	await import( '@/admin/search/index' );
+	await loadEntry();
 };
+
+const mountPage = () =>
+	mountEntry(
+		'onesearch-search-settings',
+		() => import( '@/admin/search/index' )
+	);
 
 describe( 'search settings page', () => {
 	beforeEach( () => {
@@ -141,17 +153,91 @@ describe( 'search settings page', () => {
 		} );
 	} );
 
-	it( 'gives the setup modal an accessible name', async () => {
+	it.each( [
+		[ 'Algolia credentials', { hasAlgoliaCredentials: false } ],
+		[ 'a brand site', { sharedSites: [] } ],
+	] )(
+		'blocks the page with the setup modal until it has %s',
+		async ( _, settings ) => {
+			window.OneSearchSettings = {
+				...window.OneSearchSettings,
+				...settings,
+			};
+			mockRequests();
+			await mountPage();
+
+			expect(
+				await screen.findByRole( 'dialog', { name: 'Setup Required' } )
+			).toBeInTheDocument();
+			expect(
+				screen.getByRole( 'link', { name: 'Go to Settings' } )
+			).toHaveAttribute(
+				'href',
+				'/wp-admin/admin.php?page=onesearch-settings'
+			);
+		}
+	);
+
+	it( 'shows the setup modal again after every brand site is deleted', async () => {
+		let storedSites = [
+			{ id: 'brand', name: 'Brand', url: 'https://brand.example.com/' },
+		];
+		answerRequest = async ( { path, method = 'GET' } ) => {
+			if (
+				method === 'DELETE' &&
+				path === '/onesearch/v1/shared-sites/brand'
+			) {
+				storedSites = [];
+				return {
+					governing_site_notified: true,
+					message: 'Brand site removed successfully.',
+				};
+			}
+			if ( path === '/onesearch/v1/all-post-types' ) {
+				return { sites: {}, errors: [] };
+			}
+			return { onesearch_indexable_entities: { entities: {} } };
+		};
 		window.OneSearchSettings = {
 			...window.OneSearchSettings,
-			hasAlgoliaCredentials: false,
+			sharedSites: storedSites,
 		};
-		mockRequests();
+
+		await mountEntry(
+			'onesearch-settings-page',
+			() => import( '@/admin/settings/index' )
+		);
+		fireEvent.click(
+			await screen.findByRole( 'button', { name: 'Delete' } )
+		);
+		fireEvent.click(
+			within(
+				await screen.findByRole( 'dialog', {
+					name: 'Delete Brand Site',
+				} )
+			).getByRole( 'button', { name: 'Delete' } )
+		);
+		await waitFor( () => {
+			expect( screen.queryByText( 'Brand' ) ).not.toBeInTheDocument();
+		} );
+
+		window.OneSearchSettings = {
+			...window.OneSearchSettings,
+			sharedSites: storedSites,
+		};
 		await mountPage();
 
 		expect(
 			await screen.findByRole( 'dialog', { name: 'Setup Required' } )
 		).toBeInTheDocument();
+	} );
+
+	it( 'shows no setup modal once a brand site and Algolia credentials are set', async () => {
+		mockRequests();
+		await mountPage();
+
+		await screen.findByTestId( 'entities' );
+		expect( screen.queryByRole( 'dialog' ) ).not.toBeInTheDocument();
 	} );
 
 	it( 'removes the snackbar once it times out', async () => {
