@@ -1,7 +1,7 @@
 /**
  * Internal dependencies
  */
-import { ADMIN_PAGE, expect, test } from '../scaffold';
+import { ADMIN_PAGE, expect, test } from '../_support';
 
 test.describe( 'plugin activation', () => {
 	test( 'activates and deactivates without errors', async ( {

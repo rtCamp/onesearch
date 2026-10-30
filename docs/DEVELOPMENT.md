@@ -4,35 +4,38 @@ Code contributions, bug reports, and feature requests are welcome! The following
 
 ## Table of Contents
 
-- [Directory Structure](#directory-structure)
-- [Local setup](#local-setup)
-  - [Prerequisites](#prerequisites)
-  - [Installation](#installation)
-  - [Useful Commands](#useful-commands)
-    - [Installing Dependencies](#installing-dependencies)
-    - [Accessing the Local Environment](#accessing-the-local-environment)
-    - [Linting and Formatting](#linting-and-formatting)
-    - [Building and Watching Assets](#building-and-watching-assets)
-- [Code Contributions (Pull Requests)](#code-contributions-pull-requests)
-  - [Workflow](#workflow)
-  - [Code Quality / Code Standards](#code-quality--code-standards)
-    - [ESLint](#eslint)
-    - [PHP_CodeSniffer](#php_codesniffer)
-    - [PHPStan](#phpstan)
-    - [Prettier](#prettier)
-    - [Stylelint](#stylelint)
-    - [TypeScript](#typescript)
-  - [Pre-commit Hooks](#pre-commit-hooks)
-  - [WordPress Playground Previews](#wordpress-playground-previews)
-- [Running Tests](#running-tests)
-  - [PHPUnit](#phpunit)
-  - [Vitest (JavaScript Unit Tests)](#vitest-javascript-unit-tests)
-    - [Running Tests](#running-tests-1)
-  - [Playwright](#playwright)
-  - [GitHub Workflows](#github-workflows)
-- [Internationalization](#internationalization)
-- [Building the plugin for distribution](#building-the-plugin-for-distribution)
-- [Releasing](#releasing)
+- [Development Guidelines - OneSearch](#development-guidelines---onesearch)
+  - [Table of Contents](#table-of-contents)
+  - [Directory Structure](#directory-structure)
+  - [Local setup](#local-setup)
+    - [Prerequisites](#prerequisites)
+    - [Installation](#installation)
+    - [Useful Commands](#useful-commands)
+      - [Installing Dependencies](#installing-dependencies)
+      - [Accessing the Local Environment](#accessing-the-local-environment)
+      - [Linting and Formatting](#linting-and-formatting)
+      - [Building and Watching Assets](#building-and-watching-assets)
+  - [Code Contributions (Pull Requests)](#code-contributions-pull-requests)
+    - [Workflow](#workflow)
+    - [Code Quality / Code Standards](#code-quality--code-standards)
+      - [ESLint](#eslint)
+      - [PHP\_CodeSniffer](#php_codesniffer)
+      - [PHPStan](#phpstan)
+      - [Prettier](#prettier)
+      - [Stylelint](#stylelint)
+      - [TypeScript](#typescript)
+    - [Pre-commit Hooks](#pre-commit-hooks)
+    - [WordPress Playground Previews](#wordpress-playground-previews)
+    - [Strauss - Composer Library Namespace Prefixing](#strauss---composer-library-namespace-prefixing)
+  - [Running Tests](#running-tests)
+    - [PHPUnit](#phpunit)
+    - [Vitest (JavaScript Unit Tests)](#vitest-javascript-unit-tests)
+      - [Running Tests](#running-tests-1)
+    - [Playwright](#playwright)
+    - [GitHub Workflows](#github-workflows)
+  - [Internationalization](#internationalization)
+  - [Building the plugin for distribution](#building-the-plugin-for-distribution)
+  - [Releasing](#releasing)
 
 ## Directory Structure
 
@@ -137,11 +140,10 @@ Code contributions, bug reports, and feature requests are welcome! The following
 │   │   # Artifacts used for testing.
 │   ├── _data/
 │   │   └── plugins/
-│   │       └── localhost-helper.php # Lets the docker sites reach each other; stubs Algolia in the test environments.
-│   │   # Playwright end-to-end tests.
+│   │       └── localhost-helper.php # Plugin used to allow docker containers to connect to each other.
 │   ├── e2e/
+│   │   ├── _support/         # Shared fixtures, helpers and constants.
 │   │   ├── onboarding/       # Site type selection.
-│   │   ├── scaffold/         # Shared fixtures, helpers and constants.
 │   │   ├── search/           # Indices and Search screen.
 │   │   └── settings/         # Settings screen.
 │   │   # Vitest unit tests.
@@ -486,7 +488,7 @@ End-to-end tests using Playwright can be run with the following command:
 npm run test:e2e
 ```
 
-The tests run against the built plugin, so run `npm run build:prod` and `composer install` first. They use two sites, started if they are not already running: the governing site on port 8889 (`npm run wp-env:test start`) and a brand site on port 8891 (`npm run wp-env:test-child start`). Algolia is stubbed by `tests/_data/plugins/localhost-helper.php` in both test environments. Specs import their fixtures and helpers from `tests/e2e/scaffold`.
+The tests run against the built plugin, so run `npm run build:prod` and `composer install` first. They use two sites, started if they are not already running: the governing site on port 8889 (`npm run wp-env:test start`) and a brand site on port 8891 (`npm run wp-env:test-child start`). Algolia is stubbed by `tests/_data/plugins/localhost-helper.php` in both test environments. Specs import their fixtures and helpers from `tests/e2e/_support`.
 
 PHPUnit shares the governing site's database, clears its permalink structure, which the plugin needs for its `/wp-json/` URLs, and switches it to a theme that doesn't exist. After `npm run test:php`, run `npm run wp-env:test start -- --update` and `npm run wp-env:test -- run cli wp theme activate twentytwentyfive` before the E2E tests.
 

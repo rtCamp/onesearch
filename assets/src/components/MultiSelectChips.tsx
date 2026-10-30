@@ -1,22 +1,17 @@
 /**
  * WordPress dependencies
  */
-import { Popover, Icon } from '@wordpress/components';
-import { chevronDown, closeSmall } from '@wordpress/icons';
+import { Icon, Popover } from '@wordpress/components';
 import { __, sprintf } from '@wordpress/i18n';
+import { chevronDown, closeSmall } from '@wordpress/icons';
 
 /**
  * External dependencies
  */
-import { useState, useRef, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface MultiSelectChipsProps {
 	label?: string;
-
-	/**
-	 * Accessible name for the control, for when several appear on one screen
-	 * and the visible placeholder is the same for all of them.
-	 */
 	ariaLabel?: string;
 	placeholder?: string;
 	options: Array< Record< string, string | number > >;

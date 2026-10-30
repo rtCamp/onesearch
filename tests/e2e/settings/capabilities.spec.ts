@@ -1,7 +1,7 @@
 /**
  * Internal dependencies
  */
-import { ADMIN_PAGE, SITE_TYPE, expect, test } from '../scaffold';
+import { ADMIN_PAGE, SITE_TYPE, expect, test } from '../_support';
 
 const EDITOR = {
 	username: 'onesearch-editor',

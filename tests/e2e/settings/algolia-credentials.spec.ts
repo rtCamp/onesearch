@@ -8,7 +8,7 @@ import {
 	expect,
 	notices,
 	test,
-} from '../scaffold';
+} from '../_support';
 
 test.describe( 'Algolia credentials', () => {
 	test( 'saved credentials come back after a reload', async ( {
