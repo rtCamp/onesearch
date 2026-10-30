@@ -49,8 +49,9 @@ const test = base.extend<
 	oneSearch: async ( { requestUtils }, use ) => {
 		await requestUtils.activatePlugin( 'onesearch' );
 
-		// Cross-site calls to `localhost` and the Algolia stub both live in this helper; the slug comes from its Name header.
+		// Cross-site calls to `localhost` and the Algolia stub; the slugs come from their Name headers.
 		await requestUtils.activatePlugin( 'onesearch-localhost-helper' );
+		await requestUtils.activatePlugin( 'onesearch-algolia-helper' );
 
 		const oneSearch = new OneSearchUtils( { requestUtils } );
 		await oneSearch.resetState();
@@ -71,6 +72,7 @@ const test = base.extend<
 		await brandRequestUtils.activatePlugin( 'onesearch' );
 		// Brand sites index with the governing site's credentials, so they need the Algolia stub too.
 		await brandRequestUtils.activatePlugin( 'onesearch-localhost-helper' );
+		await brandRequestUtils.activatePlugin( 'onesearch-algolia-helper' );
 
 		const brandSite = new OneSearchUtils( {
 			requestUtils: brandRequestUtils,
