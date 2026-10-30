@@ -1,41 +1,46 @@
 /**
- * WordPress dependencies
+ * Internal dependencies
  */
-import { expect, test } from '@wordpress/e2e-test-utils-playwright';
+import { ADMIN_PAGE, expect, test } from '../_support';
 
 test.describe( 'plugin activation', () => {
-	test( 'should activate and deactivate the plugin', async ( {
+	test( 'activates and deactivates without errors', async ( {
 		admin,
 		page,
+		requestUtils,
 	} ) => {
-		await admin.visitAdminPage( '/plugins.php' );
+		const uncaught: string[] = [];
+		page.on( 'pageerror', ( error ) => uncaught.push( error.message ) );
 
-		const pluginRow = page.locator(
-			'tr[data-plugin="onesearch/onesearch.php"]'
-		);
-		await expect( pluginRow ).toBeVisible();
-
-		const activateLink = pluginRow.locator( 'a', { hasText: 'Activate' } );
-
-		await Promise.all( [
-			page.waitForURL( /plugins.php/ ),
-			activateLink.click(),
-		] );
-
-		await expect(
-			pluginRow.locator( 'a', { hasText: 'Deactivate' } )
-		).toBeVisible( { timeout: 10000 } );
-
-		const deactivateLink = pluginRow.locator( 'a', {
-			hasText: 'Deactivate',
+		const activateLink = page.getByRole( 'link', {
+			name: 'Activate OneSearch',
+			exact: true,
 		} );
-		await Promise.all( [
-			page.waitForURL( /plugins.php/ ),
-			deactivateLink.click(),
-		] );
+		const deactivateLink = page.getByRole( 'link', {
+			name: 'Deactivate OneSearch',
+			exact: true,
+		} );
 
-		await expect(
-			pluginRow.locator( 'a', { hasText: 'Activate' } )
-		).toBeVisible( { timeout: 10000 } );
+		// Leave the plugin active for subsequent tests, even on failure.
+		try {
+			await requestUtils.deactivatePlugin( 'onesearch' );
+			await admin.visitAdminPage( ADMIN_PAGE.plugins );
+
+			await activateLink.click();
+			await expect( deactivateLink ).toBeVisible();
+			await expect( page.locator( '.notice-error:visible' ) ).toHaveCount(
+				0
+			);
+			expect( uncaught ).toEqual( [] );
+
+			await deactivateLink.click();
+			await expect( activateLink ).toBeVisible();
+			await expect( page.locator( '.notice-error:visible' ) ).toHaveCount(
+				0
+			);
+			expect( uncaught ).toEqual( [] );
+		} finally {
+			await requestUtils.activatePlugin( 'onesearch' );
+		}
 	} );
 } );

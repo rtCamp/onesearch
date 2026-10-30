@@ -1,17 +1,18 @@
 /**
  * WordPress dependencies
  */
-import { Popover, Icon } from '@wordpress/components';
-import { chevronDown, closeSmall } from '@wordpress/icons';
+import { Icon, Popover } from '@wordpress/components';
 import { __, sprintf } from '@wordpress/i18n';
+import { chevronDown, closeSmall } from '@wordpress/icons';
 
 /**
  * External dependencies
  */
-import { useState, useRef, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface MultiSelectChipsProps {
 	label?: string;
+	ariaLabel?: string;
 	placeholder?: string;
 	options: Array< Record< string, string | number > >;
 	value?: string[];
@@ -23,6 +24,7 @@ interface MultiSelectChipsProps {
 
 function MultiSelectChips( {
 	label,
+	ariaLabel,
 	placeholder = __( 'Select…', 'onesearch' ),
 	options = [],
 	value = [],
@@ -110,6 +112,7 @@ function MultiSelectChips( {
 			{ label && <span className="msc-label">{ label }</span> }
 			<button
 				type="button"
+				aria-label={ ariaLabel || label || placeholder }
 				className="msc-control"
 				onClick={ handleToggleOpen }
 				disabled={ disabled }

@@ -1,0 +1,160 @@
+<?php
+/**
+ * A stand-in for the Algolia SDK's HTTP transport.
+ *
+ * @package OneSearch\Tests\Support
+ */
+
+declare( strict_types = 1 );
+
+namespace OneSearch\Tests\Support;
+
+use OneSearch\Vendor\Algolia\AlgoliaSearch\Http\HttpClientInterface;
+use OneSearch\Vendor\Algolia\AlgoliaSearch\Http\Psr7\Response;
+use OneSearch\Vendor\Psr\Http\Message\RequestInterface;
+use OneSearch\Vendor\Psr\Http\Message\ResponseInterface;
+
+/**
+ * Answers Algolia SDK requests from canned payloads.
+ *
+ * Algolia is the one boundary the suites cannot keep real: it needs paid
+ * credentials, it is a shared mutable index, and it fails for reasons unrelated
+ * to the change under test. The SDK ships no double of its own.
+ *
+ * Standing in through the plugin's `onesearch_algolia_http_client` filter
+ * leaves everything in front of Algolia real — routes, permission checks,
+ * validation, option writes and the mapping from an SDK failure to an HTTP
+ * status all still execute.
+ */
+final class Mock_Algolia_Http_Client implements HttpClientInterface {
+	/**
+	 * Paths requested so far, by reference so the caller can inspect them.
+	 *
+	 * @var array<int, string>
+	 */
+	private array $paths;
+
+	/**
+	 * Supplies a response for a path. Null falls through to the defaults.
+	 *
+	 * @var (callable(string): ?string)|null
+	 */
+	private $body_for_path;
+
+	/**
+	 * Path fragment that makes the request throw, when set.
+	 */
+	private ?string $throw_on_path_segment;
+
+	/**
+	 * Paths requested so far with their payloads, by reference, when set.
+	 *
+	 * @var array<int, array{path: string, body: string}>|null
+	 */
+	private ?array $requests;
+
+	/**
+	 * @param array<int, string>                                 $recorded_paths        Reference to the array that records requested paths.
+	 * @param (callable(string): ?string)|null                   $body_for_path         Optional response for a path; null uses the default.
+	 * @param string|null                                        $throw_on_path_segment Optional path fragment that triggers a RuntimeException.
+	 * @param array<int, array{path: string, body: string}>|null $recorded_requests Optional reference to an array that records requested paths with their payloads.
+	 */
+	public function __construct(
+		array &$recorded_paths,
+		?callable $body_for_path = null,
+		?string $throw_on_path_segment = null,
+		?array &$recorded_requests = null
+	) {
+		$this->paths                 = &$recorded_paths;
+		$this->body_for_path         = $body_for_path;
+		$this->throw_on_path_segment = $throw_on_path_segment;
+		$this->requests              = &$recorded_requests;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 *
+	 * @param \OneSearch\Vendor\Psr\Http\Message\RequestInterface $request         The PSR-7 request.
+	 * @param mixed                                               $timeout         Request timeout.
+	 * @param mixed                                               $connect_timeout Connection timeout.
+	 *
+	 * @throws \RuntimeException When the configured path segment is encountered.
+	 */
+	public function sendRequest( RequestInterface $request, mixed $timeout, mixed $connect_timeout ): ResponseInterface { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter, Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed
+		$path          = (string) $request->getUri()->getPath();
+		$this->paths[] = $path;
+
+		if ( null !== $this->requests ) {
+			$this->requests[] = [
+				'path' => $path,
+				'body' => (string) $request->getBody(),
+			];
+		}
+
+		if ( null !== $this->throw_on_path_segment && str_contains( $path, $this->throw_on_path_segment ) ) {
+			throw new \RuntimeException( 'forced test exception' );
+		}
+
+		// An explicit body outranks every default below.
+		$body = null !== $this->body_for_path ? call_user_func( $this->body_for_path, $path ) : null;
+		if ( null !== $body ) {
+			return self::respond( 200, (string) $body );
+		}
+
+		// The plugin validates credentials by asking Algolia for the key's ACL, so grant all it asks for.
+		if ( str_contains( $path, '/1/keys/' ) ) {
+			return self::json( 200, [ 'acl' => [ 'search', 'browse', 'addObject', 'deleteObject', 'deleteIndex', 'settings', 'editSettings' ] ] );
+		}
+
+		if ( str_contains( $path, '/task/' ) ) {
+			return self::json(
+				200,
+				[
+					'status'      => 'published',
+					'pendingTask' => false,
+				]
+			);
+		}
+
+		if ( str_contains( $path, '/query' ) ) {
+			return self::json(
+				200,
+				[
+					'hits'        => [ [ 'objectID' => '1' ] ],
+					'nbHits'      => 1,
+					'page'        => 0,
+					'hitsPerPage' => 20,
+				]
+			);
+		}
+
+		return self::json(
+			200,
+			[
+				'taskID'    => 1,
+				'updatedAt' => '2024-01-01T00:00:00.000Z',
+			]
+		);
+	}
+
+	/**
+	 * Build a JSON response.
+	 *
+	 * @param int                  $status Response status.
+	 * @param array<string, mixed> $body   Response body.
+	 */
+	private static function json( int $status, array $body ): ResponseInterface {
+		return self::respond( $status, (string) wp_json_encode( $body ) );
+	}
+
+	/**
+	 * Build a response from an already-encoded body.
+	 *
+	 * @param int    $status Response status.
+	 * @param string $body   Response body.
+	 */
+	private static function respond( int $status, string $body ): ResponseInterface {
+		// @phpstan-ignore return.type
+		return new Response( $status, [], $body );
+	}
+}
