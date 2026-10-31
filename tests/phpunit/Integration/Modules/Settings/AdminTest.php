@@ -9,6 +9,7 @@ declare(strict_types = 1);
 
 namespace OneSearch\Tests\Integration\Modules\Settings;
 
+use OneSearch\Modules\Search\Admin as Search_Admin;
 use OneSearch\Modules\Settings\Admin;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
@@ -77,6 +78,36 @@ final class AdminTest extends TestCase {
 
 		$this->assertArrayHasKey( Admin::MENU_SLUG, $GLOBALS['submenu'] );
 		$this->assertFalse( $this->submenu_contains_slug( Admin::MENU_SLUG, Admin::MENU_SLUG ) );
+	}
+
+	/**
+	 * Only a governing site's menu has "Indices and Search".
+	 *
+	 * @param string   $site_type The site type.
+	 * @param string[] $expected  The submenu titles, in order.
+	 */
+	#[DataProvider( 'site_type_menu_provider' )]
+	public function test_menu_shows_the_screens_for_the_site_type( string $site_type, array $expected ): void {
+		update_option( Settings::OPTION_SITE_TYPE, $site_type );
+		remove_all_actions( 'admin_menu' );
+		( new Admin() )->register_hooks();
+		( new Search_Admin() )->register_hooks();
+
+		do_action( 'admin_menu' );
+
+		$this->assertSame( $expected, array_column( $GLOBALS['submenu'][ Admin::MENU_SLUG ] ?? [], 0 ) );
+	}
+
+	/**
+	 * Provides each site type with the submenu it shows.
+	 *
+	 * @return array<string, array{0: string, 1: string[]}>
+	 */
+	public static function site_type_menu_provider(): array {
+		return [
+			'governing site' => [ Settings::SITE_TYPE_GOVERNING, [ 'Indices and Search', 'Settings' ] ],
+			'brand site'     => [ Settings::SITE_TYPE_CONSUMER, [ 'Settings' ] ],
+		];
 	}
 
 	/**
