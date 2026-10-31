@@ -36,6 +36,26 @@ describe( 'SiteTypeSettings', () => {
 		consoleWarnSpy.mockRestore();
 	} );
 
+	it( 'keeps the select button disabled until a site type is chosen', () => {
+		render( <SiteTypeSettings /> );
+
+		const button = screen.getByRole( 'button', {
+			name: 'Select Current Site Type',
+		} );
+		expect( button ).toBeDisabled();
+
+		fireEvent.change( screen.getByLabelText( 'Site Type' ), {
+			target: { value: 'brand-site' },
+		} );
+		expect( button ).toBeEnabled();
+
+		fireEvent.change( screen.getByLabelText( 'Site Type' ), {
+			target: { value: '' },
+		} );
+		expect( button ).toBeDisabled();
+		expect( mockedApiFetch ).not.toHaveBeenCalled();
+	} );
+
 	it( 'saves the chosen site type and reloads the screen', async () => {
 		const consoleErrorSpy = vi
 			.spyOn( console, 'error' )
