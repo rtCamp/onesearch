@@ -49,6 +49,7 @@ final class Admin implements Registrable {
 		add_action( 'admin_menu', [ $this, 'add_submenu' ], 20 ); // 20 priority to make sure settings page respect its position.
 		add_action( 'admin_menu', [ $this, 'remove_default_submenu' ], 999 );
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_scripts' ] );
+		add_action( 'admin_enqueue_scripts', [ $this, 'add_menu_icon_styles' ] );
 		add_action( 'admin_notices', [ $this, 'render_notices' ] );
 
 		add_filter( 'plugin_action_links_' . ONESEARCH_PLUGIN_BASENAME, [ $this, 'add_action_links' ], 2 );
@@ -120,6 +121,13 @@ final class Admin implements Registrable {
 		wp_localize_script( Assets::SETTINGS_SCRIPT_HANDLE, 'OneSearchSettings', Assets::get_localized_data() );
 		wp_enqueue_script( Assets::SETTINGS_SCRIPT_HANDLE );
 		wp_enqueue_style( Assets::ADMIN_STYLES_HANDLE );
+	}
+
+	/**
+	 * Shows the menu icon at full opacity on every admin screen.
+	 */
+	public function add_menu_icon_styles(): void {
+		wp_add_inline_style( 'wp-admin', '#toplevel_page_' . self::MENU_SLUG . ' .wp-menu-image img { opacity: 1; }' );
 	}
 
 	/**
