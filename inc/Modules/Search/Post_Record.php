@@ -315,41 +315,39 @@ final class Post_Record {
 
 		// Chunk the post content according to Algolia limits.
 		$post_content = $this->get_cleaned_post_content( $post );
-		$base_size    = strlen( wp_json_encode( $base_record ) ?: '' );
 
 		/**
 		 * Filter the Algolia record size limit.
 		 *
 		 * @param int $limit The record size limit in bytes. Default 9000 to allow some buffer under Algolia's 10KB limit.
 		 */
-		$algolia_limit  = apply_filters( 'onesearch_algolia_record_size_limit', self::DEFAULT_ALGOLIA_RECORD_LIMIT );
-		$max_chunk_size = max( 0, $algolia_limit - $base_size );
+		$algolia_limit  = (int) apply_filters( 'onesearch_algolia_record_size_limit', self::DEFAULT_ALGOLIA_RECORD_LIMIT );
+		$max_chunk_size = $algolia_limit - self::get_encoded_size( $this->get_chunk_record( $base_record, (int) $post->ID, '', 0, 1 ) );
 
-		$content_chunks = $this->split_content_into_chunks( $post_content, $max_chunk_size );
-		$total_chunks   = count( $content_chunks );
-		$records        = [];
-		foreach ( $content_chunks as $index => $chunk ) {
-			$record = array_merge(
-				$base_record,
-				[
-					'objectID'     => $this->prepare_record_object_name( (int) $post->ID, $index ),
-					'content'      => $chunk,
-					'chunk_index'  => $index,
-					'total_chunks' => $total_chunks,
-				]
-			);
+		// Shrink the chunks until every record fits.
+		do {
+			$content_chunks = $this->split_content_into_chunks( $post_content, $max_chunk_size );
+			$total_chunks   = count( $content_chunks );
+			$records        = [];
 
-			/**
-			 * Filters the record data for each post chunk.
-			 *
-			 * @param PostRecord $record       The record data for the chunk.
-			 * @param \WP_Post   $post         The post being indexed.
-			 * @param int        $index        The chunk index.
-			 * @param int        $total_chunks The total number of chunks.
-			 * @param string[]   $chunks       The `post_content` chunks.
-			 */
-			$records[] = apply_filters( 'onesearch_algolia_record_data', $record, $post, $index, $total_chunks, $content_chunks );
-		}
+			foreach ( $content_chunks as $index => $chunk ) {
+				$record = $this->get_chunk_record( $base_record, (int) $post->ID, $chunk, $index, $total_chunks );
+
+				/**
+				 * Filters the record data for each post chunk.
+				 *
+				 * @param PostRecord $record       The record data for the chunk.
+				 * @param \WP_Post   $post         The post being indexed.
+				 * @param int        $index        The chunk index.
+				 * @param int        $total_chunks The total number of chunks.
+				 * @param string[]   $chunks       The `post_content` chunks.
+				 */
+				$records[] = apply_filters( 'onesearch_algolia_record_data', $record, $post, $index, $total_chunks, $content_chunks );
+			}
+
+			$overflow        = max( [ 0, ...array_map( static fn ( array $record ): int => self::get_encoded_size( $record ) - $algolia_limit, $records ) ] );
+			$max_chunk_size -= $overflow;
+		} while ( $overflow > 0 );
 
 		/** @var list<PostRecord> $records */
 		return $records;
@@ -594,6 +592,39 @@ final class Post_Record {
 		}
 
 		return $metadata;
+	}
+
+	/**
+	 * Builds the record of one of a post's content chunks.
+	 *
+	 * @param array<string, mixed> $base_record  The record data shared across the post's chunks.
+	 * @param int                  $post_id      The post ID.
+	 * @param string               $chunk        The content chunk.
+	 * @param int                  $index        The chunk index.
+	 * @param int                  $total_chunks The total number of chunks.
+	 * @phpstan-param BaseRecordData $base_record
+	 *
+	 * @return PostRecord The chunk's record.
+	 */
+	private function get_chunk_record( array $base_record, int $post_id, string $chunk, int $index, int $total_chunks ): array {
+		return array_merge(
+			$base_record,
+			[
+				'objectID'     => $this->prepare_record_object_name( $post_id, $index ),
+				'content'      => $chunk,
+				'chunk_index'  => $index,
+				'total_chunks' => $total_chunks,
+			]
+		);
+	}
+
+	/**
+	 * Gets the size of a value as the Algolia client encodes it, escapes included.
+	 *
+	 * @param mixed $value The value to measure.
+	 */
+	private static function get_encoded_size( mixed $value ): int {
+		return strlen( wp_json_encode( $value, JSON_UNESCAPED_UNICODE ) ?: '' );
 	}
 
 	/**
