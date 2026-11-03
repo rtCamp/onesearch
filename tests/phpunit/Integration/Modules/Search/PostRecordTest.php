@@ -278,6 +278,21 @@ final class PostRecordTest extends TestCase {
 	}
 
 	/**
+	 * Retrying stops when filtered metadata alone cannot fit in a record.
+	 */
+	public function test_to_records_rejects_oversized_filtered_metadata(): void {
+		$post = self::factory()->post->create_and_get( [ 'post_content' => 'Small content.' ] );
+		$grow = static fn ( array $record ): array => $record + [ 'extra' => str_repeat( 'x', 9000 ) ];
+		add_filter( 'onesearch_algolia_record_data', $grow );
+
+		try {
+			$this->assertSame( [], ( new Post_Record() )->to_records( $post ) );
+		} finally {
+			remove_filter( 'onesearch_algolia_record_data', $grow );
+		}
+	}
+
+	/**
 	 * Records that a filter grows past the limit are chunked again into smaller chunks.
 	 */
 	public function test_to_records_chunks_again_when_filtered_records_go_over_the_limit(): void {

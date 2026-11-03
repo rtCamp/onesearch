@@ -345,8 +345,10 @@ final class Post_Record {
 				$records[] = apply_filters( 'onesearch_algolia_record_data', $record, $post, $index, $total_chunks, $content_chunks );
 			}
 
-			$overflow        = max( [ 0, ...array_map( static fn ( array $record ): int => self::get_encoded_size( $record ) - $algolia_limit, $records ) ] );
-			$max_chunk_size -= $overflow;
+			$overflow = max( [ 0, ...array_map( static fn ( array $record ): int => self::get_encoded_size( $record ) - $algolia_limit, $records ) ] );
+			if ( $overflow > 0 ) {
+				$max_chunk_size = intdiv( $max_chunk_size, 2 );
+			}
 		} while ( $overflow > 0 );
 
 		/** @var list<PostRecord> $records */
