@@ -99,8 +99,12 @@ add_action(
 			return;
 		}
 
-		$recorded = json_decode( (string) get_option( ALGOLIA_REQUESTS_OPTION, '' ), true );
-		update_option( ALGOLIA_REQUESTS_OPTION, (string) wp_json_encode( array_merge( is_array( $recorded ) ? $recorded : [], $requests ) ), false );
+		global $wpdb;
+
+		// Job runners finish in parallel, so append in one statement: reading the option and saving it back loses one of two requests ending together.
+		$lines = implode( '', array_map( static fn ( array $request ): string => wp_json_encode( $request ) . "\n", $requests ) );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- No option API appends atomically.
+		$wpdb->query( $wpdb->prepare( "INSERT INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'off') ON DUPLICATE KEY UPDATE option_value = CONCAT(option_value, VALUES(option_value))", ALGOLIA_REQUESTS_OPTION, $lines ) );
 	},
 	PHP_INT_MAX
 );
