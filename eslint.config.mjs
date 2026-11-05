@@ -162,6 +162,9 @@ export default [
 		files: [ 'tests/e2e/**/*.{ts,tsx}' ],
 		rules: {
 			'jsdoc/no-undefined-types': 'off',
+
+			// Playwright fixtures take a `use()` callback, which is not a React hook.
+			'react-hooks/rules-of-hooks': 'off',
 		},
 	},
 ];
