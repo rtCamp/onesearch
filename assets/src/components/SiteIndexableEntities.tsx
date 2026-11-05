@@ -291,7 +291,7 @@ const SiteIndexableEntities = ( {
 								ariaLabel={ sprintf(
 									/* translators: %s: site name */
 									__(
-										'Entities to index for %s',
+										'Select entities… for %s',
 										'onesearch'
 									),
 									__( 'Governing Site', 'onesearch' )
@@ -365,7 +365,7 @@ const SiteIndexableEntities = ( {
 											ariaLabel={ sprintf(
 												/* translators: %s: site name */
 												__(
-													'Entities to index for %s',
+													'Select entities… for %s',
 													'onesearch'
 												),
 												site.name

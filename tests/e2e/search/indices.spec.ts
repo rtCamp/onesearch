@@ -154,13 +154,13 @@ test.describe( 'indices and search screen', () => {
 			name: 'Indexable entities for Governing Site',
 		} );
 		const governingChips = governing.getByRole( 'button', {
-			name: 'Entities to index for Governing Site',
+			name: 'Select entities… for Governing Site',
 		} );
 		const brand = page.getByRole( 'group', {
 			name: `Indexable entities for ${ BRAND_SITE.name }`,
 		} );
 		const brandChips = brand.getByRole( 'button', {
-			name: `Entities to index for ${ BRAND_SITE.name }`,
+			name: `Select entities… for ${ BRAND_SITE.name }`,
 		} );
 
 		await test.step( 'pick Posts from each site’s own post types', async () => {
