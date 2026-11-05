@@ -261,6 +261,58 @@ final class PostRecordTest extends TestCase {
 	}
 
 	/**
+	 * Markup that grows when escaped still chunks into records under the limit.
+	 */
+	public function test_to_records_chunks_markup_by_encoded_size(): void {
+		$content = trim( str_repeat( '<a href="https://example.org/a/b/c/" class="link">Read the "guide"</a> ', 400 ) );
+		$post    = self::factory()->post->create_and_get( [ 'post_content' => $content ] );
+
+		$records = ( new Post_Record() )->to_records( $post );
+
+		$this->assertGreaterThan( 1, count( $records ) );
+		foreach ( $records as $record ) {
+			$this->assertLessThanOrEqual( 9000, strlen( (string) wp_json_encode( $record, JSON_UNESCAPED_UNICODE ) ) );
+		}
+
+		$this->assertSame( "<p>{$content}</p>", Post_Record::join_content( $records ) );
+	}
+
+	/**
+	 * Retrying stops when filtered metadata alone cannot fit in a record.
+	 */
+	public function test_to_records_rejects_oversized_filtered_metadata(): void {
+		$post = self::factory()->post->create_and_get( [ 'post_content' => 'Small content.' ] );
+		$grow = static fn ( array $record ): array => $record + [ 'extra' => str_repeat( 'x', 9000 ) ];
+		add_filter( 'onesearch_algolia_record_data', $grow );
+
+		try {
+			$this->assertSame( [], ( new Post_Record() )->to_records( $post ) );
+		} finally {
+			remove_filter( 'onesearch_algolia_record_data', $grow );
+		}
+	}
+
+	/**
+	 * Records that a filter grows past the limit are chunked again into smaller chunks.
+	 */
+	public function test_to_records_chunks_again_when_filtered_records_go_over_the_limit(): void {
+		$content = trim( str_repeat( 'Chunked content for Algolia records. ', 800 ) );
+		$post    = self::factory()->post->create_and_get( [ 'post_content' => $content ] );
+
+		$grow    = static fn ( array $record ): array => $record + [ 'extra' => str_repeat( 'x', 500 ) ];
+		add_filter( 'onesearch_algolia_record_data', $grow );
+		$records = ( new Post_Record() )->to_records( $post );
+		remove_filter( 'onesearch_algolia_record_data', $grow );
+
+		$this->assertGreaterThan( 1, count( $records ) );
+		foreach ( $records as $record ) {
+			$this->assertLessThanOrEqual( 9000, strlen( (string) wp_json_encode( $record, JSON_UNESCAPED_UNICODE ) ) );
+		}
+
+		$this->assertSame( "<p>{$content}</p>", Post_Record::join_content( $records ) );
+	}
+
+	/**
 	 * Joining the chunks restores the content they were split from, whatever order they're in.
 	 */
 	public function test_join_content_reverses_chunking(): void {
