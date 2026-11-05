@@ -21,9 +21,19 @@ function indicesMenuLink( page: Page ) {
 		.getByRole( 'link', { name: 'Indices and Search' } );
 }
 
+// Saving the site type reloads the screen it was chosen on.
+function settingsScreen( page: Page ) {
+	return new URL( page.url() ).searchParams.get( 'page' );
+}
+
 test.describe( 'first-run setup', () => {
 	// Called from the tests, so the `oneSearch` fixture has reset the plugin before its notice is followed.
 	async function chooseSiteType( page: Page, siteType: SiteType ) {
+		await expect(
+			page.getByText( 'OneSearch needs to be set up.', { exact: false } )
+		).toBeVisible();
+		await expect( page.getByRole( 'dialog' ) ).toHaveCount( 0 );
+
 		await page
 			.getByRole( 'link', {
 				name: 'Choose whether this is a governing or a brand site',
@@ -58,6 +68,7 @@ test.describe( 'first-run setup', () => {
 			page.getByRole( 'heading', { name: 'API Key' } )
 		).toHaveCount( 0 );
 		await expect( indicesMenuLink( page ) ).toBeVisible();
+		expect( settingsScreen( page ) ).toBe( 'onesearch-settings' );
 
 		await expect
 			.poll(
@@ -88,6 +99,10 @@ test.describe( 'first-run setup', () => {
 			page.getByRole( 'heading', { name: 'Brand Sites' } )
 		).toHaveCount( 0 );
 		await expect( indicesMenuLink( page ) ).toHaveCount( 0 );
+		expect( settingsScreen( page ) ).toBe( 'onesearch-settings' );
+		await expect(
+			page.getByRole( 'textbox', { name: 'API Key' } )
+		).not.toHaveValue( '' );
 
 		await expect
 			.poll(

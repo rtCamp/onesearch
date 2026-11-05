@@ -4,38 +4,35 @@ Code contributions, bug reports, and feature requests are welcome! The following
 
 ## Table of Contents
 
-- [Development Guidelines - OneSearch](#development-guidelines---onesearch)
-  - [Table of Contents](#table-of-contents)
-  - [Directory Structure](#directory-structure)
-  - [Local setup](#local-setup)
-    - [Prerequisites](#prerequisites)
-    - [Installation](#installation)
-    - [Useful Commands](#useful-commands)
-      - [Installing Dependencies](#installing-dependencies)
-      - [Accessing the Local Environment](#accessing-the-local-environment)
-      - [Linting and Formatting](#linting-and-formatting)
-      - [Building and Watching Assets](#building-and-watching-assets)
-  - [Code Contributions (Pull Requests)](#code-contributions-pull-requests)
-    - [Workflow](#workflow)
-    - [Code Quality / Code Standards](#code-quality--code-standards)
-      - [ESLint](#eslint)
-      - [PHP\_CodeSniffer](#php_codesniffer)
-      - [PHPStan](#phpstan)
-      - [Prettier](#prettier)
-      - [Stylelint](#stylelint)
-      - [TypeScript](#typescript)
-    - [Pre-commit Hooks](#pre-commit-hooks)
-    - [WordPress Playground Previews](#wordpress-playground-previews)
-    - [Strauss - Composer Library Namespace Prefixing](#strauss---composer-library-namespace-prefixing)
-  - [Running Tests](#running-tests)
-    - [PHPUnit](#phpunit)
-    - [Vitest (JavaScript Unit Tests)](#vitest-javascript-unit-tests)
-      - [Running Tests](#running-tests-1)
-    - [Playwright](#playwright)
-    - [GitHub Workflows](#github-workflows)
-  - [Internationalization](#internationalization)
-  - [Building the plugin for distribution](#building-the-plugin-for-distribution)
-  - [Releasing](#releasing)
+- [Directory Structure](#directory-structure)
+- [Local setup](#local-setup)
+  - [Prerequisites](#prerequisites)
+  - [Installation](#installation)
+  - [Useful Commands](#useful-commands)
+    - [Installing Dependencies](#installing-dependencies)
+    - [Accessing the Local Environment](#accessing-the-local-environment)
+    - [Linting and Formatting](#linting-and-formatting)
+    - [Building and Watching Assets](#building-and-watching-assets)
+- [Code Contributions (Pull Requests)](#code-contributions-pull-requests)
+  - [Workflow](#workflow)
+  - [Code Quality / Code Standards](#code-quality--code-standards)
+    - [ESLint](#eslint)
+    - [PHP_CodeSniffer](#php_codesniffer)
+    - [PHPStan](#phpstan)
+    - [Prettier](#prettier)
+    - [Stylelint](#stylelint)
+    - [TypeScript](#typescript)
+  - [Pre-commit Hooks](#pre-commit-hooks)
+  - [WordPress Playground Previews](#wordpress-playground-previews)
+- [Running Tests](#running-tests)
+  - [PHPUnit](#phpunit)
+  - [Vitest (JavaScript Unit Tests)](#vitest-javascript-unit-tests)
+    - [Running Tests](#running-tests-1)
+  - [Playwright](#playwright)
+  - [GitHub Workflows](#github-workflows)
+- [Internationalization](#internationalization)
+- [Building the plugin for distribution](#building-the-plugin-for-distribution)
+- [Releasing](#releasing)
 
 ## Directory Structure
 
@@ -140,8 +137,9 @@ Code contributions, bug reports, and feature requests are welcome! The following
 │   │   # Artifacts used for testing.
 │   ├── _data/
 │   │   └── plugins/
-│   │       ├── algolia-helper.php
+│   │       ├── algolia-helper.php   # Plugin that stubs Algolia in the test environments.
 │   │       └── localhost-helper.php # Plugin used to allow docker containers to connect to each other.
+│   │   # Playwright end-to-end tests.
 │   ├── e2e/
 │   │   ├── _support/         # Shared fixtures, helpers and constants.
 │   │   ├── onboarding/       # Site type selection.

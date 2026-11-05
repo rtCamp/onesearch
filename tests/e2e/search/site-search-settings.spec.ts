@@ -14,7 +14,15 @@ import {
 	searchHit,
 	searchResult,
 	test,
+	type OneSearchUtils,
 } from '../_support';
+
+// The sites each of this site's searches asked Algolia for, oldest first.
+async function searchedSites( site: OneSearchUtils ) {
+	return ( await site.algoliaRequests() )
+		.filter( ( { path } ) => path.endsWith( '/query' ) )
+		.map( ( { body } ) => body.filters?.split( /\s+OR\s+/ ).sort() );
+}
 
 test.describe( 'site search settings', () => {
 	test( 'a brand site searches the sites picked for it, and falls back to WordPress search once Algolia is off', async ( {
@@ -87,13 +95,7 @@ test.describe( 'site search settings', () => {
 
 			// The brand site asked Algolia for the sites the governing site picked.
 			await expect
-				.poll( async () =>
-					( await brandSite.algoliaRequests() )
-						.filter( ( { path } ) => path.endsWith( '/query' ) )
-						.map( ( { body } ) =>
-							body.filters?.split( /\s+OR\s+/ ).sort()
-						)
-				)
+				.poll( () => searchedSites( brandSite ) )
 				.toContainEqual(
 					[
 						`site_url:"${ BRAND_SITE_KEY }"`,
@@ -111,6 +113,24 @@ test.describe( 'site search settings', () => {
 			).toBeVisible();
 		} );
 
+		await test.step( 'a site taken out of Search from is left out of the brand site’s next search', async () => {
+			await admin.visitAdminPage( ADMIN_PAGE.indices );
+			await brandSettings
+				.getByRole( 'checkbox', { name: 'Governing Site' } )
+				.uncheck();
+			await page.getByRole( 'button', { name: 'Save Settings' } ).click();
+			await expect( notices( page ) ).toContainText(
+				'Search settings saved successfully.'
+			);
+
+			await expect( async () => {
+				await page.goto( brandSearch );
+				expect( ( await searchedSites( brandSite ) ).at( -1 ) ).toEqual(
+					[ `site_url:"${ BRAND_SITE_KEY }"` ]
+				);
+			} ).toPass( { timeout: 10_000 } );
+		} );
+
 		await test.step( 'turning Algolia off reaches the brand site’s cached configuration', async () => {
 			await admin.visitAdminPage( ADMIN_PAGE.indices );
 			await toggle.uncheck();
@@ -126,5 +146,59 @@ test.describe( 'site search settings', () => {
 			} ).toPass( { timeout: 10_000 } );
 			await expect( governingResult ).toHaveCount( 0 );
 		} );
+	} );
+
+	test( 'the governing site leaves a site out of its next search once it is taken out of Search from', async ( {
+		admin,
+		brandSite,
+		oneSearch,
+		page,
+	} ) => {
+		const token = `onesearch${ Date.now() }`;
+		await connectSites( oneSearch, brandSite, { algolia: true } );
+		await oneSearch.updateSettings( {
+			[ OPTION.indexableEntities ]: {
+				entities: {
+					[ GOVERNING_SITE_URL ]: [ 'post' ],
+					[ BRAND_SITE_KEY ]: [ 'post' ],
+				},
+			},
+		} );
+
+		const governingSettings = page.getByRole( 'group', {
+			name: 'Search settings for Governing Site',
+		} );
+		const brandSource = governingSettings.getByRole( 'checkbox', {
+			name: BRAND_SITE.name,
+		} );
+
+		async function saveAndSearch() {
+			await page.getByRole( 'button', { name: 'Save Settings' } ).click();
+			await expect( notices( page ) ).toContainText(
+				'Search settings saved successfully.'
+			);
+			await page.goto( `/?s=${ token }` );
+			return ( await searchedSites( oneSearch ) ).at( -1 );
+		}
+
+		await admin.visitAdminPage( ADMIN_PAGE.indices );
+		await governingSettings
+			.getByRole( 'checkbox', {
+				name: 'Enable Algolia search for Governing Site',
+			} )
+			.check();
+		await brandSource.check();
+		expect( await saveAndSearch() ).toEqual(
+			[
+				`site_url:"${ BRAND_SITE_KEY }"`,
+				`site_url:"${ GOVERNING_SITE_URL }"`,
+			].sort()
+		);
+
+		await admin.visitAdminPage( ADMIN_PAGE.indices );
+		await brandSource.uncheck();
+		expect( await saveAndSearch() ).toEqual( [
+			`site_url:"${ GOVERNING_SITE_URL }"`,
+		] );
 	} );
 } );

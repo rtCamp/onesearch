@@ -126,6 +126,16 @@ export class OneSearchUtils {
 	}
 
 	/**
+	 * Sign the browser in to this site, which the fixtures only do for the governing site.
+	 *
+	 * @param page The page under test.
+	 */
+	async logIn( page: Page ): Promise< void > {
+		const { cookies } = await this.requestUtils.request.storageState();
+		await page.context().addCookies( cookies );
+	}
+
+	/**
 	 * Publish a post, which `resetState()` deletes.
 	 *
 	 * @param title   The post title.
@@ -148,15 +158,40 @@ export class OneSearchUtils {
 	async algoliaRequests(): Promise< AlgoliaRequest[] > {
 		const recorded = ( await this.getSettings() )[ OPTION.algoliaRequests ];
 
+		// One JSON request per line, in the order they finished.
 		const requests =
-			typeof recorded === 'string' && recorded
-				? ( JSON.parse( recorded ) as { path: string; body: string }[] )
+			typeof recorded === 'string'
+				? recorded
+						.split( '\n' )
+						.filter( Boolean )
+						.map(
+							( line ) =>
+								JSON.parse( line ) as {
+									path: string;
+									body: string;
+								}
+						)
 				: [];
 
 		return requests.map( ( { path, body } ) => ( {
 			path,
 			body: body ? JSON.parse( body ) : {},
 		} ) );
+	}
+
+	/**
+	 * The records this site sent to Algolia, each with the path it went to, so a write to the wrong index cannot pass.
+	 */
+	async indexedRecords(): Promise<
+		{ path: string; record: Record< string, unknown > }[]
+	> {
+		return ( await this.algoliaRequests() )
+			.filter( ( { path } ) => path.endsWith( '/batch' ) )
+			.flatMap( ( { path, body } ) =>
+				( body.requests ?? [] )
+					.filter( ( { action } ) => action === 'addObject' )
+					.map( ( { body: record } ) => ( { path, record } ) )
+			);
 	}
 
 	/**
