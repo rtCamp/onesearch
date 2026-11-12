@@ -9,7 +9,13 @@ import {
 	type MockedFunction,
 	vi,
 } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from '@testing-library/react';
 /**
  * WordPress dependencies
  */
@@ -99,6 +105,56 @@ describe( 'SiteSearchSettings', () => {
 				message: 'Search settings saved successfully.',
 			} );
 		} );
+	} );
+
+	it( 'keeps the Algolia toggle off for a site until it has entities', async () => {
+		mockedApiFetch.mockResolvedValueOnce( {
+			onesearch_sites_search_settings: {},
+		} );
+		const props = {
+			allPostTypes: defaultPostTypes,
+			setNotice: vi.fn(),
+			isIndexableEntitiesSaving: false,
+		};
+		const warning =
+			'Please select entities for indexing to enable Algolia search';
+
+		const { rerender } = render(
+			<SiteSearchSettings
+				{ ...props }
+				indexableEntities={ {
+					[ currentSiteUrl ]: [ 'post' ],
+					[ brandSiteUrl ]: [],
+				} }
+			/>
+		);
+
+		await screen.findByText( 'Site Search Configuration' );
+		const brandToggle = screen.getByLabelText(
+			'Enable Algolia search for Brand Site'
+		);
+		expect( brandToggle ).toBeDisabled();
+		expect( brandToggle ).not.toBeChecked();
+		expect(
+			screen.getByLabelText( 'Enable Algolia search for Governing Site' )
+		).toBeEnabled();
+		const brandCard = screen
+			.getByRole( 'heading', { name: 'Brand Site' } )
+			.closest( '.onesearch-site-card' ) as HTMLElement;
+		expect( within( brandCard ).getByText( warning ) ).toBeInTheDocument();
+		expect( screen.getAllByText( warning ) ).toHaveLength( 1 );
+
+		rerender(
+			<SiteSearchSettings
+				{ ...props }
+				indexableEntities={ defaultEntities }
+			/>
+		);
+
+		expect(
+			screen.getByLabelText( 'Enable Algolia search for Brand Site' )
+		).toBeEnabled();
+		expect( screen.queryByText( warning ) ).not.toBeInTheDocument();
 	} );
 
 	it( 'warns when enabling sites with no indexable entities', async () => {
