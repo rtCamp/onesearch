@@ -45,8 +45,9 @@ final class Uninstaller {
 			}
 		};
 
+		// Deactivating for the network leaves the plugin active on the other networks.
 		if ( $network_wide ) {
-			self::on_each_site( $maybe_uninstall_site );
+			self::on_each_site( $maybe_uninstall_site, get_current_network_id() );
 			return;
 		}
 
@@ -56,9 +57,10 @@ final class Uninstaller {
 	/**
 	 * Runs a callback on each site. If not multisite, runs it on the current site.
 	 *
-	 * @param callable $callback The callback to run.
+	 * @param callable $callback   The callback to run.
+	 * @param int      $network_id Only runs it on this network's sites. Default 0, every network.
 	 */
-	private static function on_each_site( callable $callback ): void {
+	private static function on_each_site( callable $callback, int $network_id = 0 ): void {
 		if ( ! is_multisite() ) {
 			$callback();
 			return;
@@ -66,8 +68,9 @@ final class Uninstaller {
 
 		$site_ids = get_sites(
 			[
-				'fields' => 'ids',
-				'number' => 0,
+				'fields'     => 'ids',
+				'number'     => 0,
+				'network_id' => $network_id,
 			]
 		) ?: [];
 

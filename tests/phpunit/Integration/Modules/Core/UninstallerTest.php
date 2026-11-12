@@ -264,6 +264,30 @@ final class UninstallerTest extends TestCase {
 	}
 
 	/**
+	 * Deactivating for the network keeps the data of the sites on other networks, where the plugin is still active.
+	 */
+	public function test_network_deactivation_keeps_the_data_of_the_sites_on_other_networks(): void {
+		if ( ! is_multisite() ) {
+			$this->markTestSkipped( 'Network deactivation needs a multisite.' );
+		}
+
+		$other_network_id = self::factory()->network->create();
+		$other_site_id    = self::factory()->blog->create( [ 'network_id' => $other_network_id ] );
+
+		switch_to_blog( $other_site_id );
+		$this->set_up_deletable_governing_site();
+		update_option( Settings::OPTION_DELETE_DATA_ON_DEACTIVATION, true );
+		restore_current_blog();
+
+		$algolia_paths = [];
+		$this->mock_algolia_http_client( $algolia_paths );
+
+		$this->deactivate( true );
+
+		$this->assertSame( Settings::SITE_TYPE_GOVERNING, get_blog_option( $other_site_id, Settings::OPTION_SITE_TYPE ) );
+	}
+
+	/**
 	 * Sets up a governing site with credentials, so deleting its index reaches Algolia.
 	 */
 	private function set_up_deletable_governing_site(): void {
