@@ -1,5 +1,73 @@
 # Changelog
 
+## [2.0.0](https://github.com/rtCamp/onesearch/compare/v1.1.2...v2.0.0) (2026-11-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* bump min WP to 6.9 and lock @wordpress/* deps ([#361](https://github.com/rtCamp/onesearch/issues/361))
+
+### Added
+
+* add setting to delete plugin data on deactivation ([#383](https://github.com/rtCamp/onesearch/issues/383)) ([d1525d1](https://github.com/rtCamp/onesearch/commit/d1525d1b512625987db95b0539fd8e91536f31cb))
+* delete removed sites' records in the background ([#366](https://github.com/rtCamp/onesearch/issues/366)) ([52b16b4](https://github.com/rtCamp/onesearch/commit/52b16b4d07dd2a7101bfa01cb3dfcd78b0fda2a2))
+* implement async job handling  ([#365](https://github.com/rtCamp/onesearch/issues/365)) ([5378c4c](https://github.com/rtCamp/onesearch/commit/5378c4c871c990723d88192d16eb83fd75447aca))
+* migrate Algolia v3 to v4 and refactor internal usage ([#323](https://github.com/rtCamp/onesearch/issues/323)) ([bf7231f](https://github.com/rtCamp/onesearch/commit/bf7231f44d325c45d7d0c104d92736d3d84a2a1a))
+
+
+### Fixed
+
+* add menu icon styles for full opacity in admin screens ([#372](https://github.com/rtCamp/onesearch/issues/372)) ([b3be2eb](https://github.com/rtCamp/onesearch/commit/b3be2ebc2527a478345b8ae690c59c0aa2481aa6))
+* admin screen bugs and accessibility ([#354](https://github.com/rtCamp/onesearch/issues/354)) ([8983ee9](https://github.com/rtCamp/onesearch/commit/8983ee92f520aaf7e082a8f6a3598dd30ade581c))
+* admin settings cleanup ([#362](https://github.com/rtCamp/onesearch/issues/362)) ([a873ef9](https://github.com/rtCamp/onesearch/commit/a873ef9995cbe3a602a098b32bdf9a7151fffb80))
+* bump min WP to 6.9 and lock @wordpress/* deps ([#361](https://github.com/rtCamp/onesearch/issues/361)) ([befa60e](https://github.com/rtCamp/onesearch/commit/befa60e4683677816f88b1f609d59b7b8f80bc5d))
+* cleanup brand sites after removal ([#352](https://github.com/rtCamp/onesearch/issues/352)) ([2e9a0f0](https://github.com/rtCamp/onesearch/commit/2e9a0f0989eecb99c281fa7a027683cd28a757a4))
+* **deps:** replace `copy-webpack-plugin` with native`output.copy` ([#357](https://github.com/rtCamp/onesearch/issues/357)) ([014ff0a](https://github.com/rtCamp/onesearch/commit/014ff0aa0b400a45010e76ffb8f3adf97421b3c8))
+* deregister brand sites on uninstall ([#343](https://github.com/rtCamp/onesearch/issues/343)) ([8a92e74](https://github.com/rtCamp/onesearch/commit/8a92e74f2f574ba9a406a934b7a17333d023308b))
+* handle brand sites through the governing site's server ([#353](https://github.com/rtCamp/onesearch/issues/353)) ([e7ef611](https://github.com/rtCamp/onesearch/commit/e7ef611f7682c4396f8332b416417987956ebb7c))
+* handle VIP edge server 502 errors in shared site checks ([#380](https://github.com/rtCamp/onesearch/issues/380)) ([0cd5124](https://github.com/rtCamp/onesearch/commit/0cd512432ae7fa3bec0befce20e6cc0a5f696ff3))
+* improve 502 error page handling by injecting response header only on VIP sites ([#382](https://github.com/rtCamp/onesearch/issues/382)) ([e919476](https://github.com/rtCamp/onesearch/commit/e91947626bfedc5ca8ab50ea4f52f51669e724fe))
+* improve chunking logic for Algolia records to handle oversized content ([#376](https://github.com/rtCamp/onesearch/issues/376)) ([6b11151](https://github.com/rtCamp/onesearch/commit/6b11151c6aad1fd9a64ffb988ba9e0bc24c8a0c9))
+* index only public content and keep records under Algolia's size limit ([#346](https://github.com/rtCamp/onesearch/issues/346)) ([a173950](https://github.com/rtCamp/onesearch/commit/a173950fe2acb690d92895a0e32a0552091bfd82))
+* keep the index in sync when posts and media change ([#348](https://github.com/rtCamp/onesearch/issues/348)) ([2b86b30](https://github.com/rtCamp/onesearch/commit/2b86b304987604a79a86e71e9b5519c638891e95))
+* only accept brand tokens on the routes brand sites use ([#344](https://github.com/rtCamp/onesearch/issues/344)) ([54f21b3](https://github.com/rtCamp/onesearch/commit/54f21b324aaa9e4c5ba8d393629dab1e26653e5b))
+* paginate, sanitize and render remote search results through the core APIs ([#349](https://github.com/rtCamp/onesearch/issues/349)) ([4ca82bb](https://github.com/rtCamp/onesearch/commit/4ca82bb3dacdd55fa7513f5df5d3b2629ee72043))
+* prefix PSR-7 and pin the Algolia SDK transport ([#350](https://github.com/rtCamp/onesearch/issues/350)) ([b5e25c0](https://github.com/rtCamp/onesearch/commit/b5e25c0fa7c56910e324d111b7666d356b643fc5))
+* prerelease cleanup ([#358](https://github.com/rtCamp/onesearch/issues/358)) ([fdf8d46](https://github.com/rtCamp/onesearch/commit/fdf8d46ceeade12e46e189b3eeffa1701826396a))
+* prevent fatal error when uninstalling the plugin ([#329](https://github.com/rtCamp/onesearch/issues/329)) ([98bd33f](https://github.com/rtCamp/onesearch/commit/98bd33f12c109fef50ec03008b7e53f3c1c218c0))
+* propagate disconnects between brand and governing sites ([#321](https://github.com/rtCamp/onesearch/issues/321)) ([a7214d3](https://github.com/rtCamp/onesearch/commit/a7214d3d3eb4c2f616009e51335344edee74faf3))
+* purge the brand config cache when a setting is first saved ([#345](https://github.com/rtCamp/onesearch/issues/345)) ([af540de](https://github.com/rtCamp/onesearch/commit/af540deb88faa36858e0926718621825b0739d87))
+* remediate Plugin Check smells ([#339](https://github.com/rtCamp/onesearch/issues/339)) ([7cd749f](https://github.com/rtCamp/onesearch/commit/7cd749f9fd6cf30a26b85036a4c88be0070c4765))
+* remove stale posts when publish status changes ([#305](https://github.com/rtCamp/onesearch/issues/305)) ([adf5ed7](https://github.com/rtCamp/onesearch/commit/adf5ed73eac1bb12bc8a1264a668e92c5ac552e6))
+* Save Changes after undo and leftover site delete records ([#368](https://github.com/rtCamp/onesearch/issues/368)) ([df4c4ba](https://github.com/rtCamp/onesearch/commit/df4c4bad612a607c64f34bd55d40d318188246c6))
+* search record and result fixes ([#359](https://github.com/rtCamp/onesearch/issues/359)) ([bc67ca8](https://github.com/rtCamp/onesearch/commit/bc67ca83e9864fdada08ca29e82629eaa6053dbf))
+* send every REST request through apiFetch ([#369](https://github.com/rtCamp/onesearch/issues/369)) ([ccf6d2a](https://github.com/rtCamp/onesearch/commit/ccf6d2aaeb1097e8241e4452a86c7312dd5c3a07))
+* set up the site type inline and only load assets on OneSearch screens ([#340](https://github.com/rtCamp/onesearch/issues/340)) ([73519dc](https://github.com/rtCamp/onesearch/commit/73519dc5d644fea2ed75b8bbd452f16e574605b0))
+* standardize site URL comparisons with Utils::get_current_site_url() ([#342](https://github.com/rtCamp/onesearch/issues/342)) ([f71f9b5](https://github.com/rtCamp/onesearch/commit/f71f9b584ce2d76dda796f532e2dad00c7c7aa36))
+* update Composer deps and remediate PHPStan lints ([#307](https://github.com/rtCamp/onesearch/issues/307)) ([992bb13](https://github.com/rtCamp/onesearch/commit/992bb13aa4d73112dcf4c04bb390edfd039622f4))
+
+
+### Changed
+
+* **deps-dev:** bump @wordpress/global-styles-engine ([#363](https://github.com/rtCamp/onesearch/issues/363)) ([7ae9441](https://github.com/rtCamp/onesearch/commit/7ae9441eac7dc5d11dbd7c89b54a6a6ba70c4bba))
+* **deps-dev:** bump compression from 1.8.1 to 1.8.2 ([#337](https://github.com/rtCamp/onesearch/issues/337)) ([3b28612](https://github.com/rtCamp/onesearch/commit/3b28612fa5dbe2cb2fd490b3808c2fbb9aa1dcb3))
+* **deps-dev:** bump phpstan/phpstan ([#377](https://github.com/rtCamp/onesearch/issues/377)) ([98d8fbd](https://github.com/rtCamp/onesearch/commit/98d8fbdda81211bf1bc8b5d578ead9525a0a7a9f))
+* **deps-dev:** bump the composer-dev-minor-patch group with 2 updates ([#331](https://github.com/rtCamp/onesearch/issues/331)) ([7a79d7d](https://github.com/rtCamp/onesearch/commit/7a79d7d7f8938d8cf68626fe93cae4c9eb1a8b11))
+* **deps-dev:** bump the composer-dev-minor-patch group with 2 updates ([#373](https://github.com/rtCamp/onesearch/issues/373)) ([ae07cc0](https://github.com/rtCamp/onesearch/commit/ae07cc0e7f7d992079c72c98a83e93f45da1056e))
+* **deps-dev:** bump the npm-dev-minor-patch group with 2 updates ([#333](https://github.com/rtCamp/onesearch/issues/333)) ([fc49631](https://github.com/rtCamp/onesearch/commit/fc49631e886cf0f630ff0d421e91379f8680dc26))
+* **deps-dev:** bump the npm-dev-minor-patch group with 2 updates ([#374](https://github.com/rtCamp/onesearch/issues/374)) ([6cf535c](https://github.com/rtCamp/onesearch/commit/6cf535c3bbc6b1e738708119e9b49ab664bb6b82))
+* **deps-dev:** bump the npm-dev-minor-patch group with 2 updates ([#379](https://github.com/rtCamp/onesearch/issues/379)) ([0e5ccc6](https://github.com/rtCamp/onesearch/commit/0e5ccc6bd41d21d7e8c05a6a268796fd2c8f42fe))
+* **deps-dev:** bump the npm-dev-minor-patch group with 5 updates ([#327](https://github.com/rtCamp/onesearch/issues/327)) ([391d546](https://github.com/rtCamp/onesearch/commit/391d54697c9d29bc6da68fce548bdbc93f06f410))
+* **deps-dev:** bump the npm-dev-minor-patch group with 7 updates ([#347](https://github.com/rtCamp/onesearch/issues/347)) ([2a1efb3](https://github.com/rtCamp/onesearch/commit/2a1efb3fbbb7894fd726b5e0e0e154a6978928ae))
+* **deps-dev:** bump typescript-eslint ([#328](https://github.com/rtCamp/onesearch/issues/328)) ([99d4284](https://github.com/rtCamp/onesearch/commit/99d428419f9d00408949d10b5422a3d0f88eede6))
+* **deps:** bump amannn/action-semantic-pull-request ([#378](https://github.com/rtCamp/onesearch/issues/378)) ([3fcf677](https://github.com/rtCamp/onesearch/commit/3fcf677b6f308e2f9620382ba15b0e2185befbbf))
+* **deps:** bump fast-xml-parser from 5.11.2 to 5.12.0 ([#381](https://github.com/rtCamp/onesearch/issues/381)) ([367fdda](https://github.com/rtCamp/onesearch/commit/367fdda31c7b3fb598abbad39c66b04724b17dda))
+* **deps:** bump proxy-addr from 2.0.7 to 2.0.8 ([#334](https://github.com/rtCamp/onesearch/issues/334)) ([78d47cb](https://github.com/rtCamp/onesearch/commit/78d47cb8dbf068d3f17db124eef0429a8e68bb70))
+* **deps:** bump shell-quote from 1.10.0 to 1.12.0 ([#335](https://github.com/rtCamp/onesearch/issues/335)) ([a4f4e56](https://github.com/rtCamp/onesearch/commit/a4f4e56e2b1974344e1387edd6d383eb100ed143))
+* **deps:** bump source-map-js from 1.2.1 to 1.2.2 ([#336](https://github.com/rtCamp/onesearch/issues/336)) ([0dae55a](https://github.com/rtCamp/onesearch/commit/0dae55a9c6afe2722297859a736a2283019f4392))
+* **deps:** bump the github-actions-updates group with 2 updates ([#332](https://github.com/rtCamp/onesearch/issues/332)) ([8db8a93](https://github.com/rtCamp/onesearch/commit/8db8a93c7b9bcdfa3681211da0a13b6523ee309c))
+* **deps:** bump the github-actions-updates group with 2 updates ([#364](https://github.com/rtCamp/onesearch/issues/364)) ([4e8c7ec](https://github.com/rtCamp/onesearch/commit/4e8c7ec0e1f78ff744013dded7a637c8085e286e))
+
 ## [1.1.2](https://github.com/rtCamp/onesearch/compare/v1.1.1...v1.1.2) (2026-08-26)
 
 
