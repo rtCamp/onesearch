@@ -462,29 +462,6 @@ class Shared_Sites_ControllerTest extends TestCase {
 	}
 
 	/**
-	 * The 502 of an unreachable brand site tells VIP's edge it came from the site, so the admin gets the message and not VIP's error page.
-	 */
-	public function test_set_shared_sites_marks_an_unreachable_brand_site_as_reached_origin(): void {
-		$filter = static fn (): \WP_Error => new \WP_Error( 'http_request_failed', 'cURL error 6: Could not resolve host' );
-		add_filter( 'pre_http_request', $filter );
-
-		$response = $this->set_shared_sites(
-			[
-				[
-					'name'    => 'B',
-					'url'     => 'https://b.example.com/',
-					'api_key' => 'key',
-				],
-			]
-		);
-
-		remove_filter( 'pre_http_request', $filter );
-
-		$this->assertSame( 502, $response->get_status() );
-		$this->assertSame( 'true', $response->get_headers()['x-vip-reached-origin'] ?? null );
-	}
-
-	/**
 	 * Provides the ways a brand site can't be reached.
 	 *
 	 * @return array<string, array{0: string}>
