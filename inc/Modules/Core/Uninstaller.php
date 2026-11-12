@@ -39,7 +39,11 @@ final class Uninstaller {
 	 * @param bool $network_wide Whether the plugin is being deactivated for the whole network.
 	 */
 	public static function deactivate( $network_wide ): void {
-		$maybe_uninstall_site = static function (): void {
+		$maybe_uninstall_site = static function () use ( $network_wide ): void {
+			if ( $network_wide && in_array( plugin_basename( ONESEARCH_FILE ), (array) get_option( 'active_plugins', [] ), true ) ) {
+				return;
+			}
+
 			if ( Settings::should_delete_data_on_deactivation() ) {
 				self::uninstall_site();
 			}
