@@ -17,6 +17,7 @@ import SiteModal from '@/components/SiteModal';
 import SiteSettings from '@/components/SiteSettings';
 import AlgoliaSettings from '@/components/AlgoliaSettings';
 import SiteTypeSettings from '@/components/SiteTypeSettings';
+import DeactivationSettings from '@/components/deactivation-settings';
 import type { SiteType } from '@/types/global';
 import { REST_NAMESPACE } from '@/js/utils';
 
@@ -211,6 +212,8 @@ const SettingsPage = () => {
 			{ SITE_TYPE === 'governing-site' && (
 				<AlgoliaSettings setNotice={ setNotice } />
 			) }
+
+			<DeactivationSettings setNotice={ setNotice } />
 
 			{ showModal && (
 				<SiteModal

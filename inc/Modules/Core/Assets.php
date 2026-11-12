@@ -68,15 +68,16 @@ final class Assets implements Registrable {
 
 		if ( empty( self::$localized_data ) ) {
 			self::$localized_data = [
-				'currentSiteUrl'        => Utils::get_current_site_url(),
-				'algoliaAppId'          => $algolia_creds['app_id'] ?? '',
-				'hasAlgoliaCredentials' => ! empty( $algolia_creds['app_id'] ) && ! empty( $algolia_creds['write_key'] ),
+				'currentSiteUrl'           => Utils::get_current_site_url(),
+				'deleteDataOnDeactivation' => Settings::should_delete_data_on_deactivation(),
+				'algoliaAppId'             => $algolia_creds['app_id'] ?? '',
+				'hasAlgoliaCredentials'    => ! empty( $algolia_creds['app_id'] ) && ! empty( $algolia_creds['write_key'] ),
 				// Only brand sites use a key of their own, so governing sites don't generate one.
-				'api_key'               => Settings::is_consumer_site() ? Settings::get_api_key() : '',
-				'restNamespace'         => Abstract_REST_Controller::NAMESPACE,
-				'setupUrl'              => admin_url( 'admin.php?page=onesearch-settings' ),
-				'sharedSites'           => Settings::get_shared_sites_without_keys(),
-				'siteType'              => Settings::get_site_type(),
+				'api_key'                  => Settings::is_consumer_site() ? Settings::get_api_key() : '',
+				'restNamespace'            => Abstract_REST_Controller::NAMESPACE,
+				'setupUrl'                 => admin_url( 'admin.php?page=onesearch-settings' ),
+				'sharedSites'              => Settings::get_shared_sites_without_keys(),
+				'siteType'                 => Settings::get_site_type(),
 			];
 		}
 

@@ -1,14 +1,15 @@
 <?php
 /**
- * Uninstall tests.
+ * Uninstaller tests.
  *
- * @package OneSearch\Tests\Integration
+ * @package OneSearch\Tests\Integration\Modules\Core
  */
 
 declare( strict_types = 1 );
 
-namespace OneSearch\Tests\Integration;
+namespace OneSearch\Tests\Integration\Modules\Core;
 
+use OneSearch\Modules\Core\Uninstaller;
 use OneSearch\Modules\Rest\Remote_Client;
 use OneSearch\Modules\Search\Index_Status;
 use OneSearch\Modules\Search\Jobs\Index_Site_Job;
@@ -17,13 +18,13 @@ use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use OneSearch\Utils;
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
- * Runs uninstall.php, which is a script rather than a class.
+ * Runs uninstall.php and the deactivation hook, which share the Uninstaller.
  */
-#[CoversNothing]
-final class UninstallTest extends TestCase {
+#[CoversClass( Uninstaller::class )]
+final class UninstallerTest extends TestCase {
 	/**
 	 * Uninstalling a brand site deletes its records, deregisters it from the governing site, and removes the options that hold the connection between the sites.
 	 *
@@ -103,6 +104,7 @@ final class UninstallTest extends TestCase {
 	 */
 	public function test_uninstall_on_a_governing_site_disconnects_the_brands_and_deletes_the_index(): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		update_option( Settings::OPTION_DELETE_DATA_ON_DEACTIVATION, true );
 		Settings::set_shared_sites(
 			[
 				[
@@ -183,19 +185,115 @@ final class UninstallTest extends TestCase {
 	}
 
 	/**
-	 * Runs uninstall.php, which declares its functions the first time it's included.
+	 * Uninstalling a site that was never set up deletes its data without reporting a failed cleanup.
 	 */
-	private function run_uninstall(): void {
-		if ( function_exists( 'OneSearch\run_uninstaller' ) ) {
-			\OneSearch\run_uninstaller();
-			return;
+	public function test_uninstall_on_a_site_without_a_type_logs_no_errors(): void {
+		update_option( Settings::OPTION_DELETE_DATA_ON_DEACTIVATION, true );
+
+		$log      = (string) wp_tempnam();
+		$previous = ini_set( 'error_log', $log ); // phpcs:ignore WordPress.PHP.IniSet.Risky -- Captures what the uninstall logs.
+
+		$this->run_uninstall();
+
+		ini_set( 'error_log', (string) $previous ); // phpcs:ignore WordPress.PHP.IniSet.Risky -- Restores the log.
+
+		$this->assertSame( '', (string) file_get_contents( $log ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents, WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown -- Reads a local temp file.
+		$this->assertFalse( get_option( Settings::OPTION_DELETE_DATA_ON_DEACTIVATION ) );
+	}
+
+	/**
+	 * Deactivating keeps the plugin's data unless the site chose to delete it.
+	 */
+	public function test_deactivation_keeps_the_data_by_default(): void {
+		$this->set_up_deletable_governing_site();
+
+		$algolia_paths = [];
+		$this->mock_algolia_http_client( $algolia_paths );
+
+		$this->deactivate( false );
+
+		$this->assertSame( Settings::SITE_TYPE_GOVERNING, Settings::get_site_type() );
+		$this->assertSame( 'app-id', Search_Settings::get_algolia_credentials()['app_id'] );
+		$this->assertSame( [], $algolia_paths, 'The index is kept.' );
+	}
+
+	/**
+	 * Deactivating deletes the plugin's data, like uninstalling, when the site chose to.
+	 */
+	public function test_deactivation_deletes_the_data_when_the_site_chose_to(): void {
+		$this->set_up_deletable_governing_site();
+		update_option( Settings::OPTION_DELETE_DATA_ON_DEACTIVATION, true );
+
+		$algolia_paths = [];
+		$this->mock_algolia_http_client( $algolia_paths );
+
+		$this->deactivate( false );
+
+		$this->assertNotEmpty( preg_grep( '#^/1/indexes/onesearch_[^/]+_wp_posts$#', $algolia_paths ), 'The whole index is deleted.' );
+		$this->assertNull( Settings::get_site_type() );
+		$this->assertNull( Search_Settings::get_algolia_credentials()['app_id'] );
+		$this->assertFalse( get_option( Settings::OPTION_DELETE_DATA_ON_DEACTIVATION ) );
+	}
+
+	/**
+	 * Deactivating for the whole network only deletes the data of the sites that chose to.
+	 */
+	public function test_network_deactivation_only_deletes_the_data_of_the_sites_that_chose_to(): void {
+		if ( ! is_multisite() ) {
+			$this->markTestSkipped( 'Network deactivation needs a multisite.' );
 		}
 
+		$kept_site_id    = self::factory()->blog->create();
+		$deleted_site_id = self::factory()->blog->create();
+
+		foreach ( [ $kept_site_id, $deleted_site_id ] as $site_id ) {
+			switch_to_blog( $site_id );
+			$this->set_up_deletable_governing_site();
+			restore_current_blog();
+		}
+
+		update_blog_option( $deleted_site_id, Settings::OPTION_DELETE_DATA_ON_DEACTIVATION, true );
+
+		$algolia_paths = [];
+		$this->mock_algolia_http_client( $algolia_paths );
+
+		$this->deactivate( true );
+
+		$this->assertSame( Settings::SITE_TYPE_GOVERNING, get_blog_option( $kept_site_id, Settings::OPTION_SITE_TYPE ) );
+		$this->assertFalse( get_blog_option( $deleted_site_id, Settings::OPTION_SITE_TYPE ) );
+	}
+
+	/**
+	 * Sets up a governing site with credentials, so deleting its index reaches Algolia.
+	 */
+	private function set_up_deletable_governing_site(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		Search_Settings::set_algolia_credentials(
+			[
+				'app_id'    => 'app-id',
+				'write_key' => 'write-key',
+			]
+		);
+	}
+
+	/**
+	 * Fires the plugin's deactivation hook, the way WordPress does.
+	 *
+	 * @param bool $network_wide Whether the plugin is deactivated for the whole network.
+	 */
+	private function deactivate( bool $network_wide ): void {
+		do_action( 'deactivate_' . plugin_basename( ONESEARCH_FILE ), $network_wide );
+	}
+
+	/**
+	 * Runs uninstall.php the way WordPress does.
+	 */
+	private function run_uninstall(): void {
 		if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 			define( 'WP_UNINSTALL_PLUGIN', 'onesearch/onesearch.php' );
 		}
 
 		// phpcs:ignore WordPressVIPMinimum.Files.IncludingFile.UsingCustomConstant, WordPressVIPMinimum.Files.IncludingFile.NotAbsolutePath -- Runs the script under test.
-		include dirname( __DIR__, 3 ) . '/uninstall.php';
+		include dirname( __DIR__, 5 ) . '/uninstall.php';
 	}
 }

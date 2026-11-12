@@ -21,6 +21,7 @@ export interface OneSearchSettings {
 	currentSiteUrl: string;
 	algoliaAppId?: string;
 	hasAlgoliaCredentials?: boolean;
+	deleteDataOnDeactivation?: boolean;
 }
 
 declare global {
