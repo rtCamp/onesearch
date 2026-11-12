@@ -106,7 +106,17 @@ class Shared_Sites_Controller extends Abstract_REST_Controller {
 			$checked = Remote_Client::check_brand_site( (string) ( $site['url'] ?? '' ), $site['api_key'] );
 
 			if ( is_wp_error( $checked ) ) {
-				return $checked;
+				$response = rest_convert_error_to_response( $checked );
+				/**
+				 * VIP's edge swaps a 502 body for its error page unless the response says it came from the site.
+				 *
+				 * @see https://docs.wpvip.com/infrastructure/edge-servers/custom-error-pages/.
+				 */
+				if ( 502 === $response->get_status() && defined( 'VIP_GO_APP_ENVIRONMENT' ) ) {
+					$response->header( 'x-vip-reached-origin', 'true' );
+				}
+
+				return $response;
 			}
 		}
 
