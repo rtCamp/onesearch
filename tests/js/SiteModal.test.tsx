@@ -198,6 +198,36 @@ describe( 'SiteModal', () => {
 		expect( screen.getByText( 'API Key*' ) ).toBeInTheDocument();
 	} );
 
+	it( 'keeps the stored key when an edit only drops the trailing slash', async () => {
+		const onSubmit = vi.fn().mockResolvedValue( true );
+		const stored = {
+			...baseFormData,
+			id: 'one',
+			url: 'https://brand.example.com/',
+			api_key: '',
+		};
+
+		render(
+			<SiteModalHarness
+				editing
+				onSubmit={ onSubmit }
+				initialData={ { ...stored, url: 'https://brand.example.com' } }
+				originalData={ stored }
+				sites={ [ stored ] }
+			/>
+		);
+
+		expect( screen.getByText( 'API Key' ) ).toBeInTheDocument();
+
+		fireEvent.click(
+			screen.getByRole( 'button', { name: 'Update Site' } )
+		);
+
+		await waitFor( () => {
+			expect( onSubmit ).toHaveBeenCalled();
+		} );
+	} );
+
 	it( 'shows the server message when saving fails', async () => {
 		const onSubmit = vi.fn().mockResolvedValue( 'Invalid site data.' );
 

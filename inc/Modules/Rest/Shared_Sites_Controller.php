@@ -78,7 +78,8 @@ class Shared_Sites_Controller extends Abstract_REST_Controller {
 		$urls     = [];
 		$to_check = [];
 		foreach ( $sites_data as &$site ) {
-			if ( isset( $site['url'] ) && in_array( $site['url'], $urls, true ) ) {
+			$url = Utils::normalize_url( (string) ( $site['url'] ?? '' ) );
+			if ( isset( $site['url'] ) && in_array( $url, $urls, true ) ) {
 				return new \WP_Error( 'duplicate_site_url', __( 'Brand Site already exists.', 'onesearch' ), [ 'status' => 400 ] );
 			}
 
@@ -88,7 +89,7 @@ class Shared_Sites_Controller extends Abstract_REST_Controller {
 			// The browser never gets the keys, so a site saved without one keeps its stored key. Not once its URL changes, since the key belongs to the old site.
 			$site['api_key'] = trim( (string) ( $site['api_key'] ?? '' ) );
 			$stored          = '' !== $site['id'] ? ( $stored_sites[ $site['id'] ] ?? null ) : null;
-			$same_url        = null !== $stored && Utils::normalize_url( (string) ( $site['url'] ?? '' ) ) === Utils::normalize_url( $stored['url'] );
+			$same_url        = null !== $stored && Utils::normalize_url( $stored['url'] ) === $url;
 			if ( $same_url && '' === $site['api_key'] ) {
 				$site['api_key'] = $stored['api_key'];
 			}
@@ -98,7 +99,7 @@ class Shared_Sites_Controller extends Abstract_REST_Controller {
 				$to_check[] = $site;
 			}
 
-			$urls[] = $site['url'] ?? '';
+			$urls[] = $url;
 		}
 		unset( $site );
 
