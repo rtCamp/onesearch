@@ -167,7 +167,7 @@ class Remote_ClientTest extends TestCase {
 
 		$this->assertIsArray( $result );
 		$this->assertNotEmpty( $result['errors'] );
-		$this->assertStringContainsString( 'Invalid response received', $result['errors'][0]['message'] );
+		$this->assertSame( 'cURL error 6: Could not resolve host', $result['errors'][0]['message'] );
 	}
 
 	/**
@@ -330,7 +330,7 @@ class Remote_ClientTest extends TestCase {
 	}
 
 	/**
-	 * A brand site is told to re-index with its key, and fails with the brand site's own error.
+	 * A brand site is told to re-index with its key, and fails with the brand site's own error, unless it rejected the key.
 	 */
 	public function test_brand_site_requests_return_the_brand_sites_answer(): void {
 		$site = [
@@ -370,7 +370,11 @@ class Remote_ClientTest extends TestCase {
 
 		$answer->code = 403;
 		$answer->body = '{"code":"rest_forbidden","message":"Sorry, you are not allowed to do that."}';
-		$this->assertSame( 'Sorry, you are not allowed to do that.', Remote_Client::reindex_brand_site( $site )->get_error_message() );
+		$this->assertSame( 'The brand site rejected the API key. This usually happens when the brand site regenerates its key. Copy the key from the brand site\'s OneSearch settings, then edit the site under Brand Sites and paste it in.', Remote_Client::reindex_brand_site( $site )->get_error_message() );
+
+		$answer->code = 500;
+		$answer->body = '{"code":"internal_server_error","message":"There has been a critical error on this website."}';
+		$this->assertSame( 'There has been a critical error on this website.', Remote_Client::reindex_brand_site( $site )->get_error_message() );
 	}
 
 	/**
@@ -786,6 +790,46 @@ class Remote_ClientTest extends TestCase {
 		$this->assertSame( [], $result['sites'] );
 		$this->assertNotEmpty( $result['errors'] );
 		$this->assertStringContainsString( '500', $result['errors'][0]['message'] );
+	}
+
+	/**
+	 * A brand site that rejects its stored key is reported with how to fix it.
+	 */
+	public function test_get_all_brand_post_types_reports_a_rejected_key(): void {
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Site A',
+					'url'     => 'https://site-a.example.com/',
+					'api_key' => 'old-key',
+				],
+			]
+		);
+
+		add_filter(
+			'pre_http_request',
+			static fn () => [
+				'response' => [
+					'code'    => 401,
+					'message' => 'Unauthorized',
+				],
+				'body'     => '{"code":"rest_forbidden","message":"Sorry, you are not allowed to do that."}',
+			]
+		);
+
+		$this->assertSame(
+			[
+				'sites'  => [],
+				'errors' => [
+					[
+						'site_url' => 'https://site-a.example.com/',
+						'message'  => 'The brand site rejected the API key. This usually happens when the brand site regenerates its key. Copy the key from the brand site\'s OneSearch settings, then edit the site under Brand Sites and paste it in.',
+					],
+				],
+			],
+			Remote_Client::get_all_brand_post_types()
+		);
 	}
 
 	/**
