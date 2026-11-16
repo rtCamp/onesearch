@@ -52,6 +52,6 @@ Contributions are welcome and encouraged!
 
 You can join the development and discussions on [GitHub](https://github.com/rtCamp/OneSearch). Feel free to report issues, suggest features, or contribute code.
 
-To learn more about contributing to OneSearch, please read the [Contributing Guide](https://github.com/rtCamp/onesearch/blob/main/docs/CONTRIBUTING.md).
+To learn more about contributing to OneSearch, please read the [Contributing Guide](docs/CONTRIBUTING.md).
 
-For development guidelines, please refer to our [Development Guide](https://github.com/rtCamp/onesearch/blob/main/docs/DEVELOPMENT.md).
+For development guidelines, please refer to our [Development Guide](docs/DEVELOPMENT.md).

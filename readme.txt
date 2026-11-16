@@ -75,7 +75,7 @@ OneSearch solves this by enabling a federated search layer that bridges multiple
 4. In the 'Site Search Configuration' section, enable OneSearch on desired sites
 5. Configure which sites can be searched from each enabled site
 
-For detailed installation and configuration instructions, please refer to the [Setup Guide](https://github.com/rtCamp/onesearch/blob/main/docs/guides/setup.md)
+For detailed installation and configuration instructions, please refer to the [Setup Guide](https://github.com/rtCamp/onesearch/blob/main/docs/guides/setup.md).
 
 == External services ==
 
@@ -112,11 +112,7 @@ Yes. From the Governing Site, you can configure the search scope for each brand 
 == Upgrade Notice ==
 
 = 2.0.0 =
-
-This major update refactors the entire plugin architecture, and changes the way indexing and search are handled and stored. It is strongly recommended to completely reinstall the plugin - or to set the `Delete plugin data on deactivation` option to true before updating, and then to deactivate and reactivate the plugin - and configure it afresh.
-
-= 1.0.0 =
-Initial release of OneSearch plugin.
+This major update rebuilds the plugin and changes how indexing and search are handled and stored. It is strongly recommended to uninstall 1.x before installing 2.0.0, or to turn on 'Delete plugin data on deactivation' after updating, then deactivate, reactivate and configure it afresh.
 
 == Changelog ==
 
