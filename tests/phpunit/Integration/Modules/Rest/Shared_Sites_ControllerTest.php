@@ -245,6 +245,41 @@ class Shared_Sites_ControllerTest extends TestCase {
 	}
 
 	/**
+	 * Brand sites sent as a form are saved like the JSON ones, instead of replacing the stored sites with none.
+	 */
+	public function test_set_shared_sites_saves_form_encoded_sites(): void {
+		Settings::set_shared_sites(
+			[
+				[
+					'id'      => 'abc-1',
+					'name'    => 'A',
+					'url'     => 'https://a.example.com',
+					'api_key' => 'ka',
+				],
+			]
+		);
+
+		$sites_data = [
+			[
+				'id'   => 'abc-1',
+				'name' => 'A renamed',
+				'url'  => 'https://a.example.com',
+			],
+		];
+
+		$request = new WP_REST_Request( 'POST', '/onesearch/v1/shared-sites' );
+		$request->set_header( 'Content-Type', 'application/x-www-form-urlencoded' );
+		$request->set_body_params( [ 'sites_data' => $sites_data ] );
+		$request->set_body( http_build_query( [ 'sites_data' => $sites_data ] ) );
+
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( 'A renamed', Settings::get_shared_sites()['https://a.example.com/']['name'] );
+		$this->assertSame( 'ka', Settings::get_shared_sites()['https://a.example.com/']['api_key'] );
+	}
+
+	/**
 	 * A blank key, even with stray whitespace, keeps the stored key, but a site that moved to another URL doesn't keep it and is checked again.
 	 */
 	public function test_set_shared_sites_only_keeps_the_key_of_an_unchanged_url(): void {

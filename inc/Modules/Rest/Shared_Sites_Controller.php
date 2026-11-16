@@ -24,7 +24,7 @@ class Shared_Sites_Controller extends Abstract_REST_Controller {
 	 */
 	public function register_routes(): void {
 		/**
-		 * Register a route which will store array of sites data like site name, site url, its GitHub repo and api key.
+		 * Register a route which will store the brand sites' name, URL, logo and API key.
 		 */
 		register_rest_route(
 			self::NAMESPACE,
@@ -63,15 +63,12 @@ class Shared_Sites_Controller extends Abstract_REST_Controller {
 	 * Set shared sites data.
 	 *
 	 * @param \WP_REST_Request $request The request object.
+	 * @phpstan-param \WP_REST_Request<array<string,mixed>> $request
 	 *
 	 * @return \WP_REST_Response|\WP_Error
 	 */
 	public function set_shared_sites( WP_REST_Request $request ): WP_REST_Response|\WP_Error {
-
-		$body         = $request->get_body();
-		$decoded_body = json_decode( $body, true );
-		$sites_data   = $decoded_body['sites_data'] ?? [];
-
+		$sites_data   = $request['sites_data'];
 		$stored_sites = array_column( Settings::get_shared_sites(), null, 'id' );
 
 		// check if same url exists more than once or not.
