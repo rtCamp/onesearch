@@ -302,48 +302,23 @@ class Remote_Client {
 			);
 		}
 
-		$shared_sites = Settings::get_shared_sites();
-
 		$all_sites = [];
 		$errors    = [];
-		// Build the requests array for each site.
-		foreach ( $shared_sites as $site_data ) {
-			if ( empty( $site_data['url'] ) || empty( $site_data['api_key'] ) ) {
-				$errors[] = [
-					'site_url' => $site_data['url'] ?: '(missing)',
-					'message'  => __( 'Missing url or api_key.', 'onesearch' ),
-				];
-				continue;
-			}
-
-			$response = self::request( $site_data['url'], 'all-post-types', $site_data['api_key'] );
+		foreach ( Settings::get_shared_sites() as $site_data ) {
+			$response = self::request_brand_site( 'all-post-types', $site_data );
 
 			if ( is_wp_error( $response ) ) {
 				$errors[] = [
 					'site_url' => $site_data['url'],
-					// translators: %s is the error message.
-					'message'  => sprintf( __( 'Invalid response received. Error %s', 'onesearch' ), esc_html( $response->get_error_message() ) ),
+					'message'  => $response->get_error_message(),
 				];
 				continue;
 			}
 
-			$code = wp_remote_retrieve_response_code( $response );
-			$body = wp_remote_retrieve_body( $response );
-
-			if ( 200 !== $code ) {
+			$response_data = json_decode( wp_remote_retrieve_body( $response ), true );
+			if ( ! is_array( $response_data ) ) {
 				$errors[] = [
 					'site_url' => $site_data['url'],
-					// translators: %s is the error code.
-					'message'  => sprintf( esc_html__( 'Failed to connect to the child site. Error code %s', 'onesearch' ), esc_html( (string) $code ) ),
-				];
-				continue;
-			}
-
-			$response_data = json_decode( $body, true );
-			if ( null === $response_data || ! is_array( $response_data ) ) {
-				$errors[] = [
-					'site_url' => $site_data['url'],
-					// translators: %s is the error message.
 					'message'  => __( 'The site returned an invalid response.', 'onesearch' ),
 				];
 				continue;
@@ -469,6 +444,10 @@ class Remote_Client {
 		}
 
 		$code = (int) wp_remote_retrieve_response_code( $response );
+
+		if ( 401 === $code || 403 === $code ) {
+			return new \WP_Error( 'onesearch_bad_key', __( 'The brand site rejected the API key. This usually happens when the brand site regenerates its key. Copy the key from the brand site\'s OneSearch settings, then edit the site under Brand Sites and paste it in.', 'onesearch' ) );
+		}
 
 		if ( 200 !== $code ) {
 			$site_error = json_decode( wp_remote_retrieve_body( $response ), true );
