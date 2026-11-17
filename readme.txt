@@ -75,6 +75,8 @@ OneSearch solves this by enabling a federated search layer that bridges multiple
 4. In the 'Site Search Configuration' section, enable OneSearch on desired sites
 5. Configure which sites can be searched from each enabled site
 
+For detailed installation and configuration instructions, please refer to the [Setup Guide](https://github.com/rtCamp/onesearch/blob/main/docs/guides/setup.md).
+
 == External services ==
 
 OneSearch uses Algolia to index and search your content, so it needs an Algolia account to work. When a post of a type you chose to index is published, updated or deleted, and when you re-index, OneSearch sends the post's title, content, excerpt, URL, dates, taxonomy terms, featured image, author name, avatar and archive link, and the site's name and URL to your Algolia application. Every front-end search sends the visitor's search terms to Algolia. Algolia's terms of service are at https://www.algolia.com/policies/terms and its privacy policy is at https://www.algolia.com/policies/privacy.
@@ -106,6 +108,11 @@ Yes. OneSearch uses a "Bring Your Own Key" approach, connecting to your Algolia 
 = Can I control which sites are searchable from each brand site? =
 
 Yes. From the Governing Site, you can configure the search scope for each brand site, controlling which sites' content appears in search results.
+
+== Upgrade Notice ==
+
+= 2.0.0 =
+This major update rebuilds the plugin and changes how indexing and search are handled and stored. It is strongly recommended to uninstall 1.x before installing 2.0.0, or to turn on 'Delete plugin data on deactivation' after updating, then deactivate, reactivate and configure it afresh.
 
 == Changelog ==
 

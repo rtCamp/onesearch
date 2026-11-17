@@ -19,6 +19,7 @@ use OneSearch\Modules\Settings\Settings;
 use OneSearch\Tests\TestCase;
 use OneSearch\Utils;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Runs uninstall.php and the deactivation hook, which share the Uninstaller.
@@ -185,9 +186,15 @@ final class UninstallerTest extends TestCase {
 	}
 
 	/**
-	 * Uninstalling a site that was never set up deletes its data without reporting a failed cleanup.
+	 * Uninstalling a site with nothing in Algolia deletes its data without reporting a failed cleanup.
+	 *
+	 * @param ?string $site_type The site's type, or null if it was never set up.
 	 */
-	public function test_uninstall_on_a_site_without_a_type_logs_no_errors(): void {
+	#[DataProvider( 'site_with_nothing_in_algolia_provider' )]
+	public function test_uninstall_on_a_site_with_nothing_in_algolia_logs_no_errors( ?string $site_type ): void {
+		if ( null !== $site_type ) {
+			update_option( Settings::OPTION_SITE_TYPE, $site_type );
+		}
 		update_option( Settings::OPTION_DELETE_DATA_ON_DEACTIVATION, true );
 
 		$log      = (string) wp_tempnam();
@@ -198,7 +205,91 @@ final class UninstallerTest extends TestCase {
 		ini_set( 'error_log', (string) $previous ); // phpcs:ignore WordPress.PHP.IniSet.Risky -- Restores the log.
 
 		$this->assertSame( '', (string) file_get_contents( $log ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents, WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown -- Reads a local temp file.
+		$this->assertFalse( get_option( Settings::OPTION_SITE_TYPE ) );
 		$this->assertFalse( get_option( Settings::OPTION_DELETE_DATA_ON_DEACTIVATION ) );
+	}
+
+	/**
+	 * Sites with nothing in Algolia to clean up.
+	 *
+	 * @return array<string, array{?string}>
+	 */
+	public static function site_with_nothing_in_algolia_provider(): array {
+		return [
+			'site without a type'               => [ null ],
+			'brand site with no governing site' => [ Settings::SITE_TYPE_CONSUMER ],
+		];
+	}
+
+	/**
+	 * Uninstalling from a network that holds both the governing site and a brand site only contacts the brand sites off the network.
+	 *
+	 * The network's own sites are uninstalled in the same run, so they can't answer, and the governing site deletes the whole index anyway.
+	 */
+	public function test_network_uninstall_only_contacts_the_sites_off_the_network(): void {
+		if ( ! is_multisite() ) {
+			$this->markTestSkipped( 'A network uninstall needs a multisite.' );
+		}
+
+		$governing_site_id = self::factory()->blog->create();
+		$brand_site_id     = self::factory()->blog->create();
+		$governing_url     = (string) get_home_url( $governing_site_id );
+		$brand_url         = (string) get_home_url( $brand_site_id );
+
+		switch_to_blog( $brand_site_id );
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
+		Settings::set_parent_site_url( $governing_url );
+		$brand_api_key = Settings::get_api_key();
+		restore_current_blog();
+
+		switch_to_blog( $governing_site_id );
+		$this->set_up_deletable_governing_site();
+		Settings::set_shared_sites(
+			[
+				[
+					'name'    => 'Network brand',
+					'url'     => $brand_url,
+					'api_key' => $brand_api_key,
+				],
+				[
+					'name'    => 'Other brand',
+					'url'     => 'https://other.example.com/',
+					'api_key' => 'key-other',
+				],
+			]
+		);
+		restore_current_blog();
+
+		$algolia_paths = [];
+		$this->mock_algolia_http_client( $algolia_paths );
+
+		// The plugin is inactive on the network's own sites, so they don't have its routes.
+		$sent = [];
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, array $args, string $url ) use ( &$sent ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+				$sent[] = [ $args['method'] ?? 'GET', $url ];
+
+				return [
+					'response' => [
+						'code'    => str_starts_with( $url, 'https://other.example.com/' ) ? 200 : 404,
+						'message' => '',
+					],
+					'body'     => '',
+					'headers'  => [],
+					'cookies'  => [],
+				];
+			},
+			10,
+			3
+		);
+
+		$this->run_uninstall();
+
+		$this->assertSame( [ [ 'DELETE', 'https://other.example.com/wp-json/onesearch/v1/governing-site' ] ], $sent );
+		$this->assertNotEmpty( preg_grep( '#^/1/indexes/onesearch_[^/]+_wp_posts$#', $algolia_paths ), 'The whole index is deleted.' );
+		$this->assertFalse( get_blog_option( $governing_site_id, Settings::OPTION_SITE_TYPE ) );
+		$this->assertFalse( get_blog_option( $brand_site_id, Settings::OPTION_SITE_TYPE ) );
 	}
 
 	/**
