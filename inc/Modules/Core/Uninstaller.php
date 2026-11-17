@@ -28,7 +28,7 @@ final class Uninstaller {
 	 * Uninstalls the plugin. If multisite, uninstalls from all sites.
 	 */
 	public static function uninstall(): void {
-		self::on_each_site( [ self::class, 'uninstall_site' ] );
+		self::on_each_site( static fn () => self::uninstall_site( true ) );
 	}
 
 	/**
@@ -45,7 +45,7 @@ final class Uninstaller {
 			}
 
 			if ( Settings::should_delete_data_on_deactivation() ) {
-				self::uninstall_site();
+				self::uninstall_site( false );
 			}
 		};
 
@@ -91,12 +91,14 @@ final class Uninstaller {
 
 	/**
 	 * The (site-specific) uninstall function.
+	 *
+	 * @param bool $skip_network_sites Whether to skip the sites on the network.
 	 */
-	private static function uninstall_site(): void {
+	private static function uninstall_site( bool $skip_network_sites ): void {
 		// Delete the job records first, or deleting each waiting job updates its record.
 		self::delete_job_records();
 		self::delete_pending_jobs();
-		self::cleanup_algolia_index();
+		self::cleanup_algolia_index( $skip_network_sites );
 		self::delete_proxy_attachment();
 		self::delete_index_status_meta();
 
@@ -181,35 +183,37 @@ final class Uninstaller {
 
 	/**
 	 * Cleans up entries from the Algolia index, or the index itself if governing site.
+	 *
+	 * @param bool $skip_network_sites Whether to skip the sites on the network.
 	 */
-	private static function cleanup_algolia_index(): void {
-		// A site that was never set up has nothing in Algolia.
-		if ( ! Settings::is_governing_site() && ! Settings::is_consumer_site() ) {
-			return;
-		}
-
-		$indexer = new Indexer();
-
-		// The index is shared by all sites, so brand sites only delete their own records.
+	private static function cleanup_algolia_index( bool $skip_network_sites ): void {
 		if ( Settings::is_governing_site() ) {
 			// Governing sites tell their brand sites to forget them, and delete the shared index.
 			foreach ( Settings::get_shared_sites() as $site_data ) {
-				Remote_Client::disconnect_brand_site( $site_data );
+				if ( ! $skip_network_sites || ! self::is_network_site_url( $site_data['url'] ) ) {
+					Remote_Client::disconnect_brand_site( $site_data );
+				}
 			}
 
-			$is_deleted = $indexer->delete_index();
-		} else {
-			// Consumer sites need to delete their own records, and deregister from the governing site.
-			$is_deleted = $indexer->delete_site_records( [ Utils::get_current_site_url() ] );
+			$is_deleted = ( new Indexer() )->delete_index();
 
-			// Deregister after deletion, or deregistration may fail.
-			$deregistered = Remote_Client::deregister_from_governing_site();
+			if ( is_wp_error( $is_deleted ) ) {
+				$data = $is_deleted->get_error_data();
 
-			if ( is_wp_error( $deregistered ) ) {
 				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Nowhere else to report it while deleting the plugin's data.
-				error_log( sprintf( 'OneSearch: Deregistering from the governing site failed: %s', $deregistered->get_error_message() ) );
+				error_log( sprintf( 'OneSearch: Algolia cleanup failed: %s %s', $is_deleted->get_error_message(), $data['message'] ?? '' ) );
 			}
+
+			return;
 		}
+
+		// Brand sites delete their own records from the shared index and deregister, while they still have the governing site's URL and their key.
+		$governing_site_url = (string) Settings::get_parent_site_url();
+		if ( ! Settings::is_consumer_site() || '' === $governing_site_url || ( $skip_network_sites && self::is_network_site_url( $governing_site_url ) ) ) {
+			return;
+		}
+
+		$is_deleted = ( new Indexer() )->delete_site_records( [ Utils::get_current_site_url() ] );
 
 		if ( is_wp_error( $is_deleted ) ) {
 			$data = $is_deleted->get_error_data();
@@ -217,6 +221,28 @@ final class Uninstaller {
 			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Nowhere else to report it while deleting the plugin's data.
 			error_log( sprintf( 'OneSearch: Algolia cleanup failed: %s %s', $is_deleted->get_error_message(), $data['message'] ?? '' ) );
 		}
+
+		// Deregister after deletion, or deregistration may fail.
+		$deregistered = Remote_Client::deregister_from_governing_site();
+
+		if ( is_wp_error( $deregistered ) ) {
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Nowhere else to report it while deleting the plugin's data.
+			error_log( sprintf( 'OneSearch: Deregistering from the governing site failed: %s', $deregistered->get_error_message() ) );
+		}
+	}
+
+	/**
+	 * Whether a URL is the home URL of a site on the network.
+	 *
+	 * @param string $url The URL.
+	 */
+	private static function is_network_site_url( string $url ): bool {
+		$network_site_urls = array_map(
+			static fn ( \WP_Site $site ): string => Utils::normalize_url( (string) $site->home ),
+			is_multisite() ? get_sites( [ 'number' => 0 ] ) : []
+		);
+
+		return in_array( Utils::normalize_url( $url ), $network_site_urls, true );
 	}
 
 	/**
