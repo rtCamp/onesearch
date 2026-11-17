@@ -198,8 +198,7 @@ describe( 'SiteModal', () => {
 		expect( screen.getByText( 'API Key*' ) ).toBeInTheDocument();
 	} );
 
-	it( 'keeps the stored key when an edit only drops the trailing slash', async () => {
-		const onSubmit = vi.fn().mockResolvedValue( true );
+	it( "doesn't need the key again when an edit only adds or drops the trailing slash", () => {
 		const stored = {
 			...baseFormData,
 			id: 'one',
@@ -210,22 +209,19 @@ describe( 'SiteModal', () => {
 		render(
 			<SiteModalHarness
 				editing
-				onSubmit={ onSubmit }
-				initialData={ { ...stored, url: 'https://brand.example.com' } }
+				initialData={ {
+					...stored,
+					url: 'https://brand.example.com',
+				} }
 				originalData={ stored }
 				sites={ [ stored ] }
 			/>
 		);
 
-		expect( screen.getByText( 'API Key' ) ).toBeInTheDocument();
-
-		fireEvent.click(
+		expect(
 			screen.getByRole( 'button', { name: 'Update Site' } )
-		);
-
-		await waitFor( () => {
-			expect( onSubmit ).toHaveBeenCalled();
-		} );
+		).toBeEnabled();
+		expect( screen.queryByText( 'API Key*' ) ).not.toBeInTheDocument();
 	} );
 
 	it( 'shows the server message when saving fails', async () => {

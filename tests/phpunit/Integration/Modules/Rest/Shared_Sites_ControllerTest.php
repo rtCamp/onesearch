@@ -98,7 +98,7 @@ class Shared_Sites_ControllerTest extends TestCase {
 	}
 
 	/**
-	 * Returns 400 when two site URLs differ only by a trailing slash, before any brand site is checked.
+	 * URLs that differ only by a trailing slash are the same site, so they're rejected and nothing is saved or checked.
 	 */
 	public function test_set_shared_sites_rejects_urls_that_differ_by_a_trailing_slash(): void {
 		$requested_urls = [];

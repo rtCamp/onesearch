@@ -55,7 +55,6 @@ const SiteModal = ( {
 
 	// A blank API key means the user hasn't typed one yet.
 	const typedApiKey = ( formData.api_key ?? '' ).trim();
-	// A URL that only gains or loses a trailing slash is still the same site.
 	const needsApiKey =
 		! editing ||
 		withTrailingSlash( formData.url.trim() ) !==

@@ -314,10 +314,8 @@ final class Settings implements Registrable {
 				continue;
 			}
 
-			// Encrypt API keys before saving.
 			$encrypted_key = Encryptor::encrypt( $site['api_key'] );
 
-			// Bail if encryption fails.
 			if ( false === $encrypted_key ) {
 				return false;
 			}

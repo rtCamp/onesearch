@@ -68,7 +68,7 @@ class Shared_Sites_Controller extends Abstract_REST_Controller {
 	 * @return \WP_REST_Response|\WP_Error
 	 */
 	public function set_shared_sites( WP_REST_Request $request ): WP_REST_Response|\WP_Error {
-		$sites_data   = $request['sites_data'];
+		$sites_data   = (array) $request['sites_data'];
 		$stored_sites = array_column( Settings::get_shared_sites(), null, 'id' );
 
 		// check if same url exists more than once or not.
@@ -83,10 +83,11 @@ class Shared_Sites_Controller extends Abstract_REST_Controller {
 			// Add a unique ID if it doesn't exist.
 			$site['id'] = $site['id'] ?? wp_generate_uuid4();
 
-			// The browser never gets the keys, so a site saved without one keeps its stored key. Not once its URL changes, since the key belongs to the old site.
+			// The browser never gets the keys, so a site saved without one keeps its stored key.
 			$site['api_key'] = trim( (string) ( $site['api_key'] ?? '' ) );
 			$stored          = '' !== $site['id'] ? ( $stored_sites[ $site['id'] ] ?? null ) : null;
 			$same_url        = null !== $stored && Utils::normalize_url( $stored['url'] ) === $url;
+
 			if ( $same_url && '' === $site['api_key'] ) {
 				$site['api_key'] = $stored['api_key'];
 			}
