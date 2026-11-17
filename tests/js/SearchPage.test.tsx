@@ -61,7 +61,11 @@ const mockRequests = ( {
 			return allPostTypes;
 		}
 		if ( ! entitiesOk ) {
-			throw new Error( 'load failed' );
+			throw {
+				code: 'rest_forbidden',
+				message: 'Sorry, you are not allowed to do that.',
+				data: { status: 403 },
+			};
 		}
 		return { onesearch_indexable_entities: { entities: {} } };
 	};
@@ -121,7 +125,7 @@ describe( 'search settings page', () => {
 		);
 	} );
 
-	it( 'flags the entities as failed to load after an error response', async () => {
+	it( "flags the entities as failed to load and shows the server's message", async () => {
 		mockRequests( { entitiesOk: false } );
 		await mountPage();
 
@@ -130,6 +134,9 @@ describe( 'search settings page', () => {
 				'true'
 			);
 		} );
+		expect(
+			document.querySelector( '.components-snackbar' )
+		).toHaveTextContent( 'Sorry, you are not allowed to do that.' );
 	} );
 
 	it( 'passes on the sites that failed to return post types', async () => {

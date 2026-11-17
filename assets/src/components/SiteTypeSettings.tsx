@@ -64,22 +64,19 @@ const SiteTypeSettings = () => {
 		setIsSaving( true );
 
 		try {
-			const settings = await apiFetch< {
-				onesearch_site_type?: SiteType;
-			} >( {
+			await apiFetch( {
 				path: '/wp/v2/settings',
 				method: 'POST',
 				data: { onesearch_site_type: value },
 			} );
 
-			if ( ! settings?.onesearch_site_type ) {
-				throw new Error( 'No site type in response' );
-			}
-
 			// Reload so the settings screen and menu match the new site type.
 			window.location.reload();
-		} catch {
-			setError( __( 'Error setting site type.', 'onesearch' ) );
+		} catch ( err ) {
+			setError(
+				( err as { message?: string } )?.message ||
+					__( 'Error setting site type.', 'onesearch' )
+			);
 		} finally {
 			setIsSaving( false );
 		}
