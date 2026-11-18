@@ -130,10 +130,12 @@ const SettingsPage = () => {
 				) }`,
 				method: 'DELETE',
 			} );
-		} catch {
+		} catch ( error ) {
 			setNotice( {
 				type: 'error',
-				message: __( 'Failed to update shared sites', 'onesearch' ),
+				message:
+					( error as { message?: string } )?.message ||
+					__( 'Failed to update shared sites', 'onesearch' ),
 			} );
 			return;
 		}

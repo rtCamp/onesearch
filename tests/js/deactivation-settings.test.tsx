@@ -66,10 +66,14 @@ describe( 'DeactivationSettings', () => {
 		);
 	} );
 
-	it( 'keeps the saved value and shows an error when saving fails', async () => {
+	it( "keeps the saved value and shows the server's message when saving fails", async () => {
 		const setNotice = vi.fn();
 		window.OneSearchSettings.deleteDataOnDeactivation = true;
-		mockedApiFetch.mockRejectedValueOnce( new Error( 'Forbidden' ) );
+		mockedApiFetch.mockRejectedValueOnce( {
+			code: 'rest_forbidden',
+			message: 'Sorry, you are not allowed to do that.',
+			data: { status: 403 },
+		} );
 
 		render( <DeactivationSettings setNotice={ setNotice } /> );
 
@@ -79,9 +83,10 @@ describe( 'DeactivationSettings', () => {
 		fireEvent.click( toggle );
 
 		await waitFor( () =>
-			expect( setNotice ).toHaveBeenCalledWith(
-				expect.objectContaining( { type: 'error' } )
-			)
+			expect( setNotice ).toHaveBeenCalledWith( {
+				type: 'error',
+				message: 'Sorry, you are not allowed to do that.',
+			} )
 		);
 		expect( toggle ).toBeChecked();
 	} );

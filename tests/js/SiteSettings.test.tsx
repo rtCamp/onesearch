@@ -13,24 +13,19 @@ import SiteSettings from '@/components/SiteSettings';
 
 const mockedApiFetch = apiFetch as MockedFunction< typeof apiFetch >;
 
-const mockRequests = ( handlers: {
+// Each fail option is what apiFetch rejects with.
+const mockSiteSettingsApi = ( handlers: {
 	governingSiteUrl?: string;
 	regeneratedKey?: string;
 	disconnectResponse?: Record< string, unknown >;
-	failGoverningSite?: boolean;
-	failRegenerate?: boolean;
-	failDisconnect?: boolean;
+	failGoverningSite?: unknown;
+	failRegenerate?: unknown;
+	failDisconnect?: unknown;
 } ) =>
-	mockedApiFetch.mockImplementation( ( async ( {
-		path,
-		method = 'GET',
-	}: {
-		path?: string;
-		method?: string;
-	} ) => {
+	mockedApiFetch.mockImplementation( async ( { path, method = 'GET' } ) => {
 		if ( path === '/onesearch/v1/secret-key' && method === 'POST' ) {
 			if ( handlers.failRegenerate ) {
-				throw new Error( 'Request failed' );
+				throw handlers.failRegenerate;
 			}
 
 			return { secret_key: handlers.regeneratedKey ?? '' };
@@ -38,7 +33,7 @@ const mockRequests = ( handlers: {
 
 		if ( path === '/wp/v2/settings' && method === 'GET' ) {
 			if ( handlers.failGoverningSite ) {
-				throw new Error( 'Request failed' );
+				throw handlers.failGoverningSite;
 			}
 
 			return {
@@ -48,20 +43,22 @@ const mockRequests = ( handlers: {
 
 		if ( path === '/onesearch/v1/governing-site' && method === 'DELETE' ) {
 			if ( handlers.failDisconnect ) {
-				throw new Error( 'Request failed' );
+				throw handlers.failDisconnect;
 			}
 
 			return (
-				handlers.disconnectResponse ?? { governing_site_notified: true }
+				handlers.disconnectResponse ?? {
+					governing_site_notified: true,
+				}
 			);
 		}
 
 		throw new Error( `Unexpected request: ${ method } ${ path }` );
-	} ) as unknown as typeof apiFetch );
+	} );
 
 describe( 'SiteSettings', () => {
 	it( 'loads the api key and governing site details', async () => {
-		mockRequests( {
+		mockSiteSettingsApi( {
 			governingSiteUrl: 'https://governing.example.com/',
 		} );
 
@@ -76,7 +73,7 @@ describe( 'SiteSettings', () => {
 	} );
 
 	it( 'keeps the disconnect button disabled until a governing site connects', async () => {
-		mockRequests( {} );
+		mockSiteSettingsApi( {} );
 
 		render( <SiteSettings /> );
 
@@ -90,7 +87,7 @@ describe( 'SiteSettings', () => {
 	} );
 
 	it( 'shows the api key and governing site connection cards', async () => {
-		mockRequests( {
+		mockSiteSettingsApi( {
 			governingSiteUrl: 'https://governing.example.com/',
 		} );
 
@@ -120,7 +117,7 @@ describe( 'SiteSettings', () => {
 	} );
 
 	it( 'copies the api key to the clipboard and shows success feedback', async () => {
-		mockRequests( {
+		mockSiteSettingsApi( {
 			governingSiteUrl: 'https://governing.example.com/',
 		} );
 
@@ -145,7 +142,7 @@ describe( 'SiteSettings', () => {
 	} );
 
 	it( 'regenerates the api key and reports success', async () => {
-		mockRequests( {
+		mockSiteSettingsApi( {
 			governingSiteUrl: 'https://governing.example.com/',
 			regeneratedKey: 'new-secret',
 		} );
@@ -167,7 +164,7 @@ describe( 'SiteSettings', () => {
 	} );
 
 	it( 'disconnects from the governing site after confirmation', async () => {
-		mockRequests( {
+		mockSiteSettingsApi( {
 			governingSiteUrl: 'https://governing.example.com/',
 		} );
 
@@ -191,7 +188,7 @@ describe( 'SiteSettings', () => {
 	} );
 
 	it( 'warns when the governing site could not be notified of the disconnection', async () => {
-		mockRequests( {
+		mockSiteSettingsApi( {
 			governingSiteUrl: 'https://governing.example.com/',
 			disconnectResponse: {
 				governing_site_notified: false,
@@ -222,7 +219,7 @@ describe( 'SiteSettings', () => {
 	} );
 
 	it( 'shows an error notice when copying the api key fails', async () => {
-		mockRequests( {
+		mockSiteSettingsApi( {
 			governingSiteUrl: 'https://governing.example.com/',
 		} );
 		navigator.clipboard.writeText = vi
@@ -245,7 +242,7 @@ describe( 'SiteSettings', () => {
 	} );
 
 	it( 'shows an error notice when the clipboard api is unavailable', async () => {
-		mockRequests( {
+		mockSiteSettingsApi( {
 			governingSiteUrl: 'https://governing.example.com/',
 		} );
 		const clipboard = navigator.clipboard;
@@ -276,10 +273,14 @@ describe( 'SiteSettings', () => {
 		}
 	} );
 
-	it( 'shows an error notice when disconnecting the governing site fails', async () => {
-		mockRequests( {
+	it( "shows the server's message when disconnecting the governing site fails", async () => {
+		mockSiteSettingsApi( {
 			governingSiteUrl: 'https://governing.example.com/',
-			failDisconnect: true,
+			failDisconnect: {
+				code: 'rest_forbidden',
+				message: 'Sorry, you are not allowed to do that.',
+				data: { status: 403 },
+			},
 		} );
 
 		render( <SiteSettings /> );
@@ -291,16 +292,15 @@ describe( 'SiteSettings', () => {
 		fireEvent.click( screen.getByRole( 'button', { name: 'Disconnect' } ) );
 
 		expect(
-			await screen.findByText(
-				'Failed to disconnect governing site. Please try again later.',
-				{ selector: '.components-notice__content' }
-			)
+			await screen.findByText( 'Sorry, you are not allowed to do that.', {
+				selector: '.components-notice__content',
+			} )
 		).toBeInTheDocument();
 	} );
 
 	it( 'shows an error notice when loading the governing site fails', async () => {
-		mockRequests( {
-			failGoverningSite: true,
+		mockSiteSettingsApi( {
+			failGoverningSite: {},
 		} );
 
 		render( <SiteSettings /> );
@@ -314,7 +314,7 @@ describe( 'SiteSettings', () => {
 	} );
 
 	it( 'shows an error notice when regeneration returns no secret key', async () => {
-		mockRequests( {
+		mockSiteSettingsApi( {
 			governingSiteUrl: 'https://governing.example.com/',
 			regeneratedKey: '',
 		} );
@@ -335,9 +335,9 @@ describe( 'SiteSettings', () => {
 	} );
 
 	it( 'shows an error notice when regenerating the api key fails', async () => {
-		mockRequests( {
+		mockSiteSettingsApi( {
 			governingSiteUrl: 'https://governing.example.com/',
-			failRegenerate: true,
+			failRegenerate: {},
 		} );
 
 		render( <SiteSettings /> );
@@ -356,7 +356,7 @@ describe( 'SiteSettings', () => {
 	} );
 
 	it( 'closes the disconnect modal when cancel is clicked', async () => {
-		mockRequests( {
+		mockSiteSettingsApi( {
 			governingSiteUrl: 'https://governing.example.com/',
 		} );
 
@@ -385,7 +385,7 @@ describe( 'SiteSettings', () => {
 	} );
 
 	it( 'loads once on mount, and does not reload after regenerating', async () => {
-		mockRequests( {
+		mockSiteSettingsApi( {
 			governingSiteUrl: 'https://governing.example.com/',
 			regeneratedKey: 'new-secret',
 		} );
@@ -405,7 +405,7 @@ describe( 'SiteSettings', () => {
 	} );
 
 	it( 'keeps the key field selectable for a manual copy', async () => {
-		mockRequests( {
+		mockSiteSettingsApi( {
 			governingSiteUrl: 'https://governing.example.com/',
 		} );
 

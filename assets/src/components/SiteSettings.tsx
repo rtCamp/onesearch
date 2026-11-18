@@ -57,13 +57,15 @@ const SiteSettings = () => {
 					),
 				} );
 			}
-		} catch {
+		} catch ( error ) {
 			setNotice( {
 				type: 'error',
-				message: __(
-					'Error regenerating API key. Please try again later.',
-					'onesearch'
-				),
+				message:
+					( error as { message?: string } )?.message ||
+					__(
+						'Error regenerating API key. Please try again later.',
+						'onesearch'
+					),
 			} );
 		}
 	}, [] );
@@ -74,13 +76,15 @@ const SiteSettings = () => {
 				onesearch_parent_site_url?: string;
 			} >( { path: '/wp/v2/settings' } );
 			setGoverningSite( data?.onesearch_parent_site_url || '' );
-		} catch {
+		} catch ( error ) {
 			setNotice( {
 				type: 'error',
-				message: __(
-					'Failed to fetch governing site. Please try again later.',
-					'onesearch'
-				),
+				message:
+					( error as { message?: string } )?.message ||
+					__(
+						'Failed to fetch governing site. Please try again later.',
+						'onesearch'
+					),
 			} );
 		}
 	}, [] );
@@ -109,13 +113,15 @@ const SiteSettings = () => {
 					'onesearch'
 				),
 			} );
-		} catch {
+		} catch ( error ) {
 			setNotice( {
 				type: 'error',
-				message: __(
-					'Failed to disconnect governing site. Please try again later.',
-					'onesearch'
-				),
+				message:
+					( error as { message?: string } )?.message ||
+					__(
+						'Failed to disconnect governing site. Please try again later.',
+						'onesearch'
+					),
 			} );
 		} finally {
 			setShowDisconnectionModal( false );

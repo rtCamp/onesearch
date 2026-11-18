@@ -310,7 +310,7 @@ describe( 'SiteSearchSettings', () => {
 
 	it( 'shows error when settings fail to load', async () => {
 		const setNotice = vi.fn();
-		mockedApiFetch.mockRejectedValueOnce( new Error( 'load failed' ) );
+		mockedApiFetch.mockRejectedValueOnce( {} );
 
 		render(
 			<SiteSearchSettings
@@ -334,7 +334,12 @@ describe( 'SiteSearchSettings', () => {
 
 		mockedApiFetch
 			.mockResolvedValueOnce( { onesearch_sites_search_settings: {} } )
-			.mockRejectedValueOnce( new Error( 'save failed' ) )
+			.mockRejectedValueOnce( {
+				code: 'rest_invalid_param',
+				message:
+					'Invalid parameter(s): onesearch_sites_search_settings',
+				data: { status: 400 },
+			} )
 			.mockResolvedValueOnce( { onesearch_sites_search_settings: {} } );
 
 		render(
@@ -355,7 +360,8 @@ describe( 'SiteSearchSettings', () => {
 		await waitFor( () => {
 			expect( setNotice ).toHaveBeenCalledWith( {
 				type: 'error',
-				message: 'Failed to save search settings.',
+				message:
+					'Invalid parameter(s): onesearch_sites_search_settings',
 			} );
 		} );
 	} );
