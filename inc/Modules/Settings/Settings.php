@@ -236,8 +236,7 @@ final class Settings implements Registrable {
 
 			$decrypted_api_key = ! empty( $brand['api_key'] ) ? Encryptor::decrypt( $brand['api_key'] ) : '';
 
-			// Always use a trailing-slash URL.
-			$url = trailingslashit( $brand['url'] );
+			$url = Utils::normalize_url( $brand['url'] );
 
 			$brands_to_return[ $url ] = [
 				'api_key' => $decrypted_api_key ?: '',
@@ -291,11 +290,7 @@ final class Settings implements Registrable {
 	 * }
 	 */
 	public static function get_shared_site_by_url( string $site_url ): ?array {
-		$brand_sites = self::get_shared_sites();
-
-		$normalized_url = trailingslashit( $site_url );
-
-		return $brand_sites[ $normalized_url ] ?? null;
+		return self::get_shared_sites()[ Utils::normalize_url( $site_url ) ] ?? null;
 	}
 
 	/**
@@ -318,13 +313,9 @@ final class Settings implements Registrable {
 			if ( empty( $site['api_key'] ) || empty( $site['url'] ) ) {
 				continue;
 			}
-			// Ensure URLs are trailing-slashed.
-			$site['url'] = trailingslashit( $site['url'] );
 
-			// Encrypt API keys before saving.
 			$encrypted_key = Encryptor::encrypt( $site['api_key'] );
 
-			// Bail if encryption fails.
 			if ( false === $encrypted_key ) {
 				return false;
 			}

@@ -57,10 +57,8 @@ class Algolia_Credentials_Controller extends Abstract_REST_Controller {
 	 * @param \WP_REST_Request<array<string,mixed>> $request Request.
 	 */
 	public function update_algolia_credentials( $request ): \WP_REST_Response|\WP_Error {
-		$parameters = $request->get_json_params();
-
-		$app_id    = isset( $parameters['app_id'] ) ? sanitize_text_field( $parameters['app_id'] ) : '';
-		$write_key = isset( $parameters['write_key'] ) ? sanitize_text_field( $parameters['write_key'] ) : '';
+		$app_id    = sanitize_text_field( $request['app_id'] );
+		$write_key = sanitize_text_field( $request['write_key'] );
 
 		if ( empty( $app_id ) || empty( $write_key ) ) {
 			return new \WP_Error(

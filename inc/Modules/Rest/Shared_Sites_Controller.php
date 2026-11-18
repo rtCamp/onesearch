@@ -24,7 +24,7 @@ class Shared_Sites_Controller extends Abstract_REST_Controller {
 	 */
 	public function register_routes(): void {
 		/**
-		 * Register a route which will store array of sites data like site name, site url, its GitHub repo and api key.
+		 * Register a route which will store the brand sites' name, URL, logo and API key.
 		 */
 		register_rest_route(
 			self::NAMESPACE,
@@ -63,32 +63,34 @@ class Shared_Sites_Controller extends Abstract_REST_Controller {
 	 * Set shared sites data.
 	 *
 	 * @param \WP_REST_Request $request The request object.
+	 * @phpstan-param \WP_REST_Request<array<string,mixed>> $request
 	 *
 	 * @return \WP_REST_Response|\WP_Error
 	 */
 	public function set_shared_sites( WP_REST_Request $request ): WP_REST_Response|\WP_Error {
-
-		$body         = $request->get_body();
-		$decoded_body = json_decode( $body, true );
-		$sites_data   = $decoded_body['sites_data'] ?? [];
-
+		$sites_data   = (array) $request['sites_data'];
 		$stored_sites = array_column( Settings::get_shared_sites(), null, 'id' );
 
 		// check if same url exists more than once or not.
 		$urls     = [];
 		$to_check = [];
 		foreach ( $sites_data as &$site ) {
-			if ( isset( $site['url'] ) && in_array( $site['url'], $urls, true ) ) {
+			$url = Utils::normalize_url( (string) ( $site['url'] ?? '' ) );
+			if ( isset( $site['url'] ) && in_array( $url, $urls, true ) ) {
 				return new \WP_Error( 'duplicate_site_url', __( 'Brand Site already exists.', 'onesearch' ), [ 'status' => 400 ] );
 			}
+
+			// Use the normalized URL for consistency.
+			$site['url'] = $url;
 
 			// Add a unique ID if it doesn't exist.
 			$site['id'] = $site['id'] ?? wp_generate_uuid4();
 
-			// The browser never gets the keys, so a site saved without one keeps its stored key. Not once its URL changes, since the key belongs to the old site.
+			// The browser never gets the keys, so a site saved without one keeps its stored key.
 			$site['api_key'] = trim( (string) ( $site['api_key'] ?? '' ) );
 			$stored          = '' !== $site['id'] ? ( $stored_sites[ $site['id'] ] ?? null ) : null;
-			$same_url        = null !== $stored && Utils::normalize_url( (string) ( $site['url'] ?? '' ) ) === Utils::normalize_url( $stored['url'] );
+			$same_url        = null !== $stored && Utils::normalize_url( $stored['url'] ) === $url;
+
 			if ( $same_url && '' === $site['api_key'] ) {
 				$site['api_key'] = $stored['api_key'];
 			}
@@ -98,12 +100,12 @@ class Shared_Sites_Controller extends Abstract_REST_Controller {
 				$to_check[] = $site;
 			}
 
-			$urls[] = $site['url'] ?? '';
+			$urls[] = $url;
 		}
 		unset( $site );
 
 		foreach ( $to_check as $site ) {
-			$checked = Remote_Client::check_brand_site( (string) ( $site['url'] ?? '' ), $site['api_key'] );
+			$checked = Remote_Client::check_brand_site( $site['url'], $site['api_key'] );
 
 			if ( is_wp_error( $checked ) ) {
 				$response = rest_convert_error_to_response( $checked );
