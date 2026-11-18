@@ -98,6 +98,40 @@ class Shared_Sites_ControllerTest extends TestCase {
 	}
 
 	/**
+	 * URLs that differ only by a trailing slash are the same site, so they're rejected and nothing is saved or checked.
+	 */
+	public function test_set_shared_sites_rejects_urls_that_differ_by_a_trailing_slash(): void {
+		$requested_urls = [];
+		$filter         = static function ( $preempt, $args, $url ) use ( &$requested_urls ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$requested_urls[] = $url;
+			return new \WP_Error( 'blocked', 'Intercepted' );
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$response = $this->set_shared_sites(
+			[
+				[
+					'url'     => 'https://dup.example.com',
+					'name'    => 'Dup 1',
+					'api_key' => 'k1',
+				],
+				[
+					'url'     => 'https://dup.example.com/',
+					'name'    => 'Dup 2',
+					'api_key' => 'k2',
+				],
+			]
+		);
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'duplicate_site_url', $response->get_data()['code'] );
+		$this->assertSame( [], $requested_urls );
+		$this->assertSame( [], Settings::get_shared_sites() );
+	}
+
+	/**
 	 * Saves valid sites data successfully.
 	 */
 	public function test_set_shared_sites_returns_success_for_valid_data(): void {
@@ -211,6 +245,41 @@ class Shared_Sites_ControllerTest extends TestCase {
 	}
 
 	/**
+	 * Brand sites sent as a form are saved like the JSON ones, instead of replacing the stored sites with none.
+	 */
+	public function test_set_shared_sites_saves_form_encoded_sites(): void {
+		Settings::set_shared_sites(
+			[
+				[
+					'id'      => 'abc-1',
+					'name'    => 'A',
+					'url'     => 'https://a.example.com',
+					'api_key' => 'ka',
+				],
+			]
+		);
+
+		$sites_data = [
+			[
+				'id'   => 'abc-1',
+				'name' => 'A renamed',
+				'url'  => 'https://a.example.com',
+			],
+		];
+
+		$request = new WP_REST_Request( 'POST', '/onesearch/v1/shared-sites' );
+		$request->set_header( 'Content-Type', 'application/x-www-form-urlencoded' );
+		$request->set_body_params( [ 'sites_data' => $sites_data ] );
+		$request->set_body( http_build_query( [ 'sites_data' => $sites_data ] ) );
+
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( 'A renamed', Settings::get_shared_sites()['https://a.example.com/']['name'] );
+		$this->assertSame( 'ka', Settings::get_shared_sites()['https://a.example.com/']['api_key'] );
+	}
+
+	/**
 	 * A blank key, even with stray whitespace, keeps the stored key, but a site that moved to another URL doesn't keep it and is checked again.
 	 */
 	public function test_set_shared_sites_only_keeps_the_key_of_an_unchanged_url(): void {
@@ -271,6 +340,60 @@ class Shared_Sites_ControllerTest extends TestCase {
 		$sites = Settings::get_shared_sites();
 		$this->assertSame( 'key-a', $sites['https://a.example.com/']['api_key'] );
 		$this->assertSame( '', $sites['https://elsewhere.example.com/']['api_key'] );
+	}
+
+	/**
+	 * Ensures that URLs pasted with spaces around them are trimmed and checked correctly.
+	 */
+	public function test_set_shared_sites_trim_url_whitespace(): void {
+		Settings::set_shared_sites(
+			[
+				[
+					'id'      => 'abc-1',
+					'name'    => 'A',
+					'url'     => 'https://a.example.com',
+					'api_key' => 'key-a',
+				],
+			]
+		);
+
+		$checked_urls = [];
+		$filter       = static function ( $preempt, $args, $url ) use ( &$checked_urls ): array { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+			$checked_urls[] = $url;
+
+			return [
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
+				],
+				'body'     => '',
+				'headers'  => [],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $filter, 10, 3 );
+
+		$response = $this->set_shared_sites(
+			[
+				[
+					'id'   => 'abc-1',
+					'name' => 'A',
+					'url'  => 'https://a.example.com/ ',
+				],
+				[
+					'name'    => 'B',
+					'url'     => ' https://b.example.com ',
+					'api_key' => 'key-b',
+				],
+			]
+		);
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( [ 'https://b.example.com/wp-json/onesearch/v1/governing-site' ], $checked_urls );
+		$this->assertSame( [ 'https://a.example.com/', 'https://b.example.com/' ], array_keys( Settings::get_shared_sites() ) );
+		$this->assertSame( 'key-a', Settings::get_shared_sites()['https://a.example.com/']['api_key'] );
 	}
 
 	/**
