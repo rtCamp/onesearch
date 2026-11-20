@@ -2,7 +2,7 @@
 /**
  * Base REST controller class.
  *
- * Includes the shared namespace, version and hook registration.
+ * Includes the shared namespace and hook registration.
  *
  * @package OneSearch\Modules\Rest
  */

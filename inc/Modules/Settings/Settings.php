@@ -305,7 +305,6 @@ final class Settings implements Registrable {
 	 *   logo_id?: int,
 	 *   name?: string,
 	 *   url?: string,
-	 *   is_editable?: bool
 	 * }> $sites The sites to set.
 	 */
 	public static function set_shared_sites( array $sites ): bool {
