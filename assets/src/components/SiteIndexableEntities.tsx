@@ -7,7 +7,7 @@ import {
 	Modal,
 	Notice,
 } from '@wordpress/components';
-import { useState, useEffect } from 'react';
+import { useState, useEffect } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
 import MultiSelectChips from './MultiSelectChips';

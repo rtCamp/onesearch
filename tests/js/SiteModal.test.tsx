@@ -2,7 +2,7 @@ import { defaultBrandSite } from '@/admin/settings/page';
 import SiteModal from '@/components/SiteModal';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import apiFetch from '@wordpress/api-fetch';
-import { useState } from 'react';
+import { useState } from '@wordpress/element';
 import {
 	describe,
 	expect,

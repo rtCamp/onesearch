@@ -9,7 +9,7 @@ import {
 	ToggleControl,
 } from '@wordpress/components';
 import { __, sprintf } from '@wordpress/i18n';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import type { NoticeType } from '@/admin/settings/page';
 import { withTrailingSlash } from '@/js/utils';
 
