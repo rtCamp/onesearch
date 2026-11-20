@@ -1,6 +1,3 @@
-/**
- * External dependencies
- */
 import {
 	beforeEach,
 	describe,
@@ -10,12 +7,7 @@ import {
 	vi,
 } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-
-/**
- * WordPress dependencies
- */
 import apiFetch from '@wordpress/api-fetch';
-
 import AlgoliaSettings from '@/components/AlgoliaSettings';
 
 const mockedApiFetch = apiFetch as MockedFunction< typeof apiFetch >;

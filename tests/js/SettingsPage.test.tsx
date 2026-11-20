@@ -1,6 +1,3 @@
-/**
- * External dependencies
- */
 import {
 	afterEach,
 	beforeEach,
@@ -17,9 +14,6 @@ import {
 	screen,
 	waitFor,
 } from '@testing-library/react';
-/**
- * WordPress dependencies
- */
 import apiFetch from '@wordpress/api-fetch';
 
 // Mock child components to isolate SettingsPage behavior

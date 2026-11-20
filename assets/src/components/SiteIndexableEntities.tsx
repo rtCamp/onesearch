@@ -1,6 +1,3 @@
-/**
- * WordPress dependencies
- */
 import {
 	Card,
 	CardHeader,
@@ -10,17 +7,9 @@ import {
 	Modal,
 	Notice,
 } from '@wordpress/components';
-
-/**
- * External dependencies
- */
-import { useState, useEffect } from 'react';
+import { useState, useEffect } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
-
-/**
- * Internal dependencies
- */
 import MultiSelectChips from './MultiSelectChips';
 import IndexSummary from './IndexSummary';
 import JobStatus from './JobStatus';

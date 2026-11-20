@@ -1,13 +1,5 @@
-/**
- * WordPress dependencies
- */
 import { useCallback, useEffect, useState } from '@wordpress/element';
 import apiFetch from '@wordpress/api-fetch';
-
-/**
- * Internal dependencies
- */
-import { REST_NAMESPACE } from './utils';
 
 export type JobState = 'queued' | 'running' | 'completed' | 'failed';
 
@@ -49,7 +41,7 @@ interface StatusResponse {
 	jobs: JobStatusData[];
 }
 
-const INDEXER_PATH = `/${ REST_NAMESPACE }/indexer`;
+const INDEXER_PATH = '/onesearch/v1/indexer';
 
 // How often to check on the jobs while any of them is going, in milliseconds.
 export const POLL_INTERVAL = 10000;

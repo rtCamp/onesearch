@@ -1,12 +1,5 @@
-/**
- * External dependencies
- */
-import { useState } from 'react';
-
-/**
- * WordPress dependencies
- */
 import apiFetch from '@wordpress/api-fetch';
+import { useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import {
 	Card,
@@ -14,10 +7,6 @@ import {
 	CardHeader,
 	ToggleControl,
 } from '@wordpress/components';
-
-/**
- * Internal dependencies
- */
 import type { NoticeType } from '@/admin/settings/page';
 import type { SiteType } from '@/types/global';
 

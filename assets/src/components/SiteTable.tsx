@@ -1,10 +1,4 @@
-/**
- * WordPress dependencies
- */
-/**
- * External dependencies
- */
-import { useState } from 'react';
+import { useState } from '@wordpress/element';
 import {
 	Button,
 	Card,

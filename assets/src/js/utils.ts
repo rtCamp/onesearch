@@ -32,14 +32,6 @@ export const withTrailingSlash = ( url: string ): string => {
 export const API_KEY = window.OneSearchSettings.api_key;
 
 /**
- * REST namespace used by the OneSearch plugin.
- *
- * @constant
- * @type {string}
- */
-export const REST_NAMESPACE = window.OneSearchSettings.restNamespace;
-
-/**
  * Current site’s base URL.
  *
  * @constant

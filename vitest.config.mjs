@@ -4,9 +4,6 @@
  * @see https://vitest.dev/config/
  */
 
-/**
- * External dependencies
- */
 import { fileURLToPath } from 'node:url';
 import { configDefaults, defineConfig } from 'vitest/config';
 

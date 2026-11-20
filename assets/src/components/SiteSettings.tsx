@@ -1,10 +1,4 @@
-/**
- * WordPress dependencies
- */
-/**
- * External dependencies
- */
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback } from '@wordpress/element';
 import {
 	TextareaControl,
 	Button,
@@ -18,12 +12,8 @@ import {
 } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
-
-/**
- * Internal dependencies
- */
 import type { NoticeType } from '@/admin/settings/page';
-import { API_KEY, REST_NAMESPACE } from '@/js/utils';
+import { API_KEY } from '@/js/utils';
 
 const SiteSettings = () => {
 	const [ apiKey, setApiKey ] = useState( API_KEY );
@@ -36,7 +26,7 @@ const SiteSettings = () => {
 	const regenerateApiKey = useCallback( async () => {
 		try {
 			const data = await apiFetch< { secret_key?: string } >( {
-				path: `/${ REST_NAMESPACE }/secret-key`,
+				path: '/onesearch/v1/secret-key',
 				method: 'POST',
 			} );
 			if ( data?.secret_key ) {
@@ -95,7 +85,7 @@ const SiteSettings = () => {
 				governing_site_notified: boolean;
 				message: string;
 			} >( {
-				path: `/${ REST_NAMESPACE }/governing-site`,
+				path: '/onesearch/v1/governing-site',
 				method: 'DELETE',
 			} );
 			setGoverningSite( '' );

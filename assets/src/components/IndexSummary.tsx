@@ -1,13 +1,6 @@
-/**
- * WordPress dependencies
- */
 import { Button } from '@wordpress/components';
 import { useState } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
-
-/**
- * External dependencies
- */
 import type { IndexSummaryData } from '@/js/use-index-status';
 
 // How many failed posts to show before the rest are asked for.

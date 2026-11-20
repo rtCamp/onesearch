@@ -19,7 +19,6 @@ export interface OneSearchSettings {
 	setupUrl: string;
 	siteType: SiteType | null;
 	sharedSites?: OneSearchSharedSite[];
-	restNamespace: string;
 	currentSiteUrl: string;
 	algoliaAppId?: string;
 	hasAlgoliaCredentials?: '1' | '';

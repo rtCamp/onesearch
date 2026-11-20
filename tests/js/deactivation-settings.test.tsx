@@ -1,6 +1,3 @@
-/**
- * External dependencies
- */
 import {
 	afterEach,
 	beforeEach,
@@ -12,11 +9,7 @@ import {
 	vi,
 } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-/**
- * WordPress dependencies
- */
 import apiFetch from '@wordpress/api-fetch';
-
 import DeactivationSettings from '@/components/deactivation-settings';
 
 const mockedApiFetch = apiFetch as MockedFunction< typeof apiFetch >;
