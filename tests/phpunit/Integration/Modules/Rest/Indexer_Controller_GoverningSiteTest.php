@@ -430,7 +430,7 @@ class Indexer_Controller_GoverningSiteTest extends TestCase {
 			],
 			$status['sites']['https://brand-a.example.com/']['index']
 		);
-		$this->assertSame( [ 'error' => 'The site returned an invalid response.' ], $status['sites']['https://brand-b.example.com/'] );
+		$this->assertSame( [ 'error' => 'The brand site returned an invalid response.' ], $status['sites']['https://brand-b.example.com/'] );
 		$this->assertSame( [ 'error' => 'cURL error 7' ], $status['sites']['https://brand-c.example.com/'] );
 		$this->assertSame(
 			[
