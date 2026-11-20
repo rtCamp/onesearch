@@ -21,23 +21,14 @@ export default defineConfig( {
 		environment: 'jsdom',
 		setupFiles: [ './tests/js/setup.ts' ],
 		exclude: [ ...configDefaults.exclude, 'tests/e2e/**' ],
-		testTimeout: 10000,
 		// Testing Library advances Jest's fake timers while it waits but not Vitest's, so let them follow the real clock.
 		fakeTimers: { shouldAdvanceTime: true },
-		// Pre-bundle the heavy dependencies.
+		// Pre-bundle @wordpress/components, which is slow to load file by file.
 		deps: {
 			optimizer: {
 				client: {
 					enabled: true,
-					include: [
-						'react-dom',
-						'react-dom/client',
-						'@wordpress/components',
-						'@wordpress/element',
-						'@wordpress/i18n',
-						'@testing-library/react',
-						'@testing-library/user-event',
-					],
+					include: [ '@wordpress/components' ],
 					exclude: [ 'uuid', 'react/jsx-runtime' ],
 				},
 			},

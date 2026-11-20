@@ -2,7 +2,24 @@
  * External dependencies
  */
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import type { Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const mountedRoots = vi.hoisted( () => [] as Root[] );
+
+// Keep the entry points to unmount later.
+vi.mock( 'react-dom/client', async ( importOriginal ) => {
+	const actual =
+		await importOriginal< typeof import( 'react-dom/client' ) >();
+	return {
+		...actual,
+		createRoot: ( ...args: Parameters< typeof actual.createRoot > ) => {
+			const root = actual.createRoot( ...args );
+			mountedRoots.push( root );
+			return root;
+		},
+	};
+} );
 
 vi.mock( '@/components/SiteIndexableEntities', () => ( {
 	__esModule: true,
@@ -71,10 +88,16 @@ const mockRequests = ( {
 	};
 };
 
+// A page left mounted keeps rendering from the shared window.OneSearchSettings, and once its DOM is wiped React fails to remove the nodes it portaled into the body.
+const unmountPages = () => {
+	mountedRoots.splice( 0 ).forEach( ( root ) => root.unmount() );
+};
+
 const mountEntry = async (
 	containerId: string,
 	loadEntry: () => Promise< unknown >
 ) => {
+	unmountPages();
 	document.body.innerHTML = `<div id="${ containerId }"></div>`;
 	vi.resetModules();
 	// The fresh modules get their own apiFetch mock.
@@ -115,6 +138,7 @@ describe( 'search settings page', () => {
 	} );
 
 	afterEach( () => {
+		unmountPages();
 		( globalThis as Record< string, unknown > )[
 			'IS_REACT_ACT_ENVIRONMENT'
 		] = true;

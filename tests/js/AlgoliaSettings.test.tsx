@@ -2,7 +2,6 @@
  * External dependencies
  */
 import {
-	afterEach,
 	beforeEach,
 	describe,
 	expect,
@@ -28,10 +27,6 @@ describe( 'AlgoliaSettings', () => {
 			algoliaAppId: 'app-id',
 			hasAlgoliaCredentials: '1',
 		};
-	} );
-
-	afterEach( () => {
-		vi.clearAllMocks();
 	} );
 
 	it( 'starts from the saved app ID and needs the write key typed in again to save', () => {

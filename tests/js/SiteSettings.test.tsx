@@ -72,20 +72,6 @@ describe( 'SiteSettings', () => {
 		).toBeInTheDocument();
 	} );
 
-	it( 'keeps the disconnect button disabled until a governing site connects', async () => {
-		mockSiteSettingsApi( {} );
-
-		render( <SiteSettings /> );
-
-		await screen.findByDisplayValue( 'api-key' );
-		expect( screen.getByLabelText( 'Governing Site URL' ) ).toHaveValue(
-			''
-		);
-		expect(
-			screen.getByRole( 'button', { name: 'Disconnect Governing Site' } )
-		).toBeDisabled();
-	} );
-
 	it( 'shows the api key and governing site connection cards', async () => {
 		mockSiteSettingsApi( {
 			governingSiteUrl: 'https://governing.example.com/',
@@ -139,6 +125,21 @@ describe( 'SiteSettings', () => {
 				selector: '.components-notice__content',
 			} )
 		).toBeInTheDocument();
+	} );
+
+	it( "can't disconnect before a governing site connects", async () => {
+		mockSiteSettingsApi( {} );
+
+		render( <SiteSettings /> );
+
+		expect(
+			await screen.findByRole( 'button', {
+				name: 'Disconnect Governing Site',
+			} )
+		).toBeDisabled();
+		expect( screen.getByLabelText( 'Governing Site URL' ) ).toHaveValue(
+			''
+		);
 	} );
 
 	it( 'regenerates the api key and reports success', async () => {
@@ -384,7 +385,7 @@ describe( 'SiteSettings', () => {
 		} );
 	} );
 
-	it( 'loads once on mount, and does not reload after regenerating', async () => {
+	it( 'loads once on mount without the API key, and does not reload after regenerating', async () => {
 		mockSiteSettingsApi( {
 			governingSiteUrl: 'https://governing.example.com/',
 			regeneratedKey: 'new-secret',
@@ -394,6 +395,9 @@ describe( 'SiteSettings', () => {
 
 		await screen.findByDisplayValue( 'api-key' );
 		expect( mockedApiFetch ).toHaveBeenCalledTimes( 1 );
+		expect( mockedApiFetch ).toHaveBeenCalledWith( {
+			path: '/wp/v2/settings',
+		} );
 
 		fireEvent.click(
 			screen.getByRole( 'button', { name: 'Regenerate API Key' } )
