@@ -27,6 +27,13 @@ use PHPUnit\Framework\Attributes\DataProvider;
 #[CoversClass( Uninstaller::class )]
 final class UninstallerTest extends TestCase {
 	/**
+	 * The requests uninstall sent, as [method, URL, token].
+	 *
+	 * @var array<int,array{string,string,?string}>
+	 */
+	private array $sent = [];
+
+	/**
 	 * Uninstalling a brand site deletes its records, deregisters it from the governing site, and removes the options that hold the connection between the sites.
 	 *
 	 * It deletes the jobs waiting to run, the job records and what the index knows about each post, and keeps the jobs that ran.
@@ -55,11 +62,10 @@ final class UninstallerTest extends TestCase {
 		Index_Status::record_errors( [ $post_id => 'The post is too big to index.' ] );
 
 		// Fail the brand config request, so the record cleanup stops before it reaches Algolia.
-		$sent = [];
 		add_filter(
 			'pre_http_request',
-			static function ( $preempt, array $args, string $url ) use ( &$sent ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-				$sent[] = [ $args['method'] ?? 'GET', $url, $args['headers']['X-OneSearch-Token'] ?? null ];
+			function ( $preempt, array $args, string $url ): array|\WP_Error { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+				$this->sent[] = [ $args['method'] ?? 'GET', $url, $args['headers']['X-OneSearch-Token'] ?? null ];
 
 				if ( str_ends_with( $url, '/brand-site/config' ) ) {
 					return new \WP_Error( 'http_request_failed', 'cURL error 7' );
@@ -87,7 +93,7 @@ final class UninstallerTest extends TestCase {
 				[ 'GET', 'https://governing.example.com/wp-json/onesearch/v1/brand-site/config', $api_key ],
 				[ 'DELETE', 'https://governing.example.com/wp-json/onesearch/v1/brand-site', $api_key ],
 			],
-			$sent
+			$this->sent
 		);
 
 		foreach ( $options as $option ) {
@@ -104,22 +110,8 @@ final class UninstallerTest extends TestCase {
 	 * Uninstalling a governing site disconnects its brands, deletes the index and the plugin's data, and keeps the jobs that ran.
 	 */
 	public function test_uninstall_on_a_governing_site_disconnects_the_brands_and_deletes_the_index(): void {
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		$this->set_up_deletable_governing_site();
 		update_option( Settings::OPTION_DELETE_DATA_ON_DEACTIVATION, true );
-		Settings::set_shared_sites(
-			[
-				[
-					'name'    => 'Brand A',
-					'url'     => 'https://a.example.com/',
-					'api_key' => 'key-a',
-				],
-				[
-					'name'    => 'Brand B',
-					'url'     => 'https://b.example.com/',
-					'api_key' => 'key-b',
-				],
-			]
-		);
 
 		( new Jobs() )->register_hooks();
 		Jobs::registry()->get( Index_Site_Job::class )->dispatch( [ Utils::get_current_site_url() ] );
@@ -129,12 +121,6 @@ final class UninstallerTest extends TestCase {
 		$this->assertNotEmpty( $ran );
 		$this->assertCount( count( $ran ) + 1, as_get_scheduled_actions( [ 'group' => 'onesearch' ], 'ids' ) );
 
-		Search_Settings::set_algolia_credentials(
-			[
-				'app_id'    => 'app-id',
-				'write_key' => 'write-key',
-			]
-		);
 		set_transient( Remote_Client::TRANSIENT_KEY, [ 'search_settings' => [] ], HOUR_IN_SECONDS );
 		$proxy_id = self::factory()->attachment->create( [ 'post_name' => 'onesearch-remote-attachment-proxy' ] );
 		update_option( 'onesearch_proxy_attachment_id', $proxy_id );
@@ -142,34 +128,14 @@ final class UninstallerTest extends TestCase {
 		$algolia_paths = [];
 		$this->mock_algolia_http_client( $algolia_paths );
 
-		$sent = [];
-		add_filter(
-			'pre_http_request',
-			static function ( $preempt, array $args, string $url ) use ( &$sent ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-				$sent[] = [ $args['method'] ?? 'GET', $url, $args['headers']['X-OneSearch-Token'] ?? null ];
-
-				return [
-					'response' => [
-						'code'    => 200,
-						'message' => 'OK',
-					],
-					'body'     => '',
-					'headers'  => [],
-					'cookies'  => [],
-				];
-			},
-			10,
-			3
-		);
-
+		$this->record_requests();
 		$this->run_uninstall();
 
 		$this->assertSame(
 			[
-				[ 'DELETE', 'https://a.example.com/wp-json/onesearch/v1/governing-site', 'key-a' ],
-				[ 'DELETE', 'https://b.example.com/wp-json/onesearch/v1/governing-site', 'key-b' ],
+				[ 'DELETE', 'https://brand.example.org/wp-json/onesearch/v1/governing-site', 'brand-key' ],
 			],
-			$sent
+			$this->sent
 		);
 		$this->assertNotEmpty( preg_grep( '#^/1/indexes/onesearch_[^/]+_wp_posts$#', $algolia_paths ), 'The whole index is deleted.' );
 
@@ -186,110 +152,77 @@ final class UninstallerTest extends TestCase {
 	}
 
 	/**
-	 * Uninstalling a site with nothing in Algolia deletes its data without reporting a failed cleanup.
-	 *
-	 * @param ?string $site_type The site's type, or null if it was never set up.
+	 * A network uninstall sends nothing to the network's own sites, which are uninstalled in the same run, but still disconnects a brand site and deregisters from a governing site off the network.
 	 */
-	#[DataProvider( 'site_with_nothing_in_algolia_provider' )]
-	public function test_uninstall_on_a_site_with_nothing_in_algolia_logs_no_errors( ?string $site_type ): void {
-		if ( null !== $site_type ) {
-			update_option( Settings::OPTION_SITE_TYPE, $site_type );
-		}
-		update_option( Settings::OPTION_DELETE_DATA_ON_DEACTIVATION, true );
+	public function test_network_uninstall_only_contacts_sites_off_the_network(): void {
+		$this->skipWithoutMultisite();
 
-		$log      = (string) wp_tempnam();
-		$previous = ini_set( 'error_log', $log ); // phpcs:ignore WordPress.PHP.IniSet.Risky -- Captures what the uninstall logs.
-
-		$this->run_uninstall();
-
-		ini_set( 'error_log', (string) $previous ); // phpcs:ignore WordPress.PHP.IniSet.Risky -- Restores the log.
-
-		$this->assertSame( '', (string) file_get_contents( $log ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents, WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown -- Reads a local temp file.
-		$this->assertFalse( get_option( Settings::OPTION_SITE_TYPE ) );
-		$this->assertFalse( get_option( Settings::OPTION_DELETE_DATA_ON_DEACTIVATION ) );
-	}
-
-	/**
-	 * Sites with nothing in Algolia to clean up.
-	 *
-	 * @return array<string, array{?string}>
-	 */
-	public static function site_with_nothing_in_algolia_provider(): array {
-		return [
-			'site without a type'               => [ null ],
-			'brand site with no governing site' => [ Settings::SITE_TYPE_CONSUMER ],
-		];
-	}
-
-	/**
-	 * Uninstalling from a network that holds both the governing site and a brand site only contacts the brand sites off the network.
-	 *
-	 * The network's own sites are uninstalled in the same run, so they can't answer, and the governing site deletes the whole index anyway.
-	 */
-	public function test_network_uninstall_only_contacts_the_sites_off_the_network(): void {
-		if ( ! is_multisite() ) {
-			$this->markTestSkipped( 'A network uninstall needs a multisite.' );
-		}
-
-		$governing_site_id = self::factory()->blog->create();
-		$brand_site_id     = self::factory()->blog->create();
-		$governing_url     = (string) get_home_url( $governing_site_id );
-		$brand_url         = (string) get_home_url( $brand_site_id );
-
-		switch_to_blog( $brand_site_id );
-		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER );
-		Settings::set_parent_site_url( $governing_url );
-		$brand_api_key = Settings::get_api_key();
-		restore_current_blog();
-
-		switch_to_blog( $governing_site_id );
+		// This site governs a brand site on the network and one off it.
 		$this->set_up_deletable_governing_site();
-		Settings::set_shared_sites(
-			[
-				[
-					'name'    => 'Network brand',
-					'url'     => $brand_url,
-					'api_key' => $brand_api_key,
-				],
-				[
-					'name'    => 'Other brand',
-					'url'     => 'https://other.example.com/',
-					'api_key' => 'key-other',
-				],
-			]
-		);
+		$network_brand_id = self::factory()->blog->create();
+		$this->add_brand_site( get_current_blog_id(), $network_brand_id );
+
+		// A brand site on the network with a governing site off it.
+		$brand_id = self::factory()->blog->create();
+		switch_to_blog( $brand_id );
+		$this->set_up_brand_site();
+		$brand_key = Settings::get_api_key();
 		restore_current_blog();
 
 		$algolia_paths = [];
 		$this->mock_algolia_http_client( $algolia_paths );
 
-		// The plugin is inactive on the network's own sites, so they don't have its routes.
-		$sent = [];
-		add_filter(
-			'pre_http_request',
-			static function ( $preempt, array $args, string $url ) use ( &$sent ) { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
-				$sent[] = [ $args['method'] ?? 'GET', $url ];
-
-				return [
-					'response' => [
-						'code'    => str_starts_with( $url, 'https://other.example.com/' ) ? 200 : 404,
-						'message' => '',
-					],
-					'body'     => '',
-					'headers'  => [],
-					'cookies'  => [],
-				];
-			},
-			10,
-			3
-		);
-
+		$this->record_requests();
 		$this->run_uninstall();
 
-		$this->assertSame( [ [ 'DELETE', 'https://other.example.com/wp-json/onesearch/v1/governing-site' ] ], $sent );
+		$this->assertSame(
+			[
+				[ 'DELETE', 'https://brand.example.org/wp-json/onesearch/v1/governing-site', 'brand-key' ],
+				[ 'DELETE', 'https://governing.example.com/wp-json/onesearch/v1/brand-site', $brand_key ],
+			],
+			$this->sent
+		);
 		$this->assertNotEmpty( preg_grep( '#^/1/indexes/onesearch_[^/]+_wp_posts$#', $algolia_paths ), 'The whole index is deleted.' );
-		$this->assertFalse( get_blog_option( $governing_site_id, Settings::OPTION_SITE_TYPE ) );
-		$this->assertFalse( get_blog_option( $brand_site_id, Settings::OPTION_SITE_TYPE ) );
+		$this->assertContains( '/1/indexes/onesearch_governing_example_com_wp_posts/deleteByQuery', $algolia_paths, 'The brand site off the network deletes its records.' );
+
+		$this->assertFalse( get_option( Settings::OPTION_GOVERNING_SHARED_SITES ) );
+		$this->assertFalse( get_blog_option( $network_brand_id, Settings::OPTION_CONSUMER_PARENT_SITE_URL ) );
+		$this->assertFalse( get_blog_option( $brand_id, Settings::OPTION_CONSUMER_PARENT_SITE_URL ) );
+	}
+
+	/**
+	 * A site with no governing site, like one nobody set up or a brand site whose governing site was uninstalled first, has nothing to deregister from, so uninstalling sends and logs nothing.
+	 *
+	 * @param string $site_type The site type, if any.
+	 */
+	#[DataProvider( 'unconnected_site_provider' )]
+	public function test_uninstall_leaves_a_site_with_no_governing_site_alone( string $site_type ): void {
+		update_option( Settings::OPTION_SITE_TYPE, $site_type );
+
+		$log = (string) wp_tempnam();
+		// phpcs:ignore WordPress.PHP.IniSet.Risky -- Catches what uninstall logs.
+		$previous_log = (string) ini_set( 'error_log', $log );
+
+		$this->record_requests();
+		$this->run_uninstall();
+
+		// phpcs:ignore WordPress.PHP.IniSet.Risky -- Restores the log.
+		ini_set( 'error_log', $previous_log );
+
+		$this->assertSame( [], $this->sent );
+		$this->assertSame( '', (string) file_get_contents( $log ) ); // phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
+	}
+
+	/**
+	 * Sites with no governing site.
+	 *
+	 * @return array<string,array{string}>
+	 */
+	public static function unconnected_site_provider(): array {
+		return [
+			'no site type'            => [ '' ],
+			'brand with no governing' => [ Settings::SITE_TYPE_CONSUMER ],
+		];
 	}
 
 	/**
@@ -301,9 +234,12 @@ final class UninstallerTest extends TestCase {
 		$algolia_paths = [];
 		$this->mock_algolia_http_client( $algolia_paths );
 
+		$this->record_requests();
 		$this->deactivate( false );
 
+		$this->assertSame( [], $this->sent );
 		$this->assertSame( Settings::SITE_TYPE_GOVERNING, Settings::get_site_type() );
+		$this->assertNotEmpty( Settings::get_shared_sites() );
 		$this->assertSame( 'app-id', Search_Settings::get_algolia_credentials()['app_id'] );
 		$this->assertSame( [], $algolia_paths, 'The index is kept.' );
 	}
@@ -318,21 +254,93 @@ final class UninstallerTest extends TestCase {
 		$algolia_paths = [];
 		$this->mock_algolia_http_client( $algolia_paths );
 
+		$this->record_requests();
 		$this->deactivate( false );
+
+		$this->assertSame(
+			[
+				[ 'DELETE', 'https://brand.example.org/wp-json/onesearch/v1/governing-site', 'brand-key' ],
+			],
+			$this->sent
+		);
 
 		$this->assertNotEmpty( preg_grep( '#^/1/indexes/onesearch_[^/]+_wp_posts$#', $algolia_paths ), 'The whole index is deleted.' );
 		$this->assertNull( Settings::get_site_type() );
 		$this->assertNull( Search_Settings::get_algolia_credentials()['app_id'] );
+		$this->assertFalse( get_option( Settings::OPTION_GOVERNING_SHARED_SITES ) );
 		$this->assertFalse( get_option( Settings::OPTION_DELETE_DATA_ON_DEACTIVATION ) );
+	}
+
+	/**
+	 * Deactivating a governing site that chose to delete its data disconnects its brand sites on the network too, since they keep their data.
+	 */
+	public function test_deactivation_disconnects_the_brand_sites_on_the_network(): void {
+		$this->skipWithoutMultisite();
+
+		$this->set_up_deletable_governing_site( [] );
+		update_option( Settings::OPTION_DELETE_DATA_ON_DEACTIVATION, true );
+		$brand_id = self::factory()->blog->create();
+		$this->add_brand_site( get_current_blog_id(), $brand_id );
+
+		switch_to_blog( $brand_id );
+		$brand_url = untrailingslashit( Utils::get_current_site_url() );
+		$brand_key = Settings::get_api_key();
+		restore_current_blog();
+
+		$algolia_paths = [];
+		$this->mock_algolia_http_client( $algolia_paths );
+
+		$this->record_requests();
+		$this->deactivate( false );
+
+		$this->assertSame(
+			[
+				[ 'DELETE', $brand_url . '/wp-json/onesearch/v1/governing-site', $brand_key ],
+			],
+			$this->sent
+		);
+	}
+
+	/**
+	 * Deactivating a brand site that chose to delete its data deregisters it from its governing site on the network too, since that site keeps its data.
+	 */
+	public function test_deactivation_deregisters_from_a_governing_site_on_the_network(): void {
+		$this->skipWithoutMultisite();
+
+		$this->set_up_deletable_governing_site( [] );
+		$governing_url = untrailingslashit( Utils::get_current_site_url() );
+		$brand_id      = self::factory()->blog->create();
+
+		switch_to_blog( $brand_id );
+		$this->set_up_brand_site();
+		restore_current_blog();
+		$this->add_brand_site( get_current_blog_id(), $brand_id );
+
+		$algolia_paths = [];
+		$this->mock_algolia_http_client( $algolia_paths );
+
+		switch_to_blog( $brand_id );
+		update_option( Settings::OPTION_DELETE_DATA_ON_DEACTIVATION, true );
+		$brand_key = Settings::get_api_key();
+
+		$this->record_requests();
+		$this->deactivate( false );
+		restore_current_blog();
+
+		$this->assertSame(
+			[
+				[ 'DELETE', $governing_url . '/wp-json/onesearch/v1/brand-site', $brand_key ],
+			],
+			$this->sent
+		);
+		$this->assertNotEmpty( preg_grep( '#^/1/indexes/onesearch_[^/]+_wp_posts/deleteByQuery$#', $algolia_paths ), 'The brand site deletes its records.' );
 	}
 
 	/**
 	 * Deactivating for the whole network only deletes the data of the sites that chose to.
 	 */
 	public function test_network_deactivation_only_deletes_the_data_of_the_sites_that_chose_to(): void {
-		if ( ! is_multisite() ) {
-			$this->markTestSkipped( 'Network deactivation needs a multisite.' );
-		}
+		$this->skipWithoutMultisite();
 
 		$kept_site_id    = self::factory()->blog->create();
 		$deleted_site_id = self::factory()->blog->create();
@@ -348,6 +356,7 @@ final class UninstallerTest extends TestCase {
 		$algolia_paths = [];
 		$this->mock_algolia_http_client( $algolia_paths );
 
+		$this->record_requests();
 		$this->deactivate( true );
 
 		$this->assertSame( Settings::SITE_TYPE_GOVERNING, get_blog_option( $kept_site_id, Settings::OPTION_SITE_TYPE ) );
@@ -358,9 +367,7 @@ final class UninstallerTest extends TestCase {
 	 * Deactivating for the network keeps the data of the sites on other networks, where the plugin is still active.
 	 */
 	public function test_network_deactivation_keeps_the_data_of_the_sites_on_other_networks(): void {
-		if ( ! is_multisite() ) {
-			$this->markTestSkipped( 'Network deactivation needs a multisite.' );
-		}
+		$this->skipWithoutMultisite();
 
 		$other_network_id = self::factory()->network->create();
 		$other_site_id    = self::factory()->blog->create( [ 'network_id' => $other_network_id ] );
@@ -373,6 +380,7 @@ final class UninstallerTest extends TestCase {
 		$algolia_paths = [];
 		$this->mock_algolia_http_client( $algolia_paths );
 
+		$this->record_requests();
 		$this->deactivate( true );
 
 		$this->assertSame( Settings::SITE_TYPE_GOVERNING, get_blog_option( $other_site_id, Settings::OPTION_SITE_TYPE ) );
@@ -380,14 +388,80 @@ final class UninstallerTest extends TestCase {
 
 	/**
 	 * Sets up a governing site with credentials, so deleting its index reaches Algolia.
+	 *
+	 * @param array<array<string,mixed>> $brand_sites The brand sites, as Settings::set_shared_sites() takes them.
 	 */
-	private function set_up_deletable_governing_site(): void {
+	private function set_up_deletable_governing_site( array $brand_sites = [
+		[
+			'id'      => 'brand-1',
+			'name'    => 'Brand One',
+			'url'     => 'https://brand.example.org',
+			'api_key' => 'brand-key',
+		],
+	] ): void {
 		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_GOVERNING );
+		Settings::set_shared_sites( $brand_sites );
 		Search_Settings::set_algolia_credentials(
 			[
 				'app_id'    => 'app-id',
 				'write_key' => 'write-key',
 			]
+		);
+	}
+
+	/**
+	 * Makes a site on the network one of a governing site's brand sites.
+	 *
+	 * @param int $governing_site_id The governing site's blog id.
+	 * @param int $site_id           The site's blog id.
+	 */
+	private function add_brand_site( int $governing_site_id, int $site_id ): void {
+		switch_to_blog( $governing_site_id );
+
+		$governing_site_url = Utils::get_current_site_url();
+
+		switch_to_blog( $site_id );
+
+		update_option( Settings::OPTION_SITE_TYPE, Settings::SITE_TYPE_CONSUMER, false );
+		Settings::set_parent_site_url( $governing_site_url );
+
+		$brand_site = [
+			'id'      => (string) $site_id,
+			'name'    => wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES ),
+			'url'     => Utils::get_current_site_url(),
+			'api_key' => Settings::get_api_key(),
+		];
+
+		restore_current_blog();
+
+		$shared_sites                       = Settings::get_shared_sites();
+		$shared_sites[ $brand_site['url'] ] = $brand_site;
+		Settings::set_shared_sites( $shared_sites );
+
+		restore_current_blog();
+	}
+
+	/**
+	 * Answers every request with a 200, and records it.
+	 */
+	private function record_requests(): void {
+		add_filter(
+			'pre_http_request',
+			function ( $preempt, array $args, string $url ): array { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter
+				$this->sent[] = [ $args['method'] ?? 'GET', $url, $args['headers']['X-OneSearch-Token'] ?? null ];
+
+				return [
+					'response' => [
+						'code'    => 200,
+						'message' => 'OK',
+					],
+					'body'     => '',
+					'headers'  => [],
+					'cookies'  => [],
+				];
+			},
+			10,
+			3
 		);
 	}
 
