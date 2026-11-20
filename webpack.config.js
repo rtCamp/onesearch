@@ -1,13 +1,6 @@
-/**
- * External dependencies
- */
 const fs = require( 'fs' );
 const path = require( 'path' );
 const RemoveEmptyScriptsPlugin = require( 'webpack-remove-empty-scripts' );
-
-/**
- * WordPress dependencies
- */
 const [
 	defaultScriptConfig,
 ] = require( '@wordpress/scripts/config/webpack.config' );

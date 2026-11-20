@@ -1,9 +1,3 @@
-/**
- * WordPress dependencies
- */
-/**
- * External dependencies
- */
 import { useEffect, useState, useCallback } from 'react';
 import {
 	TextareaControl,
@@ -18,10 +12,6 @@ import {
 } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
-
-/**
- * Internal dependencies
- */
 import type { NoticeType } from '@/admin/settings/page';
 import { API_KEY, REST_NAMESPACE } from '@/js/utils';
 

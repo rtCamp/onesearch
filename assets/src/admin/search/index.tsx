@@ -1,6 +1,3 @@
-/**
- * WordPress dependencies
- */
 import { Button, Modal, Snackbar } from '@wordpress/components';
 import {
 	createRoot,
@@ -11,10 +8,6 @@ import {
 } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
-
-/**
- * External dependencies
- */
 import type { NoticeType } from '@/admin/settings/page';
 import SiteIndexableEntities from '@/components/SiteIndexableEntities';
 import SiteSearchSettings, {

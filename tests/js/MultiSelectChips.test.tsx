@@ -1,9 +1,5 @@
-/**
- * External dependencies
- */
 import { describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
-
 import MultiSelectChips from '@/components/MultiSelectChips';
 
 const options = [

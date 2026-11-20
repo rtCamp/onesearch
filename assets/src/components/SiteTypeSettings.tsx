@@ -1,11 +1,4 @@
-/**
- * External dependencies
- */
 import { useState } from 'react';
-
-/**
- * WordPress dependencies
- */
 import apiFetch from '@wordpress/api-fetch';
 import { __ } from '@wordpress/i18n';
 import {
@@ -16,10 +9,6 @@ import {
 	Button,
 	SelectControl,
 } from '@wordpress/components';
-
-/**
- * Internal dependencies
- */
 import type { SiteType } from '@/types/global';
 
 const BRAND_SITE = 'brand-site' as const;

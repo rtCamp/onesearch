@@ -1,6 +1,3 @@
-/**
- * External dependencies
- */
 import { screen } from '@testing-library/react';
 
 /**

@@ -1,17 +1,7 @@
-/**
- * WordPress dependencies
- */
-/**
- * External dependencies
- */
 import { useState, useRef, useCallback } from 'react';
 import { __ } from '@wordpress/i18n';
 import { Notice, Snackbar } from '@wordpress/components';
 import apiFetch from '@wordpress/api-fetch';
-
-/**
- * Internal dependencies
- */
 import SiteTable from '@/components/SiteTable';
 import SiteModal from '@/components/SiteModal';
 import SiteSettings from '@/components/SiteSettings';

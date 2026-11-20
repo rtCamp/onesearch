@@ -1,6 +1,3 @@
-/**
- * External dependencies
- */
 import { defineConfig, type PlaywrightTestConfig } from '@playwright/test';
 import path from 'path';
 

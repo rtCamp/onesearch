@@ -1,9 +1,3 @@
-/**
- * WordPress dependencies
- */
-/**
- * External dependencies
- */
 import { useState } from 'react';
 import {
 	Button,
@@ -15,10 +9,6 @@ import {
 } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
-
-/**
- * Internal dependencies
- */
 import type { NoticeType } from '@/admin/settings/page';
 import { REST_NAMESPACE } from '@/js/utils';
 

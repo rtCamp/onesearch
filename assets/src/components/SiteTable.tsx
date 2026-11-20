@@ -1,9 +1,3 @@
-/**
- * WordPress dependencies
- */
-/**
- * External dependencies
- */
 import { useState } from 'react';
 import {
 	Button,

@@ -1,12 +1,5 @@
-/**
- * WordPress dependencies
- */
 import { useCallback, useEffect, useState } from '@wordpress/element';
 import apiFetch from '@wordpress/api-fetch';
-
-/**
- * Internal dependencies
- */
 import { REST_NAMESPACE } from './utils';
 
 export type JobState = 'queued' | 'running' | 'completed' | 'failed';

@@ -1,11 +1,4 @@
-/**
- * WordPress dependencies
- */
 import { __, _n, sprintf } from '@wordpress/i18n';
-
-/**
- * External dependencies
- */
 import type { JobStatusData } from '@/js/use-index-status';
 
 // What each job is, and what its failure means for search and what to do.

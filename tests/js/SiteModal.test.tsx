@@ -1,6 +1,8 @@
-/**
- * External dependencies
- */
+import { defaultBrandSite } from '@/admin/settings/page';
+import SiteModal from '@/components/SiteModal';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import apiFetch from '@wordpress/api-fetch';
+import { useState } from 'react';
 import {
 	describe,
 	expect,
@@ -9,19 +11,6 @@ import {
 	type MockedFunction,
 	vi,
 } from 'vitest';
-import { useState } from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-/**
- * WordPress dependencies
- */
-import apiFetch from '@wordpress/api-fetch';
-
-import SiteModal from '@/components/SiteModal';
-import { defaultBrandSite } from '@/admin/settings/page';
-
-/**
- * Internal dependencies
- */
 import { findNotice } from './helpers';
 
 const mockedApiFetch = apiFetch as MockedFunction< typeof apiFetch >;

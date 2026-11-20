@@ -1,6 +1,3 @@
-/**
- * WordPress dependencies
- */
 import apiFetch from '@wordpress/api-fetch';
 import {
 	Button,
@@ -12,17 +9,9 @@ import {
 	ToggleControl,
 } from '@wordpress/components';
 import { __, sprintf } from '@wordpress/i18n';
-
-/**
- * External dependencies
- */
 import { useCallback, useEffect, useRef, useState } from 'react';
-
-/**
- * Internal dependencies
- */
 import type { NoticeType } from '@/admin/settings/page';
-import { withTrailingSlash } from '../js/utils';
+import { withTrailingSlash } from '@/js/utils';
 
 export interface PostTypeOption {
 	slug: string;

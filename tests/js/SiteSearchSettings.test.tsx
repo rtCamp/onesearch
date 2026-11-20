@@ -1,6 +1,3 @@
-/**
- * External dependencies
- */
 import {
 	beforeEach,
 	describe,
@@ -16,11 +13,7 @@ import {
 	waitFor,
 	within,
 } from '@testing-library/react';
-/**
- * WordPress dependencies
- */
 import apiFetch from '@wordpress/api-fetch';
-
 import SiteSearchSettings from '@/components/SiteSearchSettings';
 
 const mockedApiFetch = apiFetch as MockedFunction< typeof apiFetch >;

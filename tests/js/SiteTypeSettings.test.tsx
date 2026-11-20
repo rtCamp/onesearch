@@ -1,6 +1,6 @@
-/**
- * External dependencies
- */
+import SiteTypeSettings from '@/components/SiteTypeSettings';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import apiFetch from '@wordpress/api-fetch';
 import {
 	afterEach,
 	beforeEach,
@@ -11,13 +11,6 @@ import {
 	type MockInstance,
 	vi,
 } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-/**
- * WordPress dependencies
- */
-import apiFetch from '@wordpress/api-fetch';
-
-import SiteTypeSettings from '@/components/SiteTypeSettings';
 
 const mockedApiFetch = apiFetch as MockedFunction< typeof apiFetch >;
 
