@@ -23,6 +23,13 @@ const mockedApiFetch = apiFetch as MockedFunction< typeof apiFetch >;
 
 const currentSiteUrl = 'https://governing.example.com/';
 const brandSiteUrl = 'https://brand.example.com/';
+const brandSite = {
+	id: 'brand',
+	name: 'Brand Site',
+	url: brandSiteUrl,
+	logo: '',
+	logo_id: 0,
+};
 
 type Options = { path?: string; method?: string };
 
@@ -82,9 +89,7 @@ describe( 'SiteIndexableEntities', () => {
 	it( 'shows a message when a brand site has no selectable entities', async () => {
 		answer( {} );
 		renderEntities( {
-			sites: [
-				{ name: 'Brand Site', url: brandSiteUrl, api_key: 'brand-key' },
-			],
+			sites: [ brandSite ],
 			indexableEntities: {},
 		} );
 
@@ -148,7 +153,7 @@ describe( 'SiteIndexableEntities', () => {
 	it( 'shows why post types failed to load for a brand site', () => {
 		answer( {} );
 		renderEntities( {
-			sites: [ { name: 'Brand Site', url: brandSiteUrl } ],
+			sites: [ brandSite ],
 			indexableEntities: {},
 			postTypeErrors: [
 				{ site_url: brandSiteUrl, message: 'Request timed out.' },
@@ -280,7 +285,7 @@ describe( 'SiteIndexableEntities', () => {
 			},
 		} );
 		renderEntities( {
-			sites: [ { name: 'Brand Site', url: brandSiteUrl } ],
+			sites: [ brandSite ],
 		} );
 
 		await screen.findByText( '9 of 10 items are in search.' );
@@ -397,7 +402,7 @@ describe( 'SiteIndexableEntities', () => {
 			'GET /onesearch/v1/indexer': () => ( { sites: {}, jobs } ),
 		} );
 		const { unmount } = renderEntities( {
-			sites: [ { name: 'Brand Site', url: brandSiteUrl } ],
+			sites: [ brandSite ],
 		} );
 
 		expect(
@@ -419,7 +424,7 @@ describe( 'SiteIndexableEntities', () => {
 			progress: { total: 3, done: 1, failed: 0 },
 		};
 		renderEntities( {
-			sites: [ { name: 'Brand Site', url: brandSiteUrl } ],
+			sites: [ brandSite ],
 		} );
 
 		expect( await screen.findByText( 'Indexing…' ) ).toBeInTheDocument();

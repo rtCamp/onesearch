@@ -18,7 +18,6 @@ import SiteSettings from '@/components/SiteSettings';
 import AlgoliaSettings from '@/components/AlgoliaSettings';
 import SiteTypeSettings from '@/components/SiteTypeSettings';
 import DeactivationSettings from '@/components/deactivation-settings';
-import type { SiteType } from '@/types/global';
 import { REST_NAMESPACE } from '@/js/utils';
 
 export interface NoticeType {
@@ -44,7 +43,7 @@ export const defaultBrandSite: BrandSite = {
 
 export type EditingIndex = number | null;
 
-const SITE_TYPE = ( window.OneSearchSettings.siteType as SiteType ) || '';
+const SITE_TYPE = window.OneSearchSettings.siteType || null;
 const SHARED_SITES_ENDPOINT = `/${ REST_NAMESPACE }/shared-sites`;
 
 interface DeleteSiteResponse {

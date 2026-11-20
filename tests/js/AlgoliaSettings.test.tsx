@@ -26,7 +26,7 @@ describe( 'AlgoliaSettings', () => {
 		window.OneSearchSettings = {
 			...window.OneSearchSettings,
 			algoliaAppId: 'app-id',
-			hasAlgoliaCredentials: true,
+			hasAlgoliaCredentials: '1',
 		};
 	} );
 
