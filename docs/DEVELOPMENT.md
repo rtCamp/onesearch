@@ -137,9 +137,14 @@ Code contributions, bug reports, and feature requests are welcome! The following
 │   │   # Artifacts used for testing.
 │   ├── _data/
 │   │   └── plugins/
+│   │       ├── algolia-helper.php   # Plugin that stubs Algolia in the test environments.
 │   │       └── localhost-helper.php # Plugin used to allow docker containers to connect to each other.
 │   │   # Playwright end-to-end tests.
 │   ├── e2e/
+│   │   ├── _support/         # Shared fixtures, helpers and constants.
+│   │   ├── onboarding/       # Site type selection.
+│   │   ├── search/           # Indices and Search screen.
+│   │   └── settings/         # Settings screen.
 │   │   # Vitest unit tests.
 │   ├── js/
 │   │   └── tsconfig.json     # Test TypeScript config.
@@ -175,12 +180,12 @@ Code contributions, bug reports, and feature requests are welcome! The following
 ├── .wp-env.json                  # wp-env configuration (governing site).
 ├── .wp-env.child.json            # wp-env configuration (brand site).
 ├── .wp-env.test.json             # wp-env configuration (test site).
+├── .wp-env.test-child.json       # wp-env configuration (test brand site, for E2E).
 ├── blueprint.json                # WordPress Playground blueprint configuration.
 ├── babel.config.js               # Babel configuration.
 ├── composer.json                 # PHP dependencies.
 ├── LICENSE.md                    # License file.
 ├── package.json                  # Node.js dependencies.
-├── playwright.config.ts          # Playwright configuration.
 ├── phpstan.neon.dist             # PHPStan configuration.
 ├── phpunit.xml.dist              # PHPUnit configuration.
 ├── release-please-config.json    # Release Please configuration.
@@ -285,6 +290,7 @@ You should now have a fully functional local development environment with the pl
 - `npm run wp-env start`: Start the local development environment (governing site on port 8888).
 - `npm run wp-env:child start`: Start the local development environment (brand site on port 8890).
 - `npm run wp-env:test start`: Start the local test environment (on port 8889).
+- `npm run wp-env:test-child start`: Start the E2E brand site environment (on port 8891).
 - `npm run wp-env stop`: Stop the local development environment.
 - `npm run wp-env run cli -- --env-cwd=wp-content/plugins/onesearch {YOUR_CMD_HERE}`: Run WP-CLI commands in the local environment.
 - `npm run wp-env:test run cli -- --env-cwd=wp-content/plugins/onesearch {YOUR_CMD_HERE}`: Run Composer/PHP tooling in the tests container.
@@ -480,6 +486,10 @@ End-to-end tests using Playwright can be run with the following command:
 ```bash
 npm run test:e2e
 ```
+
+The tests run against the built plugin, so run `npm run build:prod` and `composer install` first. They use two sites, started if they are not already running: the governing site on port 8889 (`npm run wp-env:test start`) and a brand site on port 8891 (`npm run wp-env:test-child start`). Algolia is stubbed by `tests/_data/plugins/algolia-helper.php` in both test environments. Specs import their fixtures and helpers from `tests/e2e/_support`.
+
+PHPUnit shares the governing site's database, clears its permalink structure, which the plugin needs for its `/wp-json/` URLs, and switches it to a theme that doesn't exist. After `npm run test:php`, run `npm run wp-env:test start -- --update` and `npm run wp-env:test -- run cli wp theme activate twentytwentyfive` before the E2E tests.
 
 To run Playwright tests with UI mode enabled (which opens the browser and shows the test execution), use:
 
