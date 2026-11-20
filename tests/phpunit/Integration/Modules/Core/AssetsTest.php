@@ -32,6 +32,22 @@ final class AssetsTest extends TestCase {
 	}
 
 	/**
+	 * Registering a script again still gives it the dependencies from its asset file.
+	 */
+	public function test_registering_a_script_again_keeps_its_dependencies(): void {
+		$assets = new Assets();
+
+		$assets->register_assets();
+		wp_deregister_script( Assets::SETTINGS_SCRIPT_HANDLE );
+		$assets->register_assets();
+
+		$asset = require ONESEARCH_DIR . 'build/settings.asset.php';
+
+		$this->assertNotEmpty( $asset['dependencies'] );
+		$this->assertSame( $asset['dependencies'], wp_scripts()->registered[ Assets::SETTINGS_SCRIPT_HANDLE ]->deps );
+	}
+
+	/**
 	 * Ensures plugin scripts receive a defer attribute.
 	 */
 	public function test_defer_scripts_adds_defer_for_plugin_handles(): void {
@@ -60,7 +76,7 @@ final class AssetsTest extends TestCase {
 		$assets = new Assets();
 		$tag    = '<script defer src="https://example.com/script.js"></script>';
 
-		$this->assertSame( $tag, $assets->defer_scripts( $tag, Assets::SEARCH_SCRIPT_HANDLE ) );
+		$this->assertSame( $tag, $assets->defer_scripts( $tag, Assets::SETTINGS_SCRIPT_HANDLE ) );
 	}
 
 	/**
@@ -71,13 +87,7 @@ final class AssetsTest extends TestCase {
 
 		$data = Assets::get_localized_data();
 
-		$this->assertArrayHasKey( 'currentSiteUrl', $data );
-		$this->assertArrayHasKey( 'algoliaAppId', $data );
-		$this->assertArrayHasKey( 'api_key', $data );
-		$this->assertArrayHasKey( 'restNamespace', $data );
-		$this->assertArrayHasKey( 'setupUrl', $data );
-		$this->assertArrayHasKey( 'sharedSites', $data );
-		$this->assertArrayHasKey( 'siteType', $data );
+		$this->assertEqualsCanonicalizing( [ 'algoliaAppId', 'api_key', 'currentSiteUrl', 'deleteDataOnDeactivation', 'hasAlgoliaCredentials', 'restNamespace', 'setupUrl', 'sharedSites', 'siteType' ], array_keys( $data ) );
 	}
 
 	/**
