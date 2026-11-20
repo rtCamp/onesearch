@@ -7,21 +7,23 @@
 export type SiteType = 'governing-site' | 'brand-site' | '';
 
 export interface OneSearchSharedSite {
+	id: string;
 	name: string;
 	url: string;
-	api_key?: string;
+	logo: string;
+	logo_id: number;
 }
 
 export interface OneSearchSettings {
 	api_key: string;
 	setupUrl: string;
-	siteType: SiteType;
+	siteType: SiteType | null;
 	sharedSites?: OneSearchSharedSite[];
 	restNamespace: string;
 	currentSiteUrl: string;
 	algoliaAppId?: string;
-	hasAlgoliaCredentials?: boolean;
-	deleteDataOnDeactivation?: boolean;
+	hasAlgoliaCredentials?: '1' | '';
+	deleteDataOnDeactivation?: '1' | '';
 }
 
 declare global {

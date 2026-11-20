@@ -58,7 +58,7 @@ interface FetchAllPostTypesResponse {
 const OneSearchSettingsPage = () => {
 	const sharedSites = window.OneSearchSettings.sharedSites || [];
 	const hasAlgoliaCreds =
-		window.OneSearchSettings.hasAlgoliaCredentials ?? false;
+		window.OneSearchSettings.hasAlgoliaCredentials ?? '';
 	const hasPrerequisites = sharedSites.length > 0 && hasAlgoliaCreds;
 
 	const siteType: SiteType = window.OneSearchSettings.siteType || '';
