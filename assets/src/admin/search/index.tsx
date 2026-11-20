@@ -2,7 +2,13 @@
  * WordPress dependencies
  */
 import { Button, Modal, Snackbar } from '@wordpress/components';
-import { createRoot, useEffect, useState } from '@wordpress/element';
+import {
+	createRoot,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
 
@@ -56,7 +62,15 @@ const OneSearchSettingsPage = () => {
 	const hasPrerequisites = sharedSites.length > 0 && hasAlgoliaCreds;
 
 	const siteType: SiteType = window.OneSearchSettings.siteType || '';
-	const [ notice, setNotice ] = useState< NoticeType | null >( null );
+	const [ notice, setNoticeState ] = useState< NoticeType | null >( null );
+	const noticeId = useRef( 0 );
+
+	// A new id remounts the Snackbar, which restarts its timer for the new notice.
+	const setNotice = useCallback( ( next: NoticeType | null ) => {
+		noticeId.current += 1;
+		setNoticeState( next ? { ...next, id: noticeId.current } : null );
+	}, [] );
+
 	const [ allPostTypes, setAllPostTypes ] = useState< AllPostTypesMap >( {} );
 	const [ indexableEntities, setIndexableEntities ] =
 		useState< IndexableEntitiesMap >( {} );
@@ -66,7 +80,7 @@ const OneSearchSettingsPage = () => {
 	);
 	const [ saving, setSaving ] = useState( false );
 
-	const fetchEntities = async () => {
+	const fetchEntities = useCallback( async () => {
 		try {
 			const settings = await apiFetch< {
 				onesearch_indexable_entities?: {
@@ -87,11 +101,11 @@ const OneSearchSettingsPage = () => {
 					__( 'Error fetching indexable entities.', 'onesearch' ),
 			} );
 		}
-	};
+	}, [ setNotice ] );
 
 	useEffect( () => {
 		fetchEntities();
-	}, [] );
+	}, [ fetchEntities ] );
 
 	const handleEntitiesSaved = () => {
 		fetchEntities();
@@ -154,7 +168,7 @@ const OneSearchSettingsPage = () => {
 		};
 
 		fetchAllPostTypes();
-	}, [] );
+	}, [ setNotice ] );
 
 	// Get status for Notice - map our types to Notice's expected types
 	const getNoticeStatus = (
@@ -171,8 +185,7 @@ const OneSearchSettingsPage = () => {
 			<>
 				{ !! notice?.message && (
 					<Snackbar
-						// A new message remounts the Snackbar, which restarts its timer.
-						key={ notice.message }
+						key={ notice.id }
 						onRemove={ () => setNotice( null ) }
 						className={
 							getNoticeStatus( notice.type ) === 'error'
