@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
 	API_KEY,
 	CURRENT_SITE_URL,
-	REST_NAMESPACE,
 	isValidUrl,
 	withTrailingSlash,
 } from '@/js/utils';
@@ -32,7 +31,6 @@ describe( 'utils', () => {
 
 	it( 'reads wordpress settings constants from the global config', () => {
 		expect( API_KEY ).toBe( 'api-key' );
-		expect( REST_NAMESPACE ).toBe( 'onesearch/v1' );
 		expect( CURRENT_SITE_URL ).toBe( 'https://governing.example.com/' );
 	} );
 } );

@@ -24,7 +24,6 @@ Object.defineProperty( global, 'fetch', {
 
 Object.defineProperty( window, 'OneSearchSettings', {
 	value: {
-		restNamespace: 'onesearch/v1',
 		api_key: 'api-key',
 		currentSiteUrl: 'https://governing.example.com/',
 		siteType: 'governing-site',

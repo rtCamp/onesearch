@@ -13,11 +13,7 @@ import SiteIndexableEntities from '@/components/SiteIndexableEntities';
 import SiteSearchSettings, {
 	type PostTypeOption,
 } from '@/components/SiteSearchSettings';
-import {
-	CURRENT_SITE_URL,
-	REST_NAMESPACE,
-	withTrailingSlash,
-} from '@/js/utils';
+import { CURRENT_SITE_URL, withTrailingSlash } from '@/js/utils';
 import type { SiteType } from '@/types/global';
 
 interface AllPostTypesMap {
@@ -140,7 +136,7 @@ const OneSearchSettingsPage = () => {
 		const fetchAllPostTypes = async () => {
 			try {
 				const data = await apiFetch< FetchAllPostTypesResponse >( {
-					path: `/${ REST_NAMESPACE }/all-post-types`,
+					path: '/onesearch/v1/all-post-types',
 				} );
 				const mapped = toEntitiesMap( data );
 				setAllPostTypes( mapped );

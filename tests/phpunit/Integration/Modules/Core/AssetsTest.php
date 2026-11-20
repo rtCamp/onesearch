@@ -87,7 +87,7 @@ final class AssetsTest extends TestCase {
 
 		$data = Assets::get_localized_data();
 
-		$this->assertEqualsCanonicalizing( [ 'algoliaAppId', 'api_key', 'currentSiteUrl', 'deleteDataOnDeactivation', 'hasAlgoliaCredentials', 'restNamespace', 'setupUrl', 'sharedSites', 'siteType' ], array_keys( $data ) );
+		$this->assertEqualsCanonicalizing( [ 'algoliaAppId', 'api_key', 'currentSiteUrl', 'deleteDataOnDeactivation', 'hasAlgoliaCredentials', 'setupUrl', 'sharedSites', 'siteType' ], array_keys( $data ) );
 	}
 
 	/**

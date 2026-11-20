@@ -10,7 +10,6 @@ declare( strict_types = 1 );
 namespace OneSearch\Modules\Core;
 
 use OneSearch\Contracts\Interfaces\Registrable;
-use OneSearch\Modules\Rest\Abstract_REST_Controller;
 use OneSearch\Modules\Search\Settings as Search_Settings;
 use OneSearch\Modules\Settings\Settings;
 use OneSearch\Utils;
@@ -74,7 +73,6 @@ final class Assets implements Registrable {
 				'hasAlgoliaCredentials'    => ! empty( $algolia_creds['app_id'] ) && ! empty( $algolia_creds['write_key'] ),
 				// Only brand sites use a key of their own, so governing sites don't generate one.
 				'api_key'                  => Settings::is_consumer_site() ? Settings::get_api_key() : '',
-				'restNamespace'            => Abstract_REST_Controller::NAMESPACE,
 				'setupUrl'                 => admin_url( 'admin.php?page=onesearch-settings' ),
 				'sharedSites'              => Settings::get_shared_sites_without_keys(),
 				'siteType'                 => Settings::get_site_type(),
