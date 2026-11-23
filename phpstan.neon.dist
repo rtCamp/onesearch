@@ -36,5 +36,3 @@ parameters:
 			- vendor-prefixed/
 		analyseAndScan:
 			- node_modules (?)
-
-	ignoreErrors:

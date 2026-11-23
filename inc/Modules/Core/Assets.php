@@ -94,7 +94,6 @@ final class Assets implements Registrable {
 	 * {@inheritDoc}
 	 */
 	public function register_hooks(): void {
-		add_action( 'wp_enqueue_scripts', [ $this, 'register_assets' ] );
 		add_action( 'admin_enqueue_scripts', [ $this, 'register_assets' ] );
 
 		// Add defer attribute to certain plugin bundles to improve admin load performance.
