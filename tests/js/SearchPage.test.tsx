@@ -97,9 +97,15 @@ describe( 'search settings page', () => {
 		window.OneSearchSettings = {
 			...window.OneSearchSettings,
 			sharedSites: [
-				{ name: 'Brand', url: 'https://brand.example.com/' },
+				{
+					id: 'brand',
+					name: 'Brand',
+					url: 'https://brand.example.com/',
+					logo: '',
+					logo_id: 0,
+				},
 			],
-			hasAlgoliaCredentials: true,
+			hasAlgoliaCredentials: '1',
 			siteType: 'governing-site',
 		};
 		// The page mounts its own root, outside of act().
@@ -161,7 +167,7 @@ describe( 'search settings page', () => {
 	} );
 
 	it.each( [
-		[ 'Algolia credentials', { hasAlgoliaCredentials: false } ],
+		[ 'Algolia credentials', { hasAlgoliaCredentials: '' as const } ],
 		[ 'a brand site', { sharedSites: [] } ],
 	] )(
 		'blocks the page with the setup modal until it has %s',
@@ -187,7 +193,13 @@ describe( 'search settings page', () => {
 
 	it( 'shows the setup modal again after every brand site is deleted', async () => {
 		let storedSites = [
-			{ id: 'brand', name: 'Brand', url: 'https://brand.example.com/' },
+			{
+				id: 'brand',
+				name: 'Brand',
+				url: 'https://brand.example.com/',
+				logo: '',
+				logo_id: 0,
+			},
 		];
 		answerRequest = async ( { path, method = 'GET' } ) => {
 			if (

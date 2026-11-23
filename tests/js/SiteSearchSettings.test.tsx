@@ -47,7 +47,15 @@ describe( 'SiteSearchSettings', () => {
 		};
 
 		Object.defineProperty( window.OneSearchSettings, 'sharedSites', {
-			value: [ { name: 'Brand Site', url: brandSiteUrl } ],
+			value: [
+				{
+					id: 'brand',
+					name: 'Brand Site',
+					url: brandSiteUrl,
+					logo: '',
+					logo_id: 0,
+				},
+			],
 			writable: true,
 			configurable: true,
 		} );
@@ -409,9 +417,21 @@ describe( 'SiteSearchSettings', () => {
 			searchable_sites: [ hiddenSiteUrl, brandSiteUrl ],
 		};
 		window.OneSearchSettings.sharedSites = [
-			{ name: 'Brand Site', url: brandSiteUrl },
+			{
+				id: 'brand',
+				name: 'Brand Site',
+				url: brandSiteUrl,
+				logo: '',
+				logo_id: 0,
+			},
 			// Its post types haven't loaded, so it isn't listed.
-			{ name: 'Hidden Site', url: hiddenSiteUrl },
+			{
+				id: 'hidden',
+				name: 'Hidden Site',
+				url: hiddenSiteUrl,
+				logo: '',
+				logo_id: 0,
+			},
 		];
 
 		mockedApiFetch.mockImplementation( ( options ) =>

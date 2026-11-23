@@ -106,13 +106,13 @@ vi.mock( '@/components/AlgoliaSettings', () => ( {
 	default: () => <div data-testid="algolia-settings">Algolia Settings</div>,
 } ) );
 
-import SettingsPage, { type BrandSite } from '@/admin/settings/page';
-import type { SiteType } from '@/types/global';
+import SettingsPage from '@/admin/settings/page';
+import type { OneSearchSharedSite, SiteType } from '@/types/global';
 
 const mockedApiFetch = apiFetch as MockedFunction< typeof apiFetch >;
 
 // The page starts from the brand sites the server localized.
-const setSharedSites = ( sharedSites: BrandSite[] ) => {
+const setSharedSites = ( sharedSites: OneSearchSharedSite[] ) => {
 	window.OneSearchSettings = { ...window.OneSearchSettings, sharedSites };
 };
 
@@ -144,9 +144,11 @@ describe( 'SettingsPage', () => {
 	it( 'loads shared sites and renders the page structure', async () => {
 		setSharedSites( [
 			{
+				id: 'one',
 				name: 'Brand Site',
 				url: 'https://brand.example.com/',
-				api_key: 'key',
+				logo: '',
+				logo_id: 0,
 			},
 		] );
 
@@ -230,8 +232,11 @@ describe( 'SettingsPage', () => {
 	it( 'keeps the modal open when the response lacks shared sites', async () => {
 		setSharedSites( [
 			{
+				id: 'one',
 				name: 'Brand Site',
 				url: 'https://brand.example.com/',
+				logo: '',
+				logo_id: 0,
 			},
 		] );
 		mockedApiFetch.mockResolvedValueOnce( {} );
@@ -257,6 +262,8 @@ describe( 'SettingsPage', () => {
 				id: 'one',
 				name: 'Brand Site',
 				url: 'https://brand.example.com/',
+				logo: '',
+				logo_id: 0,
 			},
 		] );
 		mockedApiFetch
@@ -301,9 +308,11 @@ describe( 'SettingsPage', () => {
 	it( 'submits edit changes correctly', async () => {
 		setSharedSites( [
 			{
+				id: 'one',
 				name: 'Brand Site',
 				url: 'https://brand.example.com/',
-				api_key: 'key',
+				logo: '',
+				logo_id: 0,
 			},
 		] );
 		mockedApiFetch.mockResolvedValueOnce( {
@@ -363,7 +372,8 @@ describe( 'SettingsPage', () => {
 				id: 'one',
 				name: 'Brand Site',
 				url: 'https://brand.example.com/',
-				api_key: 'brand-key',
+				logo: '',
+				logo_id: 0,
 			},
 		] );
 		mockedApiFetch.mockRejectedValueOnce( {
@@ -391,13 +401,15 @@ describe( 'SettingsPage', () => {
 				id: 'one',
 				name: 'Brand Site',
 				url: 'https://brand.example.com/',
-				api_key: 'brand-key',
+				logo: '',
+				logo_id: 0,
 			},
 			{
 				id: 'two',
 				name: 'Remaining Site',
 				url: 'https://remaining.example.com/',
-				api_key: 'other-key',
+				logo: '',
+				logo_id: 0,
 			},
 		] );
 		mockedApiFetch.mockResolvedValueOnce( {
@@ -439,7 +451,8 @@ describe( 'SettingsPage', () => {
 				id: 'one',
 				name: 'Brand Site',
 				url: 'https://brand.example.com/',
-				api_key: 'brand-key',
+				logo: '',
+				logo_id: 0,
 			},
 		] );
 		mockedApiFetch.mockResolvedValueOnce( {

@@ -28,7 +28,7 @@ describe( 'DeactivationSettings', () => {
 		mockedApiFetch.mockReset();
 		window.OneSearchSettings = {
 			...window.OneSearchSettings,
-			deleteDataOnDeactivation: false,
+			deleteDataOnDeactivation: '',
 		};
 		// Suppress WordPress component deprecation warnings (outside our control)
 		consoleWarnSpy = vi
@@ -68,7 +68,7 @@ describe( 'DeactivationSettings', () => {
 
 	it( "keeps the saved value and shows the server's message when saving fails", async () => {
 		const setNotice = vi.fn();
-		window.OneSearchSettings.deleteDataOnDeactivation = true;
+		window.OneSearchSettings.deleteDataOnDeactivation = '1';
 		mockedApiFetch.mockRejectedValueOnce( {
 			code: 'rest_forbidden',
 			message: 'Sorry, you are not allowed to do that.',
