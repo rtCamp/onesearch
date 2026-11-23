@@ -267,4 +267,27 @@ describe( 'search settings page', () => {
 			).toBeNull();
 		} );
 	} );
+
+	it( 'gives a repeated notice its own snackbar timer', async () => {
+		mockRequests();
+		await mountPage();
+
+		const notify = await screen.findByRole( 'button', { name: 'Notify' } );
+		vi.useFakeTimers();
+		notify.click();
+		await waitFor( () => {
+			expect(
+				document.querySelector( '.components-snackbar' )
+			).not.toBeNull();
+		} );
+
+		// The same notice arrives again just before the first one's timer ends.
+		await vi.advanceTimersByTimeAsync( 9000 );
+		notify.click();
+		await vi.advanceTimersByTimeAsync( 2000 );
+
+		expect(
+			document.querySelector( '.components-snackbar' )
+		).toHaveTextContent( 'Hello there' );
+	} );
 } );
