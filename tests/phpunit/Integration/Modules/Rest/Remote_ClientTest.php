@@ -330,7 +330,7 @@ class Remote_ClientTest extends TestCase {
 	}
 
 	/**
-	 * A brand site is told to re-index with its key, and fails with the brand site's own error, unless it rejected the key.
+	 * A brand site is told to re-index with its key, and fails with the brand site's own error.
 	 */
 	public function test_brand_site_requests_return_the_brand_sites_answer(): void {
 		$site = [
@@ -367,10 +367,6 @@ class Remote_ClientTest extends TestCase {
 			],
 			$sent
 		);
-
-		$answer->code = 403;
-		$answer->body = '{"code":"rest_forbidden","message":"Sorry, you are not allowed to do that."}';
-		$this->assertSame( 'The brand site rejected the API key. This usually happens when the brand site regenerates its key. Copy the key from the brand site\'s OneSearch settings, then edit the site under Brand Sites and paste it in.', Remote_Client::reindex_brand_site( $site )->get_error_message() );
 
 		$answer->code = 500;
 		$answer->body = '{"code":"internal_server_error","message":"There has been a critical error on this website."}';
@@ -694,6 +690,88 @@ class Remote_ClientTest extends TestCase {
 	}
 
 	/**
+	 * A brand site's own error message reaches the governing site, whatever the status.
+	 */
+	public function test_brand_site_errors_carry_the_brand_message(): void {
+		$filter = static fn (): array => [
+			'response' => [
+				'code'    => 404,
+				'message' => 'Not Found',
+			],
+			'body'     => '{"message":"No route was found"}',
+			'headers'  => [],
+			'cookies'  => [],
+		];
+		add_filter( 'pre_http_request', $filter );
+
+		$result = Remote_Client::request_brand_site(
+			[
+				'url'     => 'https://brand.example.com/',
+				'api_key' => 'key',
+			],
+			'indexer'
+		);
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'No route was found', $result->get_error_message() );
+		$this->assertSame( 404, $result->get_error_data()['status'] );
+	}
+
+	/**
+	 * A brand site that rejects the stored key, after its key was regenerated, asks the admin for the new key.
+	 */
+	public function test_brand_site_rejecting_the_stored_key_asks_for_the_new_key(): void {
+		$filter = static fn (): array => [
+			'response' => [
+				'code'    => 403,
+				'message' => 'Forbidden',
+			],
+			'body'     => '{"code":"rest_forbidden","message":"Sorry, you are not allowed to do that."}',
+			'headers'  => [],
+			'cookies'  => [],
+		];
+		add_filter( 'pre_http_request', $filter );
+
+		$result = Remote_Client::request_brand_site(
+			[
+				'url'     => 'https://brand.example.com/',
+				'api_key' => 'old-key',
+			],
+			'indexer'
+		);
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'onesearch_bad_key', $result->get_error_code() );
+		$this->assertSame( 400, $result->get_error_data()['status'] );
+	}
+
+	/**
+	 * A brand site that can't be reached is a bad gateway, not an error on this site.
+	 */
+	public function test_unreachable_brand_site_is_a_bad_gateway(): void {
+		$filter = static fn (): \WP_Error => new \WP_Error( 'http_request_failed', 'cURL error 7' );
+		add_filter( 'pre_http_request', $filter );
+
+		$result = Remote_Client::request_brand_site(
+			[
+				'url'     => 'https://brand.example.com/',
+				'api_key' => 'key',
+			],
+			'indexer'
+		);
+
+		remove_filter( 'pre_http_request', $filter );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'http_request_failed', $result->get_error_code() );
+		$this->assertSame( [ 'status' => 502 ], $result->get_error_data() );
+	}
+
+	/**
 	 * Successful per-site responses are merged into the `sites` map.
 	 */
 	public function test_get_all_brand_post_types_aggregates_remote_responses(): void {
@@ -824,7 +902,7 @@ class Remote_ClientTest extends TestCase {
 				'errors' => [
 					[
 						'site_url' => 'https://site-a.example.com/',
-						'message'  => 'The brand site rejected the API key. This usually happens when the brand site regenerates its key. Copy the key from the brand site\'s OneSearch settings, then edit the site under Brand Sites and paste it in.',
+						'message'  => 'The brand site rejected the API key. This is usually caused when the brand site regenerates its API key. Copy the key from the brand site\'s OneSearch settings, then edit the site under Brand Sites and paste it in.',
 					],
 				],
 			],

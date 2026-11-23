@@ -154,7 +154,7 @@ class Indexer_Controller extends Abstract_REST_Controller {
 
 			if ( is_wp_error( $report ) || ! is_array( $site ) || ! array_key_exists( 'index', $site ) || ( null !== $site['index'] && null === $index ) ) {
 				$sites[ $site_url ] = [
-					'error' => is_wp_error( $report ) ? $report->get_error_message() : __( 'The site returned an invalid response.', 'onesearch' ),
+					'error' => is_wp_error( $report ) ? $report->get_error_message() : __( 'The brand site returned an invalid response.', 'onesearch' ),
 				];
 				continue;
 			}

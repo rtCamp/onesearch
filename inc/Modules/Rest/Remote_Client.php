@@ -305,7 +305,7 @@ class Remote_Client {
 		$all_sites = [];
 		$errors    = [];
 		foreach ( Settings::get_shared_sites() as $site_data ) {
-			$response = self::request_brand_site( 'all-post-types', $site_data );
+			$response = self::request_brand_site( $site_data, 'all-post-types' );
 
 			if ( is_wp_error( $response ) ) {
 				$errors[] = [
@@ -315,16 +315,7 @@ class Remote_Client {
 				continue;
 			}
 
-			$response_data = json_decode( wp_remote_retrieve_body( $response ), true );
-			if ( ! is_array( $response_data ) ) {
-				$errors[] = [
-					'site_url' => $site_data['url'],
-					'message'  => __( 'The site returned an invalid response.', 'onesearch' ),
-				];
-				continue;
-			}
-
-			foreach ( $response_data['sites'] as $site_url => $site_data ) {
+			foreach ( $response['sites'] as $site_url => $site_data ) {
 				if ( ! is_array( $site_data ) ) {
 					continue;
 				}
@@ -356,7 +347,7 @@ class Remote_Client {
 	 * @return true|\WP_Error True if the brand site started it.
 	 */
 	public static function reindex_brand_site( array $site_data ): true|\WP_Error {
-		$response = self::request_brand_site( 'indexer', $site_data, [ 'method' => \WP_REST_Server::CREATABLE ] );
+		$response = self::request_brand_site( $site_data, 'indexer', \WP_REST_Server::CREATABLE );
 
 		return is_wp_error( $response ) ? $response : true;
 	}
@@ -369,15 +360,7 @@ class Remote_Client {
 	 * @return array<mixed>|\WP_Error The report as the brand site sent it.
 	 */
 	public static function get_brand_status( array $site_data ): array|\WP_Error {
-		$response = self::request_brand_site( 'indexer', $site_data );
-
-		if ( is_wp_error( $response ) ) {
-			return $response;
-		}
-
-		$report = json_decode( wp_remote_retrieve_body( $response ), true );
-
-		return is_array( $report ) ? $report : new \WP_Error( 'onesearch_rest_invalid_response', __( 'The site returned an invalid response.', 'onesearch' ) );
+		return self::request_brand_site( $site_data, 'indexer' );
 	}
 
 	/**
@@ -424,45 +407,55 @@ class Remote_Client {
 	}
 
 	/**
-	 * Sends a request to a OneSearch route on a brand site, and fails unless the brand site answers with a 200.
+	 * Sends a JSON request to a OneSearch route on a brand site, and decodes its answer. Anything but a 200 is an error with the brand site's own message.
 	 *
-	 * @param string                              $route     The route, relative to the OneSearch namespace.
 	 * @param array{url: string, api_key: string} $site_data The brand site, with its stored key.
-	 * @param array<string,mixed>                 $args      Extra request arguments, like the method.
+	 * @param string                              $route     The route, relative to the OneSearch namespace.
+	 * @param string                              $method    The request method.
+	 * @param ?array<string,mixed>                $body      The request body, if any.
 	 *
-	 * @return array<string,mixed>|\WP_Error The response, or the brand site's error.
+	 * @return array<int|string,mixed>|\WP_Error The decoded response, or the brand site's error.
 	 */
-	private static function request_brand_site( string $route, array $site_data, array $args = [] ): array|\WP_Error {
+	public static function request_brand_site( array $site_data, string $route, string $method = \WP_REST_Server::READABLE, ?array $body = null ): array|\WP_Error {
 		if ( empty( $site_data['url'] ) || empty( $site_data['api_key'] ) ) {
 			return new \WP_Error( 'onesearch_missing_site_data', __( "This site's URL or API key is missing. Remove the site and add it again.", 'onesearch' ) );
+		}
+
+		$args = [ 'method' => $method ];
+		if ( null !== $body ) {
+			$args['body'] = (string) wp_json_encode( $body );
 		}
 
 		$response = self::request( $site_data['url'], $route, $site_data['api_key'], $args );
 
 		if ( is_wp_error( $response ) ) {
+			$response->add_data( [ 'status' => 502 ] );
 			return $response;
 		}
 
 		$code = (int) wp_remote_retrieve_response_code( $response );
+		$data = json_decode( wp_remote_retrieve_body( $response ), true );
 
 		if ( 401 === $code || 403 === $code ) {
-			return new \WP_Error( 'onesearch_bad_key', __( 'The brand site rejected the API key. This usually happens when the brand site regenerates its key. Copy the key from the brand site\'s OneSearch settings, then edit the site under Brand Sites and paste it in.', 'onesearch' ) );
+			return new \WP_Error( 'onesearch_bad_key', __( 'The brand site rejected the API key. This is usually caused when the brand site regenerates its API key. Copy the key from the brand site\'s OneSearch settings, then edit the site under Brand Sites and paste it in.', 'onesearch' ), [ 'status' => 400 ] );
 		}
 
 		if ( 200 !== $code ) {
-			$site_error = json_decode( wp_remote_retrieve_body( $response ), true );
-
 			return new \WP_Error(
 				'onesearch_rest_failed_to_connect',
-				is_string( $site_error['message'] ?? null )
-					? $site_error['message']
+				is_string( $data['message'] ?? null )
+					? $data['message']
 					/* translators: %d: HTTP status code. */
 					: sprintf( __( 'The brand site answered with error %d.', 'onesearch' ), $code ),
 				[ 'status' => $code ]
 			);
 		}
 
-		return $response;
+		if ( ! is_array( $data ) ) {
+			return new \WP_Error( 'onesearch_rest_invalid_response', __( 'The brand site returned an invalid response.', 'onesearch' ), [ 'status' => 500 ] );
+		}
+
+		return $data;
 	}
 
 	/**
