@@ -260,7 +260,10 @@ describe( 'SettingsPage', () => {
 			},
 		] );
 		mockedApiFetch
-			.mockRejectedValueOnce( new Error( 'delete failed' ) )
+			.mockResolvedValueOnce( {
+				governing_site_notified: true,
+				message: 'Brand site removed successfully.',
+			} )
 			.mockResolvedValueOnce( {
 				shared_sites: [
 					{
@@ -274,7 +277,7 @@ describe( 'SettingsPage', () => {
 		fireEvent.click(
 			screen.getByRole( 'button', { name: 'Delete Site' } )
 		);
-		await screen.findAllByText( 'Failed to update shared sites' );
+		await screen.findAllByText( 'Brand site removed successfully.' );
 
 		// The second notice arrives just before the first one's timer ends.
 		act( () => {
@@ -354,7 +357,7 @@ describe( 'SettingsPage', () => {
 		expect( screen.queryByTestId( 'site-modal' ) ).not.toBeInTheDocument();
 	} );
 
-	it( 'shows an error and leaves the brand site alone when deleting fails', async () => {
+	it( "shows the server's error and leaves the brand site alone when deleting fails", async () => {
 		setSharedSites( [
 			{
 				id: 'one',
@@ -363,7 +366,11 @@ describe( 'SettingsPage', () => {
 				api_key: 'brand-key',
 			},
 		] );
-		mockedApiFetch.mockRejectedValueOnce( new Error( 'delete failed' ) );
+		mockedApiFetch.mockRejectedValueOnce( {
+			code: 'onesearch_site_not_found',
+			message: 'The brand site was not found.',
+			data: { status: 404 },
+		} );
 
 		render( <SettingsPage /> );
 
@@ -372,7 +379,7 @@ describe( 'SettingsPage', () => {
 		);
 
 		const notices = await screen.findAllByText(
-			'Failed to update shared sites'
+			'The brand site was not found.'
 		);
 		expect( notices.length ).toBeGreaterThanOrEqual( 1 );
 		expect( screen.getByTestId( 'site-count' ) ).toHaveTextContent( '1' );

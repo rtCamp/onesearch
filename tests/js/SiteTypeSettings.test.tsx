@@ -102,8 +102,6 @@ describe( 'SiteTypeSettings', () => {
 		);
 
 		// WordPress renders notices in both accessibility region and visible content
-		expect(
-			await screen.findAllByText( 'Error setting site type.' )
-		).toHaveLength( 2 );
+		expect( await screen.findAllByText( 'save failed' ) ).toHaveLength( 2 );
 	} );
 } );

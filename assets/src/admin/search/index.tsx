@@ -77,15 +77,14 @@ const OneSearchSettingsPage = () => {
 				settings?.onesearch_indexable_entities?.entities || {}
 			);
 			setEntitiesLoadFailed( false );
-		} catch {
+		} catch ( error ) {
 			// Saving now would overwrite the selections of every site.
 			setEntitiesLoadFailed( true );
 			setNotice( {
 				type: 'error',
-				message: __(
-					'Error fetching indexable entities.',
-					'onesearch'
-				),
+				message:
+					( error as { message?: string } )?.message ||
+					__( 'Error fetching indexable entities.', 'onesearch' ),
 			} );
 		}
 	};
@@ -141,13 +140,15 @@ const OneSearchSettingsPage = () => {
 				setPostTypeErrors(
 					Array.isArray( data?.errors ) ? data.errors : []
 				);
-			} catch {
+			} catch ( error ) {
 				setNotice( {
 					type: 'error',
-					message: __(
-						'Error fetching post types from sites.',
-						'onesearch'
-					),
+					message:
+						( error as { message?: string } )?.message ||
+						__(
+							'Error fetching post types from sites.',
+							'onesearch'
+						),
 				} );
 			}
 		};

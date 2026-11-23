@@ -208,13 +208,15 @@ const SiteSearchSettings = ( {
 					// To trigger re-rendering of search configuration component.
 					setReloadKey( ( k ) => k + 1 );
 				} )
-				.catch( () => {
+				.catch( ( error: unknown ) => {
 					setNotice( {
 						type: 'error',
-						message: __(
-							'Failed to auto-save disabled sites.',
-							'onesearch'
-						),
+						message:
+							( error as { message?: string } )?.message ||
+							__(
+								'Failed to auto-save disabled sites.',
+								'onesearch'
+							),
 					} );
 				} );
 		}
@@ -246,13 +248,12 @@ const SiteSearchSettings = ( {
 					);
 				}
 			} )
-			.catch( () => {
+			.catch( ( error: unknown ) => {
 				setNotice( {
 					type: 'error',
-					message: __(
-						'Failed to load search settings.',
-						'onesearch'
-					),
+					message:
+						( error as { message?: string } )?.message ||
+						__( 'Failed to load search settings.', 'onesearch' ),
 				} );
 			} )
 			.finally( () => {
@@ -411,13 +412,12 @@ const SiteSearchSettings = ( {
 				} );
 				setInitialSettings( settings.onesearch_sites_search_settings );
 			} )
-			.catch( () => {
+			.catch( ( error: unknown ) => {
 				setNotice( {
 					type: 'error',
-					message: __(
-						'Failed to save search settings.',
-						'onesearch'
-					),
+					message:
+						( error as { message?: string } )?.message ||
+						__( 'Failed to save search settings.', 'onesearch' ),
 				} );
 			} )
 			.finally( () => {

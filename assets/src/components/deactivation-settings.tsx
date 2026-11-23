@@ -64,13 +64,15 @@ const DeactivationSettings = ( {
 				type: 'success',
 				message: __( 'Settings saved.', 'onesearch' ),
 			} );
-		} catch {
+		} catch ( error ) {
 			setNotice( {
 				type: 'error',
-				message: __(
-					'Failed to save the setting. Please try again.',
-					'onesearch'
-				),
+				message:
+					( error as { message?: string } )?.message ||
+					__(
+						'Failed to save the setting. Please try again.',
+						'onesearch'
+					),
 			} );
 		} finally {
 			setIsSaving( false );
