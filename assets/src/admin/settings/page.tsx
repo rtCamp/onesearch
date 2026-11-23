@@ -1,24 +1,13 @@
-/**
- * WordPress dependencies
- */
-/**
- * External dependencies
- */
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { Notice, Snackbar } from '@wordpress/components';
 import apiFetch from '@wordpress/api-fetch';
-
-/**
- * Internal dependencies
- */
 import SiteTable from '@/components/SiteTable';
 import SiteModal from '@/components/SiteModal';
 import SiteSettings from '@/components/SiteSettings';
 import AlgoliaSettings from '@/components/AlgoliaSettings';
 import SiteTypeSettings from '@/components/SiteTypeSettings';
 import DeactivationSettings from '@/components/deactivation-settings';
-import { REST_NAMESPACE } from '@/js/utils';
 
 export interface NoticeType {
 	// Set by the settings page, so each notice gets its own Snackbar.
@@ -44,7 +33,7 @@ export const defaultBrandSite: BrandSite = {
 export type EditingIndex = number | null;
 
 const SITE_TYPE = window.OneSearchSettings.siteType || null;
-const SHARED_SITES_ENDPOINT = `/${ REST_NAMESPACE }/shared-sites`;
+const SHARED_SITES_ENDPOINT = '/onesearch/v1/shared-sites';
 
 interface DeleteSiteResponse {
 	governing_site_notified?: boolean;

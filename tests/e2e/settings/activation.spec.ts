@@ -1,6 +1,3 @@
-/**
- * WordPress dependencies
- */
 import { expect, test } from '@wordpress/e2e-test-utils-playwright';
 
 test.describe( 'plugin activation', () => {

@@ -152,7 +152,7 @@ class Governing_Site_Controller_ConsumerSiteTest extends TestCase {
 	}
 
 	/**
-	 * Only a governing site with this site's key can connect it, so a logged-in admin (from set_up) is refused.
+	 * Only a governing site with this site's key can connect it, so a logged-in admin (from setUp) is refused.
 	 */
 	public function test_connect_refuses_an_admin_without_the_key(): void {
 		delete_option( Settings::OPTION_CONSUMER_PARENT_SITE_URL );
@@ -344,7 +344,7 @@ class Governing_Site_Controller_ConsumerSiteTest extends TestCase {
 	}
 
 	/**
-	 * Only the governing site clears the cached brand config, so a logged-in admin (from set_up) is refused.
+	 * Only the governing site clears the cached brand config, so a logged-in admin (from setUp) is refused.
 	 */
 	public function test_delete_brand_config_cache_refuses_an_admin(): void {
 		set_transient( Remote_Client::TRANSIENT_KEY, [ 'cached' => true ], 3600 );

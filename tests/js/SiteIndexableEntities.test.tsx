@@ -1,6 +1,3 @@
-/**
- * External dependencies
- */
 import { describe, expect, it, type MockedFunction, vi } from 'vitest';
 import {
 	act,
@@ -10,12 +7,7 @@ import {
 	waitFor,
 	within,
 } from '@testing-library/react';
-
-/**
- * WordPress dependencies
- */
 import apiFetch from '@wordpress/api-fetch';
-
 import SiteIndexableEntities from '@/components/SiteIndexableEntities';
 import { POLL_INTERVAL, type JobStatusData } from '@/js/use-index-status';
 

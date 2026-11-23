@@ -1,14 +1,7 @@
-/**
- * WordPress dependencies
- */
 import { Popover, Icon } from '@wordpress/components';
 import { chevronDown, closeSmall } from '@wordpress/icons';
 import { __, sprintf } from '@wordpress/i18n';
-
-/**
- * External dependencies
- */
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from '@wordpress/element';
 
 interface MultiSelectChipsProps {
 	label?: string;

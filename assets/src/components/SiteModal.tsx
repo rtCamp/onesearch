@@ -1,9 +1,3 @@
-/**
- * WordPress dependencies
- */
-/**
- * External dependencies
- */
 import {
 	Button,
 	Modal,
@@ -12,13 +6,10 @@ import {
 	TextareaControl,
 } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
-import { useMemo, useState } from 'react';
-
-/**
- * Internal dependencies
- */
+import { useMemo, useState } from '@wordpress/element';
 import type { defaultBrandSite } from '@/admin/settings/page';
-import { isValidUrl, withTrailingSlash } from '../js/utils';
+import { isValidUrl, withTrailingSlash } from '@/js/utils';
+
 interface ErrorsType {
 	name: string;
 	url: string;

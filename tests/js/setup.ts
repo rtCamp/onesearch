@@ -1,6 +1,3 @@
-/**
- * External dependencies
- */
 import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
 import type { EventEmitter } from 'node:events';
@@ -27,7 +24,6 @@ Object.defineProperty( global, 'fetch', {
 
 Object.defineProperty( window, 'OneSearchSettings', {
 	value: {
-		restNamespace: 'onesearch/v1',
 		api_key: 'api-key',
 		currentSiteUrl: 'https://governing.example.com/',
 		siteType: 'governing-site',

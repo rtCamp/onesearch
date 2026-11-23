@@ -166,7 +166,7 @@ class Brand_Site_Controller_GoverningSiteTest extends TestCase {
 	}
 
 	/**
-	 * Only a brand site can remove itself, so a logged-in admin (from set_up) without its key is refused.
+	 * Only a brand site can remove itself, so a logged-in admin (from setUp) without its key is refused.
 	 */
 	public function test_remove_brand_site_refuses_an_admin_without_a_brand_key(): void {
 		Settings::set_shared_sites(
@@ -199,7 +199,7 @@ class Brand_Site_Controller_GoverningSiteTest extends TestCase {
 	}
 
 	/**
-	 * Only brand sites use brand-site/config, so a logged-in admin (from set_up) without a brand's key is refused.
+	 * Only brand sites use brand-site/config, so a logged-in admin (from setUp) without a brand's key is refused.
 	 */
 	public function test_get_brand_config_refuses_an_admin_without_a_brand_key(): void {
 		$request  = new WP_REST_Request( 'GET', '/onesearch/v1/brand-site/config' );

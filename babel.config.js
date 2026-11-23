@@ -1,6 +1,3 @@
-/**
- * WordPress dependencies
- */
 const defaultConfig = require( '@wordpress/babel-preset-default' );
 
 module.exports = function ( api ) {

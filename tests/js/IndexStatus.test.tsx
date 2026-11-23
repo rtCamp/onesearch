@@ -1,9 +1,5 @@
-/**
- * External dependencies
- */
 import { describe, expect, it } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-
 import IndexSummary from '@/components/IndexSummary';
 import JobStatus from '@/components/JobStatus';
 import type { JobStatusData } from '@/js/use-index-status';

@@ -1,10 +1,4 @@
-/**
- * WordPress dependencies
- */
-/**
- * External dependencies
- */
-import { useState } from 'react';
+import { useState } from '@wordpress/element';
 import {
 	Button,
 	CardBody,
@@ -15,19 +9,14 @@ import {
 } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
-
-/**
- * Internal dependencies
- */
 import type { NoticeType } from '@/admin/settings/page';
-import { REST_NAMESPACE } from '@/js/utils';
 
 interface AlgoliaCredentials {
 	app_id: string;
 	write_key: string;
 }
 
-const CREDENTIALS_ENDPOINT = `/${ REST_NAMESPACE }/algolia-credentials`;
+const CREDENTIALS_ENDPOINT = '/onesearch/v1/algolia-credentials';
 
 const AlgoliaSettings = ( {
 	setNotice,
