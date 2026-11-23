@@ -6,10 +6,7 @@ import { cleanup } from '@testing-library/react';
 import type { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, vi } from 'vitest';
 
-vi.mock(
-	'@wordpress/api-fetch',
-	() => import( './__mocks__/@wordpress/api-fetch' )
-);
+vi.mock( '@wordpress/api-fetch' );
 
 // Report jsdom errors (like its unimplemented navigation) through the test's console, like Jest did.
 const { jsdom } = globalThis as unknown as {
@@ -57,12 +54,6 @@ Object.defineProperty( navigator, 'clipboard', {
 	},
 	configurable: true,
 } );
-
-/**
- * Vitest test setup for OneSearch.
- *
- * @package
- */
 
 beforeEach( () => {
 	vi.clearAllMocks();
