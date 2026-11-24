@@ -4,7 +4,7 @@ Tags: OnePress, search, algolia, federated search, cross-site search
 Requires at least: 6.9
 Tested up to: 7.1
 <!-- x-release-please-start-version: -->
-Stable tag: 1.1.2
+Stable tag: 2.0.0
 <!-- x-release-please-end: -->
 Requires PHP: 8.2
 License: GPLv2 or later
@@ -112,7 +112,7 @@ Yes. From the Governing Site, you can configure the search scope for each brand 
 == Upgrade Notice ==
 
 = 2.0.0 =
-This major update rebuilds the plugin and changes how indexing and search are handled and stored. It is strongly recommended to uninstall 1.x before installing 2.0.0, or to turn on 'Delete plugin data on deactivation' after updating, then deactivate, reactivate and configure it afresh.
+This major update rebuilds the plugin and changes how indexing and search are handled and stored. It is strongly recommended to turn on 'OneSearch > Settings > Delete plugin data on deactivation' after updating, then deactivate, reactivate and configure it afresh.
 
 == Changelog ==
 
