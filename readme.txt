@@ -112,7 +112,7 @@ Yes. From the Governing Site, you can configure the search scope for each brand 
 == Upgrade Notice ==
 
 = 2.0.0 =
-This major update rebuilds the plugin and changes how indexing and search are handled and stored. It is strongly recommended to uninstall 1.x before installing 2.0.0, or to turn on 'Delete plugin data on deactivation' after updating, then deactivate, reactivate and configure it afresh.
+This major update rebuilds the plugin and changes how indexing and search are handled and stored. It is strongly recommended to turn on 'OneSearch > Settings > Delete plugin data on deactivation' after updating, then deactivate, reactivate and configure it afresh.
 
 == Changelog ==
 
