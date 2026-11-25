@@ -67,7 +67,32 @@ const renderEntities = (
 		/>
 	);
 
+// The chips control is named after its site, so several can coexist on the screen.
+const governingEntities = 'Select entities… for Governing Site';
+
 describe( 'SiteIndexableEntities', () => {
+	it( 'includes the visible selector text in each site’s accessible name', () => {
+		answer( {} );
+		renderEntities( {
+			sites: [ brandSite ],
+			allPostTypes: {
+				[ currentSiteUrl ]: [ { slug: 'post', label: 'Posts' } ],
+				[ brandSiteUrl ]: [ { slug: 'page', label: 'Pages' } ],
+			},
+		} );
+
+		for ( const siteName of [ 'Governing Site', 'Brand Site' ] ) {
+			const selector = screen.getByRole( 'button', {
+				name: `Select entities… for ${ siteName }`,
+			} );
+			const visibleText =
+				within( selector ).getByText( 'Select entities…' );
+			expect( selector ).toHaveAccessibleName(
+				expect.stringContaining( visibleText.textContent! )
+			);
+		}
+	} );
+
 	it( 'can re-index whatever is saved', async () => {
 		answer( {} );
 		renderEntities( { indexableEntities: {} } );
@@ -112,7 +137,7 @@ describe( 'SiteIndexableEntities', () => {
 
 		await screen.findByText( 'Select Entities to Index' );
 		fireEvent.click(
-			screen.getByRole( 'button', { name: 'Select entities…' } )
+			screen.getByRole( 'button', { name: governingEntities } )
 		);
 		fireEvent.click( screen.getByLabelText( 'Posts' ) );
 		fireEvent.click(
@@ -165,7 +190,7 @@ describe( 'SiteIndexableEntities', () => {
 		renderEntities( { indexableEntities: {}, loadFailed: true } );
 
 		expect(
-			screen.getByRole( 'button', { name: 'Select entities…' } )
+			screen.getByRole( 'button', { name: governingEntities } )
 		).toBeDisabled();
 		expect(
 			screen.getByRole( 'button', { name: 'Save Changes' } )
@@ -178,7 +203,7 @@ describe( 'SiteIndexableEntities', () => {
 
 		await screen.findByText( 'Select Entities to Index' );
 		fireEvent.click(
-			screen.getByRole( 'button', { name: 'Select entities…' } )
+			screen.getByRole( 'button', { name: governingEntities } )
 		);
 		fireEvent.click( screen.getByLabelText( 'Posts' ) );
 		expect(
@@ -204,7 +229,7 @@ describe( 'SiteIndexableEntities', () => {
 
 		await screen.findByText( 'Select Entities to Index' );
 		fireEvent.click(
-			screen.getByRole( 'button', { name: 'Select entities…' } )
+			screen.getByRole( 'button', { name: governingEntities } )
 		);
 		fireEvent.click( screen.getByLabelText( 'Posts' ) );
 		fireEvent.click(

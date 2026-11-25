@@ -5,6 +5,7 @@ import { useState, useRef, useEffect } from '@wordpress/element';
 
 interface MultiSelectChipsProps {
 	label?: string;
+	ariaLabel?: string;
 	placeholder?: string;
 	options: Array< Record< string, string | number > >;
 	value?: string[];
@@ -16,6 +17,7 @@ interface MultiSelectChipsProps {
 
 function MultiSelectChips( {
 	label,
+	ariaLabel,
 	placeholder = __( 'Select…', 'onesearch' ),
 	options = [],
 	value = [],
@@ -103,6 +105,7 @@ function MultiSelectChips( {
 			{ label && <span className="msc-label">{ label }</span> }
 			<button
 				type="button"
+				aria-label={ ariaLabel || label || placeholder }
 				className="msc-control"
 				onClick={ handleToggleOpen }
 				disabled={ disabled }

@@ -29,7 +29,7 @@ describe( 'MultiSelectChips', () => {
 
 		await act( async () => {
 			fireEvent.click(
-				screen.getByRole( 'button', { name: 'Select…' } )
+				screen.getByRole( 'button', { name: 'Entities' } )
 			);
 		} );
 
@@ -77,7 +77,7 @@ describe( 'MultiSelectChips', () => {
 			/>
 		);
 
-		const control = screen.getByRole( 'button', { name: 'Select…' } );
+		const control = screen.getByRole( 'button', { name: 'Entities' } );
 		expect( control.tagName ).toBe( 'BUTTON' );
 		expect(
 			control.contains(
@@ -111,7 +111,7 @@ describe( 'MultiSelectChips', () => {
 
 		await act( async () => {
 			fireEvent.click(
-				screen.getByRole( 'button', { name: 'Select…' } )
+				screen.getByRole( 'button', { name: 'Entities' } )
 			);
 		} );
 		expect(
@@ -134,7 +134,7 @@ describe( 'MultiSelectChips', () => {
 		).not.toBeInTheDocument();
 		await act( async () => {
 			fireEvent.click(
-				screen.getByRole( 'button', { name: 'Select…' } )
+				screen.getByRole( 'button', { name: 'Entities' } )
 			);
 		} );
 		expect(
