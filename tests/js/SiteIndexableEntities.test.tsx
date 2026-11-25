@@ -74,7 +74,7 @@ describe( 'SiteIndexableEntities', () => {
 	it( 'includes the visible selector text in each site’s accessible name', () => {
 		answer( {} );
 		renderEntities( {
-			sites: [ { name: 'Brand Site', url: brandSiteUrl } ],
+			sites: [ brandSite ],
 			allPostTypes: {
 				[ currentSiteUrl ]: [ { slug: 'post', label: 'Posts' } ],
 				[ brandSiteUrl ]: [ { slug: 'page', label: 'Pages' } ],

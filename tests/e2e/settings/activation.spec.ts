@@ -1,11 +1,5 @@
-/**
- * External dependencies
- */
 import type { Page } from '@playwright/test';
 
-/**
- * Internal dependencies
- */
 import {
 	ADMIN_PAGE,
 	GOVERNING_SITE_URL,
