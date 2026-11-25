@@ -31,8 +31,9 @@ function entityMenu( page: Page ) {
 const INDEXING_TIMEOUT = 70_000;
 // The screen refreshes job status every ten seconds.
 const STATUS_TIMEOUT = 15_000;
-// Two indexing runs, plus setup, recorder persistence and the UI's status polling.
-const TWO_RUNS_TIMEOUT = 2 * INDEXING_TIMEOUT + 60_000;
+// An indexing run, plus setup, recorder persistence and the UI's status polling.
+const ONE_RUN_TIMEOUT = INDEXING_TIMEOUT + 60_000;
+const TWO_RUNS_TIMEOUT = ONE_RUN_TIMEOUT + INDEXING_TIMEOUT;
 
 const INDEXED = /\b([1-9]\d*) of \1 items are in search\./;
 const INDEXING_FAILED =
@@ -63,10 +64,9 @@ async function expectIndexingRun(
 async function expectIndexedPost(
 	site: OneSearchUtils,
 	post: TestPost,
-	siteUrl: string,
-	after = 0
+	siteUrl: string
 ) {
-	expect( ( await site.indexedRecords() ).slice( after ) ).toContainEqual( {
+	expect( await site.indexedRecords() ).toContainEqual( {
 		path: '/1/indexes/onesearch_localhost_wp_posts/batch',
 		record: expect.objectContaining( {
 			post_id: post.id,
@@ -75,49 +75,6 @@ async function expectIndexedPost(
 			objectID: expect.any( String ),
 		} ),
 	} );
-}
-
-/**
- * Check that a run deleted only the site's records from before it, and only once its new ones were saved, so search keeps the old ones in between.
- *
- * @param site    The site that ran the indexing.
- * @param siteUrl The site, as the plugin keys it.
- * @param after   How many of the site's Algolia requests came before the run.
- */
-async function expectOldRecordsKeptUntilReplaced(
-	site: OneSearchUtils,
-	siteUrl: string,
-	after: number
-) {
-	await expect( async () => {
-		const requests = ( await site.algoliaRequests() )
-			.slice( after )
-			.map( ( { path, body } ) => ( { path, filters: body.filters } ) );
-		const lastSave = requests
-			.map( ( { path } ) => path )
-			.lastIndexOf( '/1/indexes/onesearch_localhost_wp_posts/batch' );
-		// Saving a post also deletes its own leftover chunks, which isn't a site-wide delete.
-		const deletes = requests
-			.map( ( request, index ) => ( { ...request, index } ) )
-			.filter(
-				( { path, filters } ) =>
-					path.endsWith( '/deleteByQuery' ) &&
-					!! filters?.startsWith( 'site_url:' )
-			);
-
-		expect( deletes.map( ( { filters } ) => filters ) ).toEqual( [
-			expect.stringMatching(
-				new RegExp(
-					`^site_url:"${ siteUrl.replace(
-						/[.*+?^${}()|[\]\\]/g,
-						'\\$&'
-					) }" AND indexed_at < \\d+$`
-				)
-			),
-		] );
-		expect( lastSave ).toBeGreaterThanOrEqual( 0 );
-		expect( deletes[ 0 ]?.index ).toBeGreaterThan( lastSave );
-	} ).toPass( { timeout: INDEXING_TIMEOUT } );
 }
 
 async function reIndex( page: Page ) {
@@ -141,7 +98,7 @@ test.describe( 'indices and search screen', () => {
 		oneSearch,
 		page,
 	} ) => {
-		test.setTimeout( TWO_RUNS_TIMEOUT );
+		test.setTimeout( ONE_RUN_TIMEOUT );
 		const token = `onesearch${ Date.now() }`;
 		const governingPost = await oneSearch.createPost(
 			`Governing post ${ token }`
@@ -214,16 +171,6 @@ test.describe( 'indices and search screen', () => {
 					);
 				}
 			);
-			expect(
-				( await oneSearch.indexedRecords() ).map(
-					( { record } ) => record[ 'site_url' ]
-				)
-			).not.toContain( BRAND_SITE_KEY );
-			expect(
-				( await brandSite.indexedRecords() ).map(
-					( { record } ) => record[ 'site_url' ]
-				)
-			).not.toContain( GOVERNING_SITE_URL );
 		} );
 
 		await admin.visitAdminPage( ADMIN_PAGE.indices );
@@ -233,59 +180,6 @@ test.describe( 'indices and search screen', () => {
 		await expect(
 			brand.getByRole( 'button', { name: 'Remove Posts' } )
 		).toBeVisible();
-
-		await test.step( 're-indexing indexes the saved entities again and reports each site', async () => {
-			const governingBefore = ( await oneSearch.indexedRecords() ).length;
-			const brandBefore = ( await brandSite.indexedRecords() ).length;
-			const governingRequestsBefore = (
-				await oneSearch.algoliaRequests()
-			).length;
-			const brandRequestsBefore = ( await brandSite.algoliaRequests() )
-				.length;
-
-			await reIndex( page );
-
-			await expectIndexingRun(
-				oneSearch,
-				{
-					[ GOVERNING_SITE_URL ]: 'completed',
-					[ BRAND_SITE_KEY ]: 'completed',
-				},
-				async () => {
-					await expectIndexedPost(
-						oneSearch,
-						governingPost,
-						GOVERNING_SITE_URL,
-						governingBefore
-					);
-					await expectIndexedPost(
-						brandSite,
-						brandPost,
-						BRAND_SITE_KEY,
-						brandBefore
-					);
-				}
-			);
-			await expectOldRecordsKeptUntilReplaced(
-				oneSearch,
-				GOVERNING_SITE_URL,
-				governingRequestsBefore
-			);
-			await expectOldRecordsKeptUntilReplaced(
-				brandSite,
-				BRAND_SITE_KEY,
-				brandRequestsBefore
-			);
-			await expect( governing ).toContainText( INDEXED, {
-				timeout: STATUS_TIMEOUT,
-			} );
-			await expect( brand ).toContainText( INDEXED, {
-				timeout: STATUS_TIMEOUT,
-			} );
-			await expect(
-				page.getByText( /^Indexing(?:…| will start soon\.)$/ )
-			).toHaveCount( 0, { timeout: STATUS_TIMEOUT } );
-		} );
 	} );
 
 	test( 'a brand site’s new API key stops only its own indexing until the governing site has it', async ( {

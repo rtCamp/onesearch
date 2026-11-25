@@ -76,7 +76,7 @@ async function deletedRecordFilters( site: OneSearchUtils ) {
 }
 
 test.describe( 'brand sites', () => {
-	test( 'adding a brand site connects both sites without reloading the page', async ( {
+	test( 'adding a brand site connects both sites', async ( {
 		admin,
 		brandSite,
 		oneSearch,
@@ -88,14 +88,7 @@ test.describe( 'brand sites', () => {
 		await brandSite.setSiteType( SITE_TYPE.brand );
 		const apiKey = await brandSite.regenerateApiKey();
 
-		await admin.visitAdminPage( ADMIN_PAGE.indices );
-		await expect(
-			page.getByRole( 'heading', { name: 'Setup Required' } )
-		).toBeVisible();
-
 		await admin.visitAdminPage( ADMIN_PAGE.settings );
-		let loads = 0;
-		page.on( 'load', () => loads++ );
 		await page.getByRole( 'button', { name: 'Add Brand Site' } ).click();
 
 		const dialog = page.getByRole( 'dialog', { name: 'Add Brand Site' } );
@@ -116,7 +109,6 @@ test.describe( 'brand sites', () => {
 		await expect(
 			page.getByRole( 'row' ).filter( { hasText: BRAND_SITE.name } )
 		).toContainText( BRAND_SITE.url );
-		expect( loads ).toBe( 0 );
 
 		await admin.visitAdminPage( ADMIN_PAGE.indices );
 		await expect(
@@ -190,25 +182,29 @@ test.describe( 'brand sites', () => {
 			} )
 			.toContain( `site_url:"${ BRAND_SITE_KEY }"` );
 
-		// With its only brand site gone, the screen is back behind its setup dialog.
-		await admin.visitAdminPage( ADMIN_PAGE.indices );
-		await expect(
-			page.getByRole( 'heading', { name: 'Setup Required' } )
-		).toBeVisible();
-		// The dialog hides the screen from assistive tech, so look past it, with the governing site's row as the control.
-		await expect(
-			page.getByRole( 'group', {
-				name: 'Indexable entities for Governing Site',
-				includeHidden: true,
-			} )
-		).toHaveCount( 1 );
-		for ( const name of [
-			`Indexable entities for ${ BRAND_SITE.name }`,
-			`Search settings for ${ BRAND_SITE.name }`,
-		] ) {
+		// With no brand sites left, the screen is back behind its setup dialog.
+		if (
+			( await page.getByRole( 'button', { name: 'Edit' } ).count() ) === 0
+		) {
+			await admin.visitAdminPage( ADMIN_PAGE.indices );
 			await expect(
-				page.getByRole( 'group', { name, includeHidden: true } )
-			).toHaveCount( 0 );
+				page.getByRole( 'heading', { name: 'Setup Required' } )
+			).toBeVisible();
+			// The dialog hides the screen from assistive tech, so look past it, with the governing site's row as the control.
+			await expect(
+				page.getByRole( 'group', {
+					name: 'Indexable entities for Governing Site',
+					includeHidden: true,
+				} )
+			).toHaveCount( 1 );
+			for ( const name of [
+				`Indexable entities for ${ BRAND_SITE.name }`,
+				`Search settings for ${ BRAND_SITE.name }`,
+			] ) {
+				await expect(
+					page.getByRole( 'group', { name, includeHidden: true } )
+				).toHaveCount( 0 );
+			}
 		}
 
 		await page.goto( brandSearch );

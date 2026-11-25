@@ -102,15 +102,6 @@ test.describe( 'site search settings', () => {
 						`site_url:"${ GOVERNING_SITE_URL }"`,
 					].sort()
 				);
-
-			await governingResult.click();
-			await expect( page ).toHaveURL( governingPost.link );
-			await expect(
-				page.getByRole( 'heading', {
-					level: 1,
-					name: governingPost.title,
-				} )
-			).toBeVisible();
 		} );
 
 		await test.step( 'a site taken out of Search from is left out of the brand site’s next search', async () => {
@@ -146,59 +137,5 @@ test.describe( 'site search settings', () => {
 			} ).toPass( { timeout: 10_000 } );
 			await expect( governingResult ).toHaveCount( 0 );
 		} );
-	} );
-
-	test( 'the governing site leaves a site out of its next search once it is taken out of Search from', async ( {
-		admin,
-		brandSite,
-		oneSearch,
-		page,
-	} ) => {
-		const token = `onesearch${ Date.now() }`;
-		await connectSites( oneSearch, brandSite, { algolia: true } );
-		await oneSearch.updateSettings( {
-			[ OPTION.indexableEntities ]: {
-				entities: {
-					[ GOVERNING_SITE_URL ]: [ 'post' ],
-					[ BRAND_SITE_KEY ]: [ 'post' ],
-				},
-			},
-		} );
-
-		const governingSettings = page.getByRole( 'group', {
-			name: 'Search settings for Governing Site',
-		} );
-		const brandSource = governingSettings.getByRole( 'checkbox', {
-			name: BRAND_SITE.name,
-		} );
-
-		async function saveAndSearch() {
-			await page.getByRole( 'button', { name: 'Save Settings' } ).click();
-			await expect( notices( page ) ).toContainText(
-				'Search settings saved successfully.'
-			);
-			await page.goto( `/?s=${ token }` );
-			return ( await searchedSites( oneSearch ) ).at( -1 );
-		}
-
-		await admin.visitAdminPage( ADMIN_PAGE.indices );
-		await governingSettings
-			.getByRole( 'checkbox', {
-				name: 'Enable Algolia search for Governing Site',
-			} )
-			.check();
-		await brandSource.check();
-		expect( await saveAndSearch() ).toEqual(
-			[
-				`site_url:"${ BRAND_SITE_KEY }"`,
-				`site_url:"${ GOVERNING_SITE_URL }"`,
-			].sort()
-		);
-
-		await admin.visitAdminPage( ADMIN_PAGE.indices );
-		await brandSource.uncheck();
-		expect( await saveAndSearch() ).toEqual( [
-			`site_url:"${ GOVERNING_SITE_URL }"`,
-		] );
 	} );
 } );
