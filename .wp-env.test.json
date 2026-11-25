@@ -9,6 +9,7 @@
 		"./tests/_data/plugins/localhost-helper.php",
 		"./tests/_data/plugins/algolia-helper.php"
 	],
+	"themes": [ "WordPress/twentytwentyone", "WordPress/twentytwentyfive" ],
 	"config": {
 		"FS_METHOD": "direct",
 		"WP_DEBUG": true,

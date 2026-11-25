@@ -1,7 +1,10 @@
 /**
  * WordPress dependencies
  */
-import type { RequestUtils } from '@wordpress/e2e-test-utils-playwright';
+import {
+	expect,
+	type RequestUtils,
+} from '@wordpress/e2e-test-utils-playwright';
 
 /**
  * External dependencies
@@ -13,6 +16,7 @@ import type { Locator, Page } from '@playwright/test';
  */
 import {
 	ALGOLIA_CREDENTIALS,
+	ADMIN_PAGE,
 	BRAND_SITE,
 	OPTION,
 	SITE_TYPE,
@@ -292,6 +296,32 @@ export async function connectSites(
 		path: `${ NAMESPACE }/shared-sites`,
 		data: { sites_data: [ { ...BRAND_SITE, api_key: apiKey } ] },
 	} );
+}
+
+/**
+ * Regenerate a brand site's API key through its settings screen.
+ *
+ * @param brand The brand site.
+ * @param page  The browser page.
+ */
+export async function regenerateBrandApiKeyThroughUI(
+	brand: OneSearchUtils,
+	page: Page
+): Promise< string > {
+	await brand.logIn( page );
+	await page.goto( `${ BRAND_SITE.url }/wp-admin/${ ADMIN_PAGE.settings }` );
+
+	const apiKey = page.getByRole( 'textbox', { name: 'API Key' } );
+	await expect( apiKey ).not.toHaveValue( '' );
+	const previousKey = await apiKey.inputValue();
+
+	await page.getByRole( 'button', { name: 'Regenerate API Key' } ).click();
+	await expect( notices( page ) ).toContainText(
+		'API key regenerated successfully.'
+	);
+	await expect( apiKey ).not.toHaveValue( previousKey );
+
+	return apiKey.inputValue();
 }
 
 /**

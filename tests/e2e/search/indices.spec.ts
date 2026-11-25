@@ -15,6 +15,7 @@ import {
 	connectSites,
 	expect,
 	notices,
+	regenerateBrandApiKeyThroughUI,
 	test,
 	type OneSearchUtils,
 	type TestPost,
@@ -203,7 +204,8 @@ test.describe( 'indices and search screen', () => {
 				},
 			},
 		} );
-		const newKey = await brandSite.regenerateApiKey();
+		const newKey = await regenerateBrandApiKeyThroughUI( brandSite, page );
+		await oneSearch.logIn( page );
 
 		const governing = page.getByRole( 'group', {
 			name: 'Indexable entities for Governing Site',

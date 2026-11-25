@@ -13,6 +13,7 @@ import {
 	connectSites,
 	expect,
 	notices,
+	regenerateBrandApiKeyThroughUI,
 	searchHit,
 	searchResult,
 	test,
@@ -86,7 +87,8 @@ test.describe( 'brand sites', () => {
 		// Indices and Search stays behind its setup dialog without credentials.
 		await oneSearch.saveAlgoliaCredentials();
 		await brandSite.setSiteType( SITE_TYPE.brand );
-		const apiKey = await brandSite.regenerateApiKey();
+		const apiKey = await regenerateBrandApiKeyThroughUI( brandSite, page );
+		await oneSearch.logIn( page );
 
 		await admin.visitAdminPage( ADMIN_PAGE.settings );
 		await page.getByRole( 'button', { name: 'Add Brand Site' } ).click();
